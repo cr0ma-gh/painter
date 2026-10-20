@@ -26,6 +26,8 @@ serde.workspace = true
 raw-window-handle.workspace = true
 
 [target.'cfg(not(target_os = "ios"))'.dependencies]
+# Screen-reader support where accesskit has a platform adapter (not iOS).
+eframe = { workspace = true, features = ["accesskit"] }
 rfd.workspace = true
 
 [target.'cfg(windows)'.dependencies]

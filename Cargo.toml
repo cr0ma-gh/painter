@@ -19,7 +19,10 @@ painter-scene-3d = { path = "crates/scene-3d" }
 painter-ui-workspace = { path = "crates/ui-workspace" }
 bytemuck = { version = "1.16", features = ["derive"] }
 # eframe 0.31 is built on wgpu 24; keep these two in lockstep.
-eframe = { version = "0.31.1", features = ["wgpu", "persistence"] }
+# No default features: they include the OpenGL renderer (glutin), which has
+# no iOS support; Painter only uses wgpu. Accessibility is added per platform
+# in painter-app.
+eframe = { version = "0.31.1", default-features = false, features = ["wgpu", "persistence", "default_fonts"] }
 # SVG loader for the GIMP symbolic icons; same version as eframe.
 egui_extras = { version = "0.31.1", default-features = false, features = ["svg"] }
 raw-window-handle = "0.6"
