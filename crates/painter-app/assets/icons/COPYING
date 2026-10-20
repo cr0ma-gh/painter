@@ -1,0 +1,40 @@
+Icons in this folder: GIMP "Default" icon theme, Symbolic variant.
+Source: https://gitlab.gnome.org/GNOME/gimp-data, icons/Default/scalable/*-symbolic.svg
+(commit dba1b6d3d5e0703c5337c9ec32805ac017dc1270). The "-symbolic" suffix was dropped
+from the file names; the files are otherwise unmodified. Painter recolours them at
+load time (the theme greys #bebebe and #b4b4b4 become white, then tinted).
+
+Credits: GNOME Project and GIMP team (Barbara Muraus, Jakub Steiner, Klaus Staedtler
+and contributors), https://www.gimp.org/
+Licence: CC BY-SA 3.0 US (icons from the art-libre-symbolic theme) and CC BY-SA 4.0
+(icons created for GIMP), as stated in the upstream COPYING below.
+
+--- upstream icons/Default/COPYING ---
+A major part of the Symbolic variant icons are a derived work from the
+art-libre-symbolic theme made by the GNOME design team (mostly by
+Barbara Muraus and some work by Jakub Steiner as far as we know), taken
+in its 2015 form and modified since (including new icons, modified ones,
+possibly removed ones):
+https://github.com/gnome-design-team/gnome-icons/blob/master/art-libre-symbolic/src/art-libre.svg
+All icons (modified or not) taken from the art-libre-symbolic theme are licensed
+under the Creative Commons Attribution-Share Alike 3.0 United States License.
+
+A few more Symbolic icons are taken (e.g. gimp-lock) or derived (gimp-lock-*)
+from the Adwaita icon theme as Creative Commons Attribution-Share Alike 3.0
+United States License as well.
+
+The Color icons are more of an original work with inspiration from other FLOSS
+themes. These icons, as well as all new icons (both in Symbolic or Color
+variants) are licensed under the Creative Commons Attribution-ShareAlike 4.0
+International License.
+
+To view a copy of these licenses, visit either:
+http://creativecommons.org/licenses/by-sa/3.0/ or
+http://creativecommons.org/licenses/by-sa/4.0/ respectively or send a letter to
+Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
+
+When attributing the artwork, "GIMP team" is enough for icons which were fully
+created for GIMP. For icons taken and modified from the GNOME design team,
+attribute them to "GNOME Project" and "GIMP team".
+
+Please link to https://www.gimp.org/ where available.

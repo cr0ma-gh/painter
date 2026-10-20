@@ -1,0 +1,16 @@
+[package]
+name = "painter-vector-export"
+description = "Raster-to-vector tracing and SVG export of layers, vector strokes and line art"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "vector_export"
+
+[dependencies]
+painter-core.workspace = true
+
+[dev-dependencies]
+# Renders exported SVGs in the svg_preview example (same version egui_extras uses).
+resvg = { version = "0.37", default-features = false }

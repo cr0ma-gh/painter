@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = ["crates/painter-core", "crates/painter-render", "crates/painter-app", "crates/brush-io", "crates/scanner-io", "crates/vector-export", "crates/transform-tools", "crates/comic-layout", "crates/scene-3d", "crates/ui-workspace"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+painter-core = { path = "crates/painter-core" }
+painter-render = { path = "crates/painter-render" }
+painter-brush-io = { path = "crates/brush-io" }
+painter-scanner-io = { path = "crates/scanner-io" }
+painter-vector-export = { path = "crates/vector-export" }
+painter-transform-tools = { path = "crates/transform-tools" }
+painter-comic-layout = { path = "crates/comic-layout" }
+painter-scene-3d = { path = "crates/scene-3d" }
+painter-ui-workspace = { path = "crates/ui-workspace" }
+bytemuck = { version = "1.16", features = ["derive"] }
+# eframe 0.31 is built on wgpu 24; keep these two in lockstep.
+eframe = { version = "0.31.1", features = ["wgpu", "persistence"] }
+# SVG loader for the GIMP symbolic icons; same version as eframe.
+egui_extras = { version = "0.31.1", default-features = false, features = ["svg"] }
+raw-window-handle = "0.6"
+libloading = "0.8"
+wgpu = "24.0"
+image = { version = "0.25", default-features = false, features = ["png"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+zip = { version = "2.6", default-features = false, features = ["zstd"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+base64 = "0.22"
+rfd = "0.15"
+
+# Optimise dependencies even in debug builds so painting stays interactive.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2

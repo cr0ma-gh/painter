@@ -1,0 +1,23 @@
+[package]
+name = "painter-scanner-io"
+description = "Scanner acquisition (WIA / TWAIN / SANE backends) and scan clean-up for importing paper sketches"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "scanner_io"
+
+[dependencies]
+image = { workspace = true, features = ["bmp", "jpeg"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Devices_ImageAcquisition",
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Ole",
+    "Win32_System_Variant",
+] }

@@ -1,0 +1,14 @@
+[package]
+name = "painter-comic-layout"
+description = "Comic and manga pages: print presets (bleed, crop marks, frames), vector panel frames, gutters, panel clipping masks and templates"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "comic_layout"
+
+[dependencies]
+painter-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true

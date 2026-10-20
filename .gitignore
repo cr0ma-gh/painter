@@ -1,0 +1,15 @@
+/target
+/.claude/
+
+# Personal material, and screenshots that show it: kept locally, not published.
+/scan-lineart-150dpi.png
+/docs/scene3d-layer.png
+/docs/scene3d-blend-preview.png
+/docs/transform-perspective.png
+/docs/transform-mesh-warp.png
+/docs/mechanical-pencil-before-after.png
+/docs/ui-workspace.png
+*.painter
+
+# iOS packaging output.
+/ios/build/

@@ -1,0 +1,12 @@
+[package]
+name = "painter-transform-tools"
+description = "Transform engine (affine / perspective / mesh warp), resampling filters, crop box and selection clipboard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "transform_tools"
+
+[dependencies]
+painter-core.workspace = true

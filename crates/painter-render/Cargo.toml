@@ -1,0 +1,17 @@
+[package]
+name = "painter-render"
+description = "wgpu compositor and canvas presentation for Painter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+painter-core.workspace = true
+painter-scene-3d.workspace = true
+wgpu.workspace = true
+bytemuck.workspace = true
+
+[dev-dependencies]
+pollster = "0.4"
+# CPU reference for the transform shader's parity tests.
+painter-transform-tools.workspace = true

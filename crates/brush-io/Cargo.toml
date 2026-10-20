@@ -1,0 +1,17 @@
+﻿[package]
+name = "painter-brush-io"
+description = "Brush preset import/export: Clip Studio Paint .sut, Photoshop .abr, native .rustbrush"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "brush_io"
+
+[dependencies]
+painter-core.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+image.workspace = true

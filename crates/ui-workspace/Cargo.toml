@@ -1,0 +1,13 @@
+[package]
+name = "painter-ui-workspace"
+description = "Window layout model: split-area tiles, workspace tabs, the command palette registry and themes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "ui_workspace"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

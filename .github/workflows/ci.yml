@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    name: Windows build and tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets
+      - name: Tests
+        run: cargo test --workspace
+      - name: Release build
+        run: cargo build --release -p painter-app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: painter-windows
+          path: target/release/painter.exe
+
+  ipad:
+    name: iPad build (unsigned .ipa)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ios
+      - name: Build and package
+        run: bash ios/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: painter-ipad-unsigned
+          path: ios/build/Painter-unsigned.ipa

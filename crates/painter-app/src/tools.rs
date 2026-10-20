@@ -1,0 +1,488 @@
+//! Canvas tools other than the brush, their options, overlays and keyboard shortcuts.
+
+use eframe::egui::{self, Color32, Key, KeyboardShortcut, Modifiers, Painter, Pos2, Rect, Stroke};
+use painter_core::fill_tool::{FillOptions, ReferenceOptions};
+use painter_core::{selection, GradientShape, SelectionOp};
+
+use painter_core::{BrushMode, BrushSettings};
+
+use crate::app::PainterApp;
+use crate::icons::Icon;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tool {
+    /// Pen, pencil, airbrush and erasers (the sub tool decides).
+    Brush,
+    Fill,
+    Gradient,
+    Select(SelectShape),
+    /// Scale, rotate, skew, perspective, free distort and mesh warp of the layer or selection.
+    Transform,
+    Crop,
+    /// Comic panel frames: draw, divide and reshape.
+    Frame,
+    /// 3D layers: navigate, pick and transform objects.
+    Scene3D,
+    /// Perspective, symmetry and special rulers, guides: place and edit them.
+    Ruler,
+    Hand,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelectShape {
+    Rect,
+    Ellipse,
+    Lasso,
+}
+
+impl Tool {
+    pub const ALL: [Tool; 12] = [
+        Tool::Brush,
+        Tool::Fill,
+        Tool::Gradient,
+        Tool::Select(SelectShape::Rect),
+        Tool::Select(SelectShape::Ellipse),
+        Tool::Select(SelectShape::Lasso),
+        Tool::Transform,
+        Tool::Crop,
+        Tool::Frame,
+        Tool::Scene3D,
+        Tool::Ruler,
+        Tool::Hand,
+    ];
+
+    pub fn icon(self) -> Icon {
+        match self {
+            Tool::Brush => Icon::Paintbrush,
+            Tool::Fill => Icon::Bucket,
+            Tool::Gradient => Icon::Gradient,
+            Tool::Select(SelectShape::Rect) => Icon::RectSelect,
+            Tool::Select(SelectShape::Ellipse) => Icon::EllipseSelect,
+            Tool::Select(SelectShape::Lasso) => Icon::FreeSelect,
+            Tool::Transform => Icon::Transform,
+            Tool::Crop => Icon::Crop,
+            Tool::Frame => Icon::Grid,
+            Tool::Scene3D => Icon::Transform3d,
+            Tool::Ruler => Icon::Path,
+            Tool::Hand => Icon::Move,
+        }
+    }
+
+    /// Id used by workspaces to pick which tools their toolbar shows.
+    pub fn id(self) -> &'static str {
+        match self {
+            Tool::Brush => "brush",
+            Tool::Fill => "fill",
+            Tool::Gradient => "gradient",
+            Tool::Select(_) => "select",
+            Tool::Transform => "transform",
+            Tool::Crop => "crop",
+            Tool::Frame => "frame",
+            Tool::Scene3D => "scene3d",
+            Tool::Ruler => "ruler",
+            Tool::Hand => "hand",
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Tool::Brush => "Brush",
+            Tool::Fill => "Fill Bucket",
+            Tool::Gradient => "Gradient",
+            Tool::Select(SelectShape::Rect) => "Rectangle Selection",
+            Tool::Select(SelectShape::Ellipse) => "Ellipse Selection",
+            Tool::Select(SelectShape::Lasso) => "Lasso Selection",
+            Tool::Transform => "Transform",
+            Tool::Crop => "Crop / Resize Canvas",
+            Tool::Frame => "Panel Frames",
+            Tool::Scene3D => "3D Layer Tool",
+            Tool::Ruler => "Rulers and Guides",
+            Tool::Hand => "Hand (pan)",
+        }
+    }
+
+    pub fn shortcut(self) -> Option<&'static str> {
+        Some(match self {
+            Tool::Brush => "B",
+            Tool::Fill => "G",
+            Tool::Gradient => "Shift+G",
+            Tool::Select(SelectShape::Rect) => "M",
+            Tool::Select(SelectShape::Ellipse) => "Shift+M",
+            Tool::Select(SelectShape::Lasso) => "L",
+            Tool::Transform => "Ctrl+T",
+            Tool::Crop => "C",
+            Tool::Frame => "U",
+            Tool::Scene3D | Tool::Ruler => return None,
+            Tool::Hand => "H",
+        })
+    }
+
+    pub fn hint(self) -> &'static str {
+        match self {
+            Tool::Brush => "Brush / eraser (B, E)",
+            Tool::Fill => "Fill bucket (G)",
+            Tool::Gradient => "Gradient: drag on the canvas (Shift+G)",
+            Tool::Select(SelectShape::Rect) => "Rectangle selection (M). Shift adds, Alt subtracts",
+            Tool::Select(SelectShape::Ellipse) => "Ellipse selection (Shift+M)",
+            Tool::Select(SelectShape::Lasso) => "Lasso selection (L)",
+            Tool::Transform => "Transform the layer or selection (Ctrl+T). Enter applies, Esc cancels",
+            Tool::Crop => "Crop / resize the canvas (C). Enter applies, Esc cancels",
+            Tool::Frame => "Panel frames (U): draw rectangles or polygons, divide panels, reshape them",
+            Tool::Scene3D => "3D layer: middle drag orbits, Shift pans, wheel zooms; click picks, G / R / S gizmo",
+            Tool::Ruler => "Rulers: perspective, symmetry, special rulers and guides. Drag their handles; Ctrl+1 toggles snapping",
+            Tool::Hand => "Pan the canvas (H, or hold Space)",
+        }
+    }
+}
+
+/// Toolbar buckets for brush presets, like Clip Studio's tool groups. A
+/// preset's group comes from its mode and name (see [`BrushGroup::of`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BrushGroup {
+    Pen,
+    Pencil,
+    Brush,
+    Airbrush,
+    Eraser,
+}
+
+impl BrushGroup {
+    pub const ALL: [BrushGroup; 5] =
+        [BrushGroup::Pen, BrushGroup::Pencil, BrushGroup::Brush, BrushGroup::Airbrush, BrushGroup::Eraser];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            BrushGroup::Pen => "Pen",
+            BrushGroup::Pencil => "Pencil",
+            BrushGroup::Brush => "Brush",
+            BrushGroup::Airbrush => "Airbrush",
+            BrushGroup::Eraser => "Eraser",
+        }
+    }
+
+    pub fn icon(self) -> Icon {
+        match self {
+            BrushGroup::Pen => Icon::Ink,
+            BrushGroup::Pencil => Icon::Pencil,
+            BrushGroup::Brush => Icon::Paintbrush,
+            BrushGroup::Airbrush => Icon::Airbrush,
+            BrushGroup::Eraser => Icon::Eraser,
+        }
+    }
+
+    /// Erasers by mode; the rest by keywords in the name, defaulting to Brush.
+    pub fn of(settings: &BrushSettings) -> BrushGroup {
+        if settings.mode == BrushMode::Erase {
+            return BrushGroup::Eraser;
+        }
+        let name = settings.name.to_lowercase();
+        let has = |words: &[&str]| words.iter().any(|w| name.contains(w));
+        if has(&["airbrush", "spray", "soft", "glitter", "noise"]) {
+            BrushGroup::Airbrush
+        } else if has(&["pencil", "crayon", "pastel", "charcoal", "chalk"]) {
+            BrushGroup::Pencil
+        } else if has(&["pen", "ink", "marker", "liner", "nib"]) {
+            BrushGroup::Pen
+        } else {
+            BrushGroup::Brush
+        }
+    }
+}
+
+pub struct ToolOptions {
+    pub fill: FillOptions,
+    /// Where the fill bucket reads its boundaries.
+    pub fill_reference: ReferenceOptions,
+    pub gradient_shape: GradientShape,
+    /// Gradients fade from the main colour to transparent instead of to the sub colour.
+    pub gradient_to_transparent: bool,
+    pub selection_op: SelectionOp,
+    /// Pastes and copies between documents keep their size on paper when the resolutions differ.
+    pub paste_match_dpi: bool,
+    /// The eraser removes whole vector strokes it touches.
+    pub vector_eraser_whole_strokes: bool,
+    /// Only a pen draws; fingers move the view (the default on iPad).
+    pub pencil_only: bool,
+}
+
+impl Default for ToolOptions {
+    fn default() -> Self {
+        Self {
+            fill: FillOptions::default(),
+            fill_reference: ReferenceOptions::default(),
+            gradient_shape: GradientShape::Linear,
+            gradient_to_transparent: true,
+            selection_op: SelectionOp::Replace,
+            paste_match_dpi: true,
+            vector_eraser_whole_strokes: true,
+            pencil_only: cfg!(target_os = "ios"),
+        }
+    }
+}
+
+/// An in-progress drag of the gradient or a selection tool, in canvas pixels.
+pub struct ToolDrag {
+    pub start: Pos2,
+    pub current: Pos2,
+    pub points: Vec<Pos2>,
+    pub op: SelectionOp,
+}
+
+impl PainterApp {
+    fn selection_op_for(&self, modifiers: Modifiers) -> SelectionOp {
+        match (modifiers.shift, modifiers.alt) {
+            (true, true) => SelectionOp::Intersect,
+            (true, false) => SelectionOp::Add,
+            (false, true) => SelectionOp::Subtract,
+            (false, false) => self.tools.selection_op,
+        }
+    }
+
+    /// Primary press on the canvas with a tool other than the brush or hand.
+    pub(crate) fn tool_press(&mut self, at: Pos2, modifiers: Modifiers) {
+        match self.tool {
+            Tool::Fill => self.fill_at(at.x, at.y),
+            Tool::Gradient | Tool::Select(_) => {
+                let op = self.selection_op_for(modifiers);
+                self.drag = Some(ToolDrag { start: at, current: at, points: vec![at], op });
+            }
+            Tool::Transform => self.transform_press(at),
+            Tool::Crop => self.crop_press(at),
+            Tool::Frame => self.frame_press(at),
+            Tool::Scene3D => self.scene_press(at),
+            Tool::Ruler => self.ruler_press(at),
+            Tool::Brush | Tool::Hand => {}
+        }
+    }
+
+    pub(crate) fn tool_move(&mut self, at: Pos2) {
+        match self.tool {
+            Tool::Transform => self.transform_move(at),
+            Tool::Crop => self.crop_move(at),
+            Tool::Frame => self.frame_move(at),
+            Tool::Scene3D => self.scene_move(at),
+            Tool::Ruler => self.ruler_move(at),
+            _ => {}
+        }
+        if let Some(drag) = &mut self.drag {
+            drag.current = at;
+            if drag.points.last().is_none_or(|p| p.distance(at) >= 1.0) {
+                drag.points.push(at);
+            }
+        }
+    }
+
+    pub(crate) fn tool_release(&mut self) {
+        let Some(drag) = self.drag.take() else {
+            return;
+        };
+        match self.tool {
+            Tool::Transform => return self.transform_release(),
+            Tool::Crop => return self.crop_release(),
+            Tool::Frame => return self.frame_release(),
+            Tool::Scene3D => return self.scene_release(),
+            Tool::Ruler => return self.ruler_release(),
+            _ => {}
+        }
+        let canvas = self.doc.canvas();
+        let moved = drag.start.distance(drag.current) >= 2.0;
+        let (a, b) = ([drag.start.x, drag.start.y], [drag.current.x, drag.current.y]);
+        match self.tool {
+            Tool::Gradient if moved => self.apply_gradient(a, b),
+            Tool::Select(shape) => {
+                if !moved && shape != SelectShape::Lasso {
+                    // A click without dragging clears a replacing selection.
+                    if drag.op == SelectionOp::Replace {
+                        self.deselect();
+                    }
+                    return;
+                }
+                let mask = match shape {
+                    SelectShape::Rect => selection::rect_mask(a, b, canvas),
+                    SelectShape::Ellipse => selection::ellipse_mask(a, b, canvas),
+                    SelectShape::Lasso => {
+                        let points: Vec<[f32; 2]> = drag.points.iter().map(|p| [p.x, p.y]).collect();
+                        selection::polygon_mask(&points, canvas)
+                    }
+                };
+                self.combine_selection(mask, drag.op);
+            }
+            _ => {}
+        }
+    }
+
+    /// Outlines of the in-progress drag, in screen space.
+    pub(crate) fn draw_tool_overlay(&self, painter: &Painter, rect: Rect) {
+        self.draw_transform_overlay(painter, rect);
+        self.draw_crop_overlay(painter, rect);
+        self.draw_comic_overlay(painter, rect);
+        self.draw_scene_overlay(painter, rect);
+        let Some(drag) = &self.drag else {
+            return;
+        };
+        let doc = self.doc_size();
+        let to_screen = |p: Pos2| self.view.doc_to_screen(rect, doc, p);
+        let outline = |points: Vec<Pos2>, closed: bool| {
+            let shape = |stroke| {
+                if closed {
+                    egui::Shape::closed_line(points.clone(), stroke)
+                } else {
+                    egui::Shape::line(points.clone(), stroke)
+                }
+            };
+            painter.add(shape(Stroke::new(3.0_f32, Color32::from_black_alpha(160))));
+            painter.add(shape(Stroke::new(1.0_f32, Color32::WHITE)));
+        };
+        let (s, c) = (drag.start, drag.current);
+        match self.tool {
+            Tool::Gradient => {
+                outline(vec![to_screen(s), to_screen(c)], false);
+                painter.circle_stroke(to_screen(s), 4.0, Stroke::new(1.5_f32, Color32::WHITE));
+                painter.circle_filled(to_screen(c), 3.0, Color32::WHITE);
+            }
+            Tool::Select(SelectShape::Rect) => {
+                let corners = [s, Pos2::new(c.x, s.y), c, Pos2::new(s.x, c.y)];
+                outline(corners.into_iter().map(to_screen).collect(), true);
+            }
+            Tool::Select(SelectShape::Ellipse) => {
+                let center = Pos2::new((s.x + c.x) * 0.5, (s.y + c.y) * 0.5);
+                let (rx, ry) = ((c.x - s.x).abs() * 0.5, (c.y - s.y).abs() * 0.5);
+                let points = (0..64)
+                    .map(|i| {
+                        let t = i as f32 / 64.0 * std::f32::consts::TAU;
+                        to_screen(Pos2::new(center.x + rx * t.cos(), center.y + ry * t.sin()))
+                    })
+                    .collect();
+                outline(points, true);
+            }
+            Tool::Select(SelectShape::Lasso) => {
+                outline(drag.points.iter().copied().map(to_screen).collect(), true);
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        if ctx.wants_keyboard_input() {
+            return;
+        }
+        self.scene_shortcuts(ctx);
+        self.ruler_shortcuts(ctx);
+        self.transform_shortcuts(ctx);
+        self.frame_shortcuts(ctx);
+        let shortcut = |mods: Modifiers, key: Key| KeyboardShortcut::new(mods, key);
+        let cmd_shift = Modifiers::COMMAND | Modifiers::SHIFT;
+        // Shift variants first: shortcut matching ignores an extra Shift.
+        let pressed = ctx.input_mut(|i| {
+            let redo = i.consume_shortcut(&shortcut(cmd_shift, Key::Z)) || i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::Y));
+            let save_as = i.consume_shortcut(&shortcut(cmd_shift, Key::S));
+            let invert = i.consume_shortcut(&shortcut(cmd_shift, Key::I));
+            [
+                redo,
+                i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::Z)),
+                save_as,
+                i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::S)),
+                i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::O)),
+                i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::N)),
+                i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::A)),
+                i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::D)),
+                invert,
+            ]
+        });
+        let [redo, undo, save_as, save, open, new, all, deselect, invert] = pressed;
+        if redo {
+            self.redo();
+        } else if undo {
+            self.undo();
+        }
+        if save_as {
+            self.save_as();
+        } else if save {
+            self.save();
+        }
+        if open {
+            self.open_dialog();
+        }
+        if new {
+            self.open_new_canvas();
+        }
+        if all {
+            self.select_all();
+        }
+        if deselect {
+            self.deselect();
+        }
+        if invert {
+            self.invert_selection();
+        }
+
+        let key = |key: Key, shift: bool| {
+            ctx.input(|i| i.key_pressed(key) && !i.modifiers.command && !i.modifiers.alt && i.modifiers.shift == shift)
+        };
+        if key(Key::B, false) {
+            self.select_brush(self.last_paint_brush);
+        }
+        if key(Key::E, false) {
+            self.select_brush(self.last_eraser);
+        }
+        if key(Key::G, false) {
+            self.tool = Tool::Fill;
+        }
+        if key(Key::G, true) {
+            self.tool = Tool::Gradient;
+        }
+        if key(Key::M, false) {
+            self.tool = Tool::Select(SelectShape::Rect);
+        }
+        if key(Key::M, true) {
+            self.tool = Tool::Select(SelectShape::Ellipse);
+        }
+        if key(Key::L, false) {
+            self.tool = Tool::Select(SelectShape::Lasso);
+        }
+        if key(Key::H, false) {
+            self.tool = Tool::Hand;
+        }
+        if key(Key::X, false) {
+            std::mem::swap(&mut self.color, &mut self.sub_color);
+        }
+        if key(Key::Delete, false) || key(Key::Backspace, false) {
+            self.clear_selected();
+        }
+        if key(Key::OpenBracket, false) {
+            let brush = self.current_brush_mut();
+            brush.size = (brush.size / 1.15).max(1.0);
+        }
+        if key(Key::CloseBracket, false) {
+            let brush = self.current_brush_mut();
+            brush.size = (brush.size * 1.15).min(5000.0);
+        }
+        if key(Key::Comma, false) {
+            self.view.set_rotation(self.view.rotation - 15f32.to_radians());
+        }
+        if key(Key::Period, false) {
+            self.view.set_rotation(self.view.rotation + 15f32.to_radians());
+        }
+        if key(Key::Num0, false) {
+            self.fit_pending = true;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn brushes_fall_into_toolbar_groups() {
+        let group = |name: &str| BrushGroup::of(&BrushSettings { name: name.into(), ..BrushSettings::g_pen() });
+        assert_eq!(group("G-pen"), BrushGroup::Pen);
+        assert_eq!(group("Mechanical pencil"), BrushGroup::Pencil, "pencil wins over pen");
+        assert_eq!(group("Soft airbrush"), BrushGroup::Airbrush);
+        assert_eq!(group("Gouache"), BrushGroup::Brush, "anything else is a brush");
+        assert_eq!(BrushGroup::of(&BrushSettings::hard_eraser()), BrushGroup::Eraser);
+        let presets = BrushSettings::presets();
+        let groups: Vec<_> = presets.iter().map(BrushGroup::of).collect();
+        assert_eq!(groups, [BrushGroup::Pen, BrushGroup::Pencil, BrushGroup::Airbrush, BrushGroup::Eraser, BrushGroup::Eraser]);
+    }
+}

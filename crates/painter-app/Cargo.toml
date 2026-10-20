@@ -1,0 +1,32 @@
+[package]
+name = "painter-app"
+description = "Painter desktop application"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "painter"
+path = "src/main.rs"
+
+[dependencies]
+painter-core.workspace = true
+painter-render.workspace = true
+painter-brush-io.workspace = true
+painter-scanner-io.workspace = true
+painter-vector-export.workspace = true
+painter-transform-tools.workspace = true
+painter-comic-layout.workspace = true
+painter-scene-3d.workspace = true
+painter-ui-workspace.workspace = true
+serde_json.workspace = true
+eframe.workspace = true
+egui_extras.workspace = true
+serde.workspace = true
+raw-window-handle.workspace = true
+
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+rfd.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+libloading.workspace = true
