@@ -110,7 +110,11 @@ impl PainterApp {
 
     /// New 3D layer from a model file chosen by the user.
     pub(crate) fn new_scene_layer_dialog(&mut self) {
-        if let Some(path) = crate::files::FileDialog::new().add_filter("3D model", &["blend", "obj"]).pick_file() {
+        if let Some(path) = crate::files::FileDialog::new()
+            .add_filter("3D model", &["blend", "obj"])
+            .purpose(crate::files::Purpose::NewModelLayer)
+            .pick_file()
+        {
             self.new_scene_layer_from(path);
         }
     }
@@ -138,14 +142,24 @@ impl PainterApp {
 
     /// Adds a model's objects to the active 3D layer.
     fn add_model_dialog(&mut self) {
-        let id = self.doc.active;
-        if !self.scenes.contains_key(&id) {
+        if !self.scenes.contains_key(&self.doc.active) {
             return;
         }
-        let Some(path) = crate::files::FileDialog::new().add_filter("3D model", &["blend", "obj"]).pick_file() else {
+        if let Some(path) =
+            crate::files::FileDialog::new().add_filter("3D model", &["blend", "obj"]).purpose(crate::files::Purpose::AddModel).pick_file()
+        {
+            self.add_model_from(&path);
+        }
+    }
+
+    /// Adds a model file's objects to the active 3D layer.
+    pub(crate) fn add_model_from(&mut self, path: &std::path::Path) {
+        let id = self.doc.active;
+        if !self.scenes.contains_key(&id) {
+            self.status = "Select a 3D layer to add the model to".into();
             return;
-        };
-        match load_model(&path) {
+        }
+        match load_model(path) {
             Ok(added) => {
                 self.checkpoint();
                 if let Some(layer) = self.scenes.get_mut(&id) {

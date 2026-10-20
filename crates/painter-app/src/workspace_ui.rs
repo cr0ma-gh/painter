@@ -37,11 +37,20 @@ pub(crate) struct WorkspaceUi {
     applied_theme: Option<u64>,
     /// Workspace tab being renamed, with the text so far.
     renaming: Option<(usize, String)>,
+    /// Where settings live when eframe has no storage (iPadOS), and what
+    /// was last written there.
+    settings_file: Option<std::path::PathBuf>,
+    written: String,
+    checked: Option<std::time::Instant>,
 }
 
 impl WorkspaceUi {
     pub(crate) fn load(storage: Option<&dyn eframe::Storage>) -> Self {
-        let get = |key: &str| storage.and_then(|s| s.get_string(key));
+        // Without eframe storage (iPadOS), a JSON file of the same keys.
+        let settings_file = if storage.is_none() { crate::files::settings_file() } else { None };
+        let written = settings_file.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+        let file: std::collections::HashMap<String, String> = serde_json::from_str(&written).unwrap_or_default();
+        let get = |key: &str| storage.and_then(|s| s.get_string(key)).or_else(|| file.get(key).cloned());
         Self {
             set: get(WORKSPACES_KEY).map(|j| WorkspaceSet::from_json(&j)).unwrap_or_default(),
             chrome: get(CHROME_KEY).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
@@ -51,13 +60,46 @@ impl WorkspaceUi {
             theme_editor: false,
             applied_theme: None,
             renaming: None,
+            settings_file,
+            written,
+            checked: None,
+        }
+    }
+
+    fn entries(&self) -> [(&'static str, String); 3] {
+        [
+            (WORKSPACES_KEY, self.set.to_json()),
+            (CHROME_KEY, serde_json::to_string(&self.chrome).unwrap_or_default()),
+            (THEMES_KEY, self.themes.to_json()),
+        ]
+    }
+
+    /// Writes the settings file (when there is one) if anything changed;
+    /// checks at most every two seconds.
+    pub(crate) fn autosave(&mut self) {
+        let Some(path) = &self.settings_file else { return };
+        if self.checked.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(2)) {
+            return;
+        }
+        self.checked = Some(std::time::Instant::now());
+        let map: std::collections::BTreeMap<&str, String> = self.entries().into_iter().collect();
+        let json = serde_json::to_string(&map).unwrap_or_default();
+        if json != self.written {
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            // Through a temporary file, so a crash mid-write keeps the old settings.
+            let tmp = path.with_extension("tmp");
+            if std::fs::write(&tmp, &json).is_ok() && std::fs::rename(&tmp, path).is_ok() {
+                self.written = json;
+            }
         }
     }
 
     pub(crate) fn save(&self, storage: &mut dyn eframe::Storage) {
-        storage.set_string(WORKSPACES_KEY, self.set.to_json());
-        storage.set_string(CHROME_KEY, serde_json::to_string(&self.chrome).unwrap_or_default());
-        storage.set_string(THEMES_KEY, self.themes.to_json());
+        for (key, value) in self.entries() {
+            storage.set_string(key, value);
+        }
     }
 }
 
@@ -108,6 +150,15 @@ impl PainterApp {
         if zen {
             self.toggle_zen();
         }
+    }
+
+    /// Loads a theme JSON file into the library and switches to it.
+    pub(crate) fn import_theme_from(&mut self, path: &std::path::Path) {
+        let lib = &mut self.ws.themes;
+        self.status = match std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|j| lib.import(&j)) {
+            Ok(_) => format!("Theme loaded from {}", path.display()),
+            Err(err) => format!("Couldn't load the theme: {err}"),
+        };
     }
 
     pub(crate) fn toggle_zen(&mut self) {
@@ -824,11 +875,10 @@ impl PainterApp {
                 delete = ui.add_enabled(custom, egui::Button::new("Delete")).clicked();
             });
             if import {
-                if let Some(path) = crate::files::FileDialog::new().add_filter("Theme", &["json"]).pick_file() {
-                    match std::fs::read_to_string(&path).map_err(|e| e.to_string()).and_then(|j| lib.import(&j)) {
-                        Ok(_) => self.status = format!("Theme loaded from {}", path.display()),
-                        Err(err) => self.status = format!("Couldn't load the theme: {err}"),
-                    }
+                if let Some(path) =
+                    crate::files::FileDialog::new().add_filter("Theme", &["json"]).purpose(crate::files::Purpose::Theme).pick_file()
+                {
+                    self.import_theme_from(&path);
                 }
             }
             let lib = &mut self.ws.themes;
@@ -836,7 +886,10 @@ impl PainterApp {
                 let name = format!("{}.json", lib.current().name);
                 if let Some(path) = crate::files::FileDialog::new().add_filter("Theme", &["json"]).set_file_name(name).save_file() {
                     self.status = match std::fs::write(&path, lib.current().to_json()) {
-                        Ok(()) => format!("Theme saved to {}", path.display()),
+                        Ok(()) => {
+                            crate::files::offer_export(&path);
+                            format!("Theme saved to {}", path.display())
+                        }
                         Err(err) => format!("Couldn't save the theme: {err}"),
                     };
                 }

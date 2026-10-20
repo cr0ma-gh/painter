@@ -26,15 +26,20 @@ one-year signatures and TestFlight.
 - **Apple Pencil draws, fingers navigate** (View → Draw With the Pen Only):
   one finger pans, two fingers pan, pinch-zoom and rotate, a two-finger tap
   undoes and a three-finger tap redoes.
-- **Files**: Painter has its own folder in the Files app (On My iPad →
-  Painter). Saving and exporting write there; copy projects, PNG / PSD
-  images, `.blend` / `.obj` models and brushes into it and open them from
-  **File → Documents**.
+- **Files**: File → Open (and every import: images, brushes, 3D models,
+  themes) shows the system document picker, so files can come from Files,
+  iCloud Drive or other apps. Painter keeps its own folder in the Files app
+  (On My iPad → Painter): saving writes there, projects opened from elsewhere
+  are copied there first so your changes are kept, and **File → Documents**
+  lists what it holds. After an export (PNG, PSD, SVG, brushes, theme) a
+  second picker offers to put a copy anywhere else; cancel it to keep just the
+  one in the Painter folder.
+- **Settings** (workspaces and their layouts, zen mode, themes) are saved
+  as you change them and come back at the next launch.
 - If the app closes unexpectedly, `painter-crash.txt` appears in that folder
   with the reason; please attach it to a bug report.
 
 ## Not on iPad (yet)
 
 - WinTab tablets and WIA scanners are Windows-only.
-- Settings (workspaces, themes) aren't kept between launches yet.
-- The system document picker and drag and drop from other apps aren't wired up.
+- Drag and drop from other apps (Split View) isn't wired up.

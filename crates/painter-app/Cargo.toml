@@ -9,6 +9,10 @@ license.workspace = true
 name = "painter"
 path = "src/main.rs"
 
+[build-dependencies]
+# Compiles the iPadOS document picker (native/ios_files.m); unused elsewhere.
+cc = "1"
+
 [dependencies]
 painter-core.workspace = true
 painter-render.workspace = true

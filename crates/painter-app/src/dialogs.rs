@@ -460,10 +460,14 @@ impl PainterApp {
         };
         self.status = match export_svg(&self.doc, options) {
             Ok(report) => match std::fs::write(&path, report.to_svg()) {
-                Ok(()) if report.warnings.is_empty() => {
-                    format!("Exported {} paths to {}", report.paths, path.display())
+                Ok(()) => {
+                    crate::files::offer_export(&path);
+                    if report.warnings.is_empty() {
+                        format!("Exported {} paths to {}", report.paths, path.display())
+                    } else {
+                        format!("Exported {} paths to {} ({})", report.paths, path.display(), report.warnings.join("; "))
+                    }
                 }
-                Ok(()) => format!("Exported {} paths to {} ({})", report.paths, path.display(), report.warnings.join("; ")),
                 Err(err) => format!("Couldn't write {}: {err}", path.display()),
             },
             Err(err) => format!("SVG export failed: {err}"),

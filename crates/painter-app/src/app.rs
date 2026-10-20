@@ -892,6 +892,7 @@ impl PainterApp {
             .add_filter("Clip Studio sub tool", &["sut"])
             .add_filter("Photoshop brushes", &["abr"])
             .add_filter("Painter brushes", &[brush_io::native::EXTENSION])
+            .purpose(crate::files::Purpose::Brushes)
             .pick_files()
         {
             for path in paths {
@@ -916,7 +917,10 @@ impl PainterApp {
             return;
         };
         self.status = match brush_io::native::save(&presets, &path) {
-            Ok(()) => format!("Exported {} brushes to {}", presets.len(), file_name(&path)),
+            Ok(()) => {
+                crate::files::offer_export(&path);
+                format!("Exported {} brushes to {}", presets.len(), file_name(&path))
+            }
             Err(err) => format!("Export failed: {err}"),
         };
     }
@@ -1083,13 +1087,19 @@ impl PainterApp {
     }
 
     pub(crate) fn import_png_layer(&mut self) {
-        let Some(path) = crate::files::FileDialog::new().add_filter("PNG image", &["png"]).pick_file() else {
-            return;
-        };
-        match io::import_png(&path) {
+        if let Some(path) =
+            crate::files::FileDialog::new().add_filter("PNG image", &["png"]).purpose(crate::files::Purpose::ImageLayer).pick_file()
+        {
+            self.import_png_layer_from(&path);
+        }
+    }
+
+    /// A PNG as a new layer.
+    pub(crate) fn import_png_layer_from(&mut self, path: &std::path::Path) {
+        match io::import_png(path) {
             Ok(image) => {
                 let id = self.doc.alloc_id();
-                self.insert_layer(Layer::raster_with(id, file_stem(&path), image.tiles));
+                self.insert_layer(Layer::raster_with(id, file_stem(path), image.tiles));
                 self.upload_plane(Plane::Color(id));
                 self.status = format!("Imported {}", path.display());
             }
@@ -1103,7 +1113,10 @@ impl PainterApp {
             return;
         };
         self.status = match io::export_png(&self.doc, &path) {
-            Ok(()) => format!("Exported {}", path.display()),
+            Ok(()) => {
+                crate::files::offer_export(&path);
+                format!("Exported {}", path.display())
+            }
             Err(err) => format!("Export failed: {err}"),
         };
     }
@@ -1114,9 +1127,32 @@ impl PainterApp {
             return;
         };
         self.status = match psd::save(&self.doc, &path) {
-            Ok(()) => format!("Exported {} (procedural and vector layers rasterised)", path.display()),
+            Ok(()) => {
+                crate::files::offer_export(&path);
+                format!("Exported {} (procedural and vector layers rasterised)", path.display())
+            }
             Err(err) => format!("Export failed: {err}"),
         };
+    }
+
+    /// Files chosen in the iPadOS document picker, which answers after the
+    /// dialog call has returned.
+    fn receive_picked_files(&mut self, ctx: &egui::Context) {
+        use crate::files::Purpose;
+        while let Some((purpose, path)) = crate::files::take_picked() {
+            match purpose {
+                Purpose::Open => self.open_any(path),
+                Purpose::ImageLayer => self.import_png_layer_from(&path),
+                Purpose::Brushes => self.import_brushes(&path),
+                Purpose::NewModelLayer => self.new_scene_layer_from(path),
+                Purpose::AddModel => self.add_model_from(&path),
+                Purpose::Theme => self.import_theme_from(&path),
+            }
+        }
+        if crate::files::picking() {
+            // Nothing else wakes egui while the picker is up.
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
     }
 
     fn update_title(&mut self, ctx: &egui::Context) {
@@ -1148,6 +1184,8 @@ impl eframe::App for PainterApp {
         if let Some(notice) = crate::files::take_notice() {
             self.status = notice;
         }
+        self.receive_picked_files(ctx);
+        self.ws.autosave();
         self.sync_tool_sessions();
         self.prune_scenes();
         self.commit_scenes(false);

@@ -2346,6 +2346,7 @@ dependencies = [
 name = "painter-app"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "eframe",
  "egui_extras",
  "libloading",
