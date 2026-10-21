@@ -212,18 +212,28 @@ impl WorkspaceSet {
 
 /// What's on screen besides the areas. Zen mode (Tab / F11) hides all of it
 /// and every area but the canvas; toggling back restores the layout as it was.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Chrome {
     pub menu_bar: bool,
     pub toolbar: bool,
     pub workspace_tabs: bool,
     pub status_bar: bool,
     pub zen: bool,
+    /// The interface's size, 1 = normal (like Blender's Resolution Scale).
+    #[serde(default = "unit_scale")]
+    pub ui_scale: f32,
 }
+
+fn unit_scale() -> f32 {
+    1.0
+}
+
+/// Smallest and largest interface scale.
+pub const UI_SCALE_RANGE: (f32, f32) = (0.5, 3.0);
 
 impl Default for Chrome {
     fn default() -> Self {
-        Self { menu_bar: true, toolbar: true, workspace_tabs: true, status_bar: true, zen: false }
+        Self { menu_bar: true, toolbar: true, workspace_tabs: true, status_bar: true, zen: false, ui_scale: 1.0 }
     }
 }
 

@@ -57,10 +57,6 @@ fn main() -> eframe::Result {
         "Painter",
         options,
         Box::new(move |cc| {
-            // Fingers need bigger targets than a mouse.
-            if cfg!(target_os = "ios") {
-                cc.egui_ctx.set_zoom_factor(1.25);
-            }
             let mut app = app::PainterApp::new(cc);
             if let Some(path) = file {
                 app.open_any(path);

@@ -86,6 +86,10 @@ pub struct Area {
     /// Editors stacked in this area as tabs; never empty.
     pub editors: Vec<EditorType>,
     pub active: usize,
+    /// Folded down to a strip (its header, or a narrow column beside a
+    /// side-by-side neighbour), like a collapsed Clip Studio palette.
+    #[serde(default)]
+    pub collapsed: bool,
 }
 
 impl Area {
@@ -133,6 +137,8 @@ impl Rect {
 pub struct AreaRect {
     pub id: AreaId,
     pub rect: Rect,
+    /// Shown folded: a header strip when wider than tall, a narrow column otherwise.
+    pub collapsed: bool,
 }
 
 /// A draggable border: the split it belongs to and its hit rectangle.
@@ -149,6 +155,8 @@ pub struct Border {
 pub const MIN_AREA: f32 = 60.0;
 /// Width of the gap (and the grab zone) between areas.
 pub const BORDER: f32 = 4.0;
+/// Thickness of a collapsed area (its header) unless the caller says otherwise.
+pub const COLLAPSED: f32 = 22.0;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TileTree {
@@ -161,7 +169,7 @@ impl TileTree {
     /// One area showing `editor`.
     pub fn new(editor: EditorType) -> Self {
         let mut nodes = BTreeMap::new();
-        nodes.insert(AreaId(0), Node::Area(Area { editors: vec![editor], active: 0 }));
+        nodes.insert(AreaId(0), Node::Area(Area { editors: vec![editor], active: 0, collapsed: false }));
         Self { nodes, root: AreaId(0), next: 1 }
     }
 
@@ -231,7 +239,7 @@ impl TileTree {
         let split = self.alloc();
         let added = self.alloc();
         self.relink(area, split);
-        self.nodes.insert(added, Node::Area(Area { editors: vec![editor], active: 0 }));
+        self.nodes.insert(added, Node::Area(Area { editors: vec![editor], active: 0, collapsed: false }));
         let (first, second) = if new_first { (added, area) } else { (area, added) };
         self.nodes.insert(split, Node::Split(Split { kind, ratio: ratio.clamp(0.05, 0.95), first, second }));
         Some(added)
@@ -345,40 +353,85 @@ impl TileTree {
         self.set_ratio(border.split, ratio)
     }
 
+    /// Folds `area` down to a strip, or opens it again. The last area, and
+    /// whatever would leave nothing open, can't fold.
+    pub fn set_collapsed(&mut self, area: AreaId, collapsed: bool) -> bool {
+        if collapsed && self.parent(area).is_none() {
+            return false;
+        }
+        let Some(a) = self.area_mut(area) else { return false };
+        a.collapsed = collapsed;
+        if collapsed && self.areas().iter().all(|id| self.area(*id).is_some_and(|a| a.collapsed)) {
+            if let Some(a) = self.area_mut(area) {
+                a.collapsed = false;
+            }
+            return false;
+        }
+        true
+    }
+
+    /// The space a fully folded subtree needs along `axis` (`None` if any
+    /// area in it is open): a strip per folded area, stacked or side by side.
+    fn folded_size(&self, id: AreaId, axis: SplitKind, strip: f32) -> Option<f32> {
+        match self.nodes.get(&id)? {
+            Node::Area(a) => a.collapsed.then_some(strip),
+            Node::Split(s) => {
+                let (a, b) = (self.folded_size(s.first, axis, strip)?, self.folded_size(s.second, axis, strip)?);
+                Some(if s.kind == axis { a + BORDER + b } else { a.max(b) })
+            }
+        }
+    }
+
     /// Places every area in `rect`, with [`BORDER`]-wide gaps, and returns
-    /// the areas and the draggable borders.
+    /// the areas and the draggable borders. Collapsed areas take a
+    /// [`COLLAPSED`]-thick strip and their neighbours the rest.
     pub fn layout(&self, rect: Rect) -> (Vec<AreaRect>, Vec<Border>) {
+        self.layout_with(rect, COLLAPSED)
+    }
+
+    /// [`Self::layout`] with collapsed areas `strip` points thick.
+    pub fn layout_with(&self, rect: Rect, strip: f32) -> (Vec<AreaRect>, Vec<Border>) {
         let mut areas = Vec::new();
         let mut borders = Vec::new();
-        self.place(self.root, rect, &mut areas, &mut borders);
+        self.place(self.root, rect, strip, &mut areas, &mut borders);
         (areas, borders)
     }
 
-    fn place(&self, id: AreaId, r: Rect, areas: &mut Vec<AreaRect>, borders: &mut Vec<Border>) {
+    fn place(&self, id: AreaId, r: Rect, strip: f32, areas: &mut Vec<AreaRect>, borders: &mut Vec<Border>) {
         match self.nodes.get(&id) {
-            Some(Node::Area(_)) => areas.push(AreaRect { id, rect: r }),
+            // The root alone can't fold.
+            Some(Node::Area(a)) => areas.push(AreaRect { id, rect: r, collapsed: a.collapsed && id != self.root }),
             Some(Node::Split(s)) => {
-                let (a, gap, b) = match s.kind {
-                    SplitKind::SideBySide => {
-                        let w = ((r.w - BORDER) * s.ratio).max(0.0);
-                        (
-                            Rect::new(r.x, r.y, w, r.h),
-                            Rect::new(r.x + w, r.y, BORDER, r.h),
-                            Rect::new(r.x + w + BORDER, r.y, (r.w - w - BORDER).max(0.0), r.h),
-                        )
-                    }
-                    SplitKind::Stacked => {
-                        let h = ((r.h - BORDER) * s.ratio).max(0.0);
-                        (
-                            Rect::new(r.x, r.y, r.w, h),
-                            Rect::new(r.x, r.y + h, r.w, BORDER),
-                            Rect::new(r.x, r.y + h + BORDER, r.w, (r.h - h - BORDER).max(0.0)),
-                        )
-                    }
+                let length = match s.kind {
+                    SplitKind::SideBySide => r.w,
+                    SplitKind::Stacked => r.h,
                 };
-                borders.push(Border { split: id, kind: s.kind, rect: gap, parent: r });
-                self.place(s.first, a, areas, borders);
-                self.place(s.second, b, areas, borders);
+                let room = (length - BORDER).max(0.0);
+                // A folded side keeps its strip; the other side gets the rest.
+                let (fa, fb) = (self.folded_size(s.first, s.kind, strip), self.folded_size(s.second, s.kind, strip));
+                let first = match (fa, fb) {
+                    (Some(a), _) => a.min(room),
+                    (None, Some(b)) => (room - b).max(0.0),
+                    (None, None) => room * s.ratio,
+                };
+                let (a, gap, b) = match s.kind {
+                    SplitKind::SideBySide => (
+                        Rect::new(r.x, r.y, first, r.h),
+                        Rect::new(r.x + first, r.y, BORDER, r.h),
+                        Rect::new(r.x + first + BORDER, r.y, (room - first).max(0.0), r.h),
+                    ),
+                    SplitKind::Stacked => (
+                        Rect::new(r.x, r.y, r.w, first),
+                        Rect::new(r.x, r.y + first, r.w, BORDER),
+                        Rect::new(r.x, r.y + first + BORDER, r.w, (room - first).max(0.0)),
+                    ),
+                };
+                // Folded sides have a fixed size: nothing to drag.
+                if fa.is_none() && fb.is_none() {
+                    borders.push(Border { split: id, kind: s.kind, rect: gap, parent: r });
+                }
+                self.place(s.first, a, strip, areas, borders);
+                self.place(s.second, b, strip, areas, borders);
             }
             None => {}
         }
@@ -464,6 +517,48 @@ mod tests {
         t.drag_border(&borders[0], 2000.0);
         let (areas, _) = t.layout(Rect::new(0.0, 0.0, 1004.0, 600.0));
         assert!(areas[1].rect.w >= MIN_AREA - 1.0);
+    }
+
+    #[test]
+    fn collapsed_areas_fold_to_strips() {
+        // Canvas | (colour over layers over navigator)
+        let mut t = TileTree::new(EditorType::Canvas);
+        let side = t.split(t.root(), SplitKind::SideBySide, 0.7, EditorType::Layers, false).unwrap();
+        let color = t.split(side, SplitKind::Stacked, 0.4, EditorType::ColorWheel, true).unwrap();
+        let nav = t.split(side, SplitKind::Stacked, 0.5, EditorType::Navigator, false).unwrap();
+        let full = Rect::new(0.0, 0.0, 1004.0, 800.0);
+        let rect_of = |t: &TileTree, id| t.layout(full).0.into_iter().find(|a| a.id == id).unwrap();
+
+        // Folding the colour wheel leaves its header; the rest of the column grows.
+        let before = rect_of(&t, side).rect.h;
+        assert!(t.set_collapsed(color, true));
+        let folded = rect_of(&t, color);
+        assert!(folded.collapsed && folded.rect.h == COLLAPSED);
+        let layers = rect_of(&t, side).rect;
+        assert!(layers.h > before, "{} > {before}", layers.h);
+        assert_eq!(layers.y, COLLAPSED + BORDER);
+        // The colour wheel's border with the rest no longer drags.
+        let (_, borders) = t.layout(full);
+        assert_eq!(borders.len(), 2, "canvas | column, layers / navigator");
+
+        // Folding the whole column narrows it to a strip beside the canvas.
+        assert!(t.set_collapsed(side, true));
+        assert!(t.set_collapsed(nav, true));
+        let canvas = rect_of(&t, t.find(EditorType::Canvas).unwrap()).rect;
+        assert_eq!(canvas.w, 1004.0 - BORDER - COLLAPSED);
+        assert!(t.layout(full).0.iter().filter(|a| a.collapsed).all(|a| a.rect.w == COLLAPSED));
+
+        // Opening one area gives the column its width back.
+        assert!(t.set_collapsed(side, false));
+        assert!(rect_of(&t, side).rect.w > 200.0);
+        // Not everything can fold, and the state survives saving.
+        let lone = TileTree::new(EditorType::Canvas);
+        let mut lone2 = lone.clone();
+        assert!(!lone2.set_collapsed(lone.root(), true));
+        let back: TileTree = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
+        assert!(back.area(color).unwrap().collapsed);
+        let old = serde_json::to_string(&TileTree::new(EditorType::Canvas)).unwrap().replace(",\"collapsed\":false", "");
+        assert!(serde_json::from_str::<TileTree>(&old).is_ok(), "files from before folding still load");
     }
 
     #[test]

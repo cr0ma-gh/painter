@@ -565,8 +565,9 @@ impl PainterApp {
             }
         };
         ui.horizontal(|ui| {
-            add_model = ui.button("Add model…").clicked();
-            if ui.button("Frame all").on_hover_text("Home or .").clicked() {
+            use crate::icons::{icon_button, Icon};
+            add_model = icon_button(ui, Icon::Add, 16.0, false, "Add a model to this layer (.blend or .obj)").clicked();
+            if icon_button(ui, Icon::ZoomFit, 16.0, false, "Frame everything (Home or .)").clicked() {
                 if let Some(layer) = self.scenes.get_mut(&id) {
                     if let Some(b) = layer.scene.bounds() {
                         layer.scene.camera.frame(&b);
@@ -574,15 +575,18 @@ impl PainterApp {
                     }
                 }
             }
-            flatten = ui.button("Flatten to pixels").on_hover_text("Keep the current render as a plain raster layer").clicked();
-        });
-        ui.horizontal(|ui| {
-            for (mode, label, key) in
-                [(GizmoMode::Translate, "Move", "G"), (GizmoMode::Rotate, "Rotate", "R"), (GizmoMode::Scale, "Scale", "S")]
-            {
-                ui.selectable_value(&mut self.gizmo.mode, mode, label).on_hover_text(key);
+            flatten = icon_button(ui, Icon::MergeDown, 16.0, false, "Flatten to pixels: keep the current render as a plain raster layer").clicked();
+            ui.separator();
+            for (mode, icon, hint) in [
+                (GizmoMode::Translate, Icon::Move, "Move (G)"),
+                (GizmoMode::Rotate, Icon::RotateRight, "Rotate (R)"),
+                (GizmoMode::Scale, Icon::Transform, "Scale (S)"),
+            ] {
+                if icon_button(ui, icon, 16.0, self.gizmo.mode == mode, hint).clicked() {
+                    self.gizmo.mode = mode;
+                }
             }
-            ui.checkbox(&mut self.gizmo.local, "Local axes");
+            ui.checkbox(&mut self.gizmo.local, "Local").on_hover_text("Gizmo along the object's own axes");
         });
         let Some(layer) = self.scenes.get_mut(&id) else {
             return;

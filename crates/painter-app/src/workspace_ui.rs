@@ -10,7 +10,7 @@ use eframe::egui::{
 };
 use painter_core::fill_tool::GapPreset;
 use ui_workspace::command_palette::{Command, CommandCategory, CommandRegistry, PaletteState};
-use ui_workspace::tabs::{Chrome, WorkspaceSet};
+use ui_workspace::tabs::{Chrome, WorkspaceSet, UI_SCALE_RANGE};
 use ui_workspace::themes::{Rgba, ThemeLibrary};
 use ui_workspace::tiles::{self, AreaId, EditorType, SplitKind};
 
@@ -35,6 +35,8 @@ pub(crate) struct WorkspaceUi {
     pub(crate) theme_editor: bool,
     /// Theme revision last applied to egui.
     applied_theme: Option<u64>,
+    /// The egui zoom last set from the interface scale (to notice Ctrl +/- changing it).
+    applied_zoom: Option<f32>,
     /// Workspace tab being renamed, with the text so far.
     renaming: Option<(usize, String)>,
     /// Where settings live when eframe has no storage (iPadOS), and what
@@ -59,6 +61,7 @@ impl WorkspaceUi {
             palette: PaletteState::default(),
             theme_editor: false,
             applied_theme: None,
+            applied_zoom: None,
             renaming: None,
             settings_file,
             written,
@@ -114,6 +117,36 @@ enum AreaAction {
     CloseTab(EditorType),
     Split(SplitKind),
     Close,
+    /// Fold (true) or unfold the area.
+    Fold(bool),
+}
+
+/// A folded area: a header strip (icon, name) or, beside a side-by-side
+/// neighbour, a narrow column (icon only). A click unfolds it.
+fn folded_area_ui(ui: &mut egui::Ui, tree: &tiles::TileTree, id: AreaId, rect: Rect) -> Option<AreaAction> {
+    let editor = tree.area(id)?.editor();
+    let response = ui.interact(rect, ui.id().with(("folded", id.0)), Sense::click());
+    let fill = if response.hovered() { theme::hover() } else { theme::title() };
+    ui.painter().rect_filled(rect, 0.0, fill);
+    let text = theme::text();
+    let size = HEADER - 8.0;
+    let icon = crate::icons::editor_icon(editor);
+    if rect.width() >= rect.height() {
+        let chevron = Rect::from_min_size(rect.min + Vec2::new(4.0, 0.0), Vec2::new(size, rect.height().min(HEADER)));
+        crate::icons::paint_glyph(ui.painter(), chevron, size - 4.0, crate::icons::Glyph::Unfold, text);
+        let icon_rect = chevron.translate(Vec2::new(size + 4.0, 0.0));
+        icon.paint(ui, icon_rect, size, text);
+        if rect.width() > 3.0 * HEADER {
+            let at = egui::pos2(icon_rect.max.x + 6.0, chevron.center().y);
+            ui.painter().text(at, egui::Align2::LEFT_CENTER, editor.title(), egui::FontId::proportional(11.0), text);
+        }
+    } else {
+        let icon_rect = Rect::from_min_size(rect.min + Vec2::new(0.0, 2.0), Vec2::new(rect.width(), HEADER));
+        icon.paint(ui, icon_rect, size, text);
+        let chevron = icon_rect.translate(Vec2::new(0.0, HEADER));
+        crate::icons::paint_glyph(ui.painter(), chevron, size - 6.0, crate::icons::Glyph::UnfoldSide, text);
+    }
+    response.on_hover_text(format!("{}: click to unfold", editor.title())).clicked().then_some(AreaAction::Fold(false))
 }
 
 fn to_egui(r: tiles::Rect) -> Rect {
@@ -132,6 +165,7 @@ fn color32(c: Rgba) -> Color32 {
 impl PainterApp {
     /// Per-frame bookkeeping: the theme and the workspace shortcuts.
     pub(crate) fn workspace_frame(&mut self, ctx: &egui::Context) {
+        self.apply_ui_scale(ctx);
         if self.ws.applied_theme != Some(self.ws.themes.revision) {
             theme::apply(ctx, self.ws.themes.current());
             self.ws.applied_theme = Some(self.ws.themes.revision);
@@ -150,6 +184,58 @@ impl PainterApp {
         if zen {
             self.toggle_zen();
         }
+    }
+
+    /// The interface size: everything (text, icons, panels, lines) scales
+    /// together, like Blender's Resolution Scale. iPadOS starts a step
+    /// larger for fingers. egui's own Ctrl + / Ctrl − / Ctrl 0 change it too.
+    fn apply_ui_scale(&mut self, ctx: &egui::Context) {
+        let base = if cfg!(target_os = "ios") { 1.25 } else { 1.0 };
+        let (lo, hi) = UI_SCALE_RANGE;
+        let zoom = ctx.zoom_factor();
+        if let Some(applied) = self.ws.applied_zoom {
+            if (zoom - applied).abs() > 1e-3 {
+                self.ws.chrome.ui_scale = zoom / base;
+            }
+        }
+        let scale = self.ws.chrome.ui_scale;
+        self.ws.chrome.ui_scale = if scale.is_finite() { scale.clamp(lo, hi) } else { 1.0 };
+        let target = base * self.ws.chrome.ui_scale;
+        if (zoom - target).abs() > 1e-3 {
+            ctx.set_zoom_factor(target);
+        }
+        self.ws.applied_zoom = Some(target);
+    }
+
+    /// Steps the interface size up (`+1`), down (`-1`) or back to 100% (`0`).
+    pub(crate) fn step_ui_scale(&mut self, step: i32) {
+        let (lo, hi) = UI_SCALE_RANGE;
+        let s = &mut self.ws.chrome.ui_scale;
+        *s = match step {
+            0 => 1.0,
+            _ => ((*s * 10.0).round() + step.signum() as f32) / 10.0,
+        }
+        .clamp(lo, hi);
+        self.status = format!("Interface size {:.0}%", *s * 100.0);
+    }
+
+    /// The interface size slider with presets (the tab bar's popup and the Window menu).
+    pub(crate) fn ui_scale_controls(&mut self, ui: &mut egui::Ui) {
+        let (lo, hi) = UI_SCALE_RANGE;
+        let mut percent = self.ws.chrome.ui_scale * 100.0;
+        // Applied when the drag ends, so the slider doesn't move under the pointer.
+        let slider = ui.add(egui::Slider::new(&mut percent, lo * 100.0..=hi * 100.0).step_by(5.0).suffix("%").text("Interface"));
+        if slider.drag_stopped() || (slider.changed() && !slider.dragged()) {
+            self.ws.chrome.ui_scale = percent / 100.0;
+        }
+        ui.horizontal_wrapped(|ui| {
+            for p in [75, 100, 125, 150, 200] {
+                if ui.selectable_label((self.ws.chrome.ui_scale * 100.0).round() as i32 == p, format!("{p}%")).clicked() {
+                    self.ws.chrome.ui_scale = p as f32 / 100.0;
+                }
+            }
+        });
+        ui.small("Ctrl + and Ctrl − change it, Ctrl 0 resets it.");
     }
 
     /// Loads a theme JSON file into the library and switches to it.
@@ -255,12 +341,23 @@ impl PainterApp {
                         self.workspace_menu(i, what);
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.small_button("Zen").on_hover_text("Hide everything but the canvas (Tab or F11)").clicked() {
+                        use crate::icons::{glyph_button, Glyph};
+                        let size = 14.0;
+                        if glyph_button(ui, Glyph::FullScreen, size, "Zen mode: only the canvas (Tab or F11)").clicked() {
                             self.toggle_zen();
                         }
-                        if ui.small_button("Search").on_hover_text("Command palette (F3 or Ctrl+Space)").clicked() {
+                        if glyph_button(ui, Glyph::Search, size, "Command palette (F3 or Ctrl+Space)").clicked() {
                             self.open_palette();
                         }
+                        let scale = glyph_button(ui, Glyph::Scale, size, "Interface size (Ctrl + / Ctrl − / Ctrl 0)");
+                        let popup = ui.make_persistent_id("ui_scale_popup");
+                        if scale.clicked() {
+                            ui.memory_mut(|m| m.toggle_popup(popup));
+                        }
+                        egui::popup_below_widget(ui, popup, &scale, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+                            ui.set_min_width(220.0);
+                            self.ui_scale_controls(ui);
+                        });
                     });
                 });
             });
@@ -316,11 +413,16 @@ impl PainterApp {
                 self.zen_exit_button(ui.ctx(), full);
                 return;
             }
-            let (areas, borders) = tree.layout(from_egui(full));
+            let (areas, borders) = tree.layout_with(from_egui(full), HEADER);
             let mut canvas_shown = false;
             let mut actions = Vec::new();
             for a in &areas {
-                if let Some(action) = self.area_ui(ui, &tree, a.id, to_egui(a.rect), &mut canvas_shown) {
+                let action = if a.collapsed {
+                    folded_area_ui(ui, &tree, a.id, to_egui(a.rect))
+                } else {
+                    self.area_ui(ui, &tree, a.id, to_egui(a.rect), &mut canvas_shown)
+                };
+                if let Some(action) = action {
                     actions.push((a.id, action));
                 }
             }
@@ -378,26 +480,46 @@ impl PainterApp {
         head.set_clip_rect(header.intersect(ui.clip_rect()));
         head.spacing_mut().item_spacing.x = 2.0;
         head.spacing_mut().interact_size.y = HEADER - 4.0;
-        egui::ComboBox::from_id_salt("editor_type").selected_text(egui::RichText::new(editor.title()).small()).width(104.0).show_ui(
-            &mut head,
-            |ui| {
+        // Narrow areas show icons only.
+        let roomy = rect.width() >= 200.0;
+        let icon_size = HEADER - 8.0;
+        let text = theme::text();
+        // The editor-type menu: the editor's icon, and its name when there's room.
+        let type_menu = |ui: &mut egui::Ui, action: &mut Option<AreaAction>| {
+            let image = crate::icons::editor_icon(editor).image(icon_size, text);
+            let title = if roomy && area.editors.len() == 1 { editor.title() } else { "" };
+            ui.menu_image_text_button(image, egui::RichText::new(title).small(), |ui| {
                 for e in EditorType::ALL {
-                    if ui.selectable_label(e == editor, e.title()).clicked() {
-                        action = Some(AreaAction::SetEditor(e));
+                    let item = egui::Button::image_and_text(crate::icons::editor_icon(e).image(14.0, text), e.title()).selected(e == editor);
+                    if ui.add(item).clicked() {
+                        *action = Some(AreaAction::SetEditor(e));
+                        ui.close_menu();
                     }
                 }
-            },
-        );
+            })
+            .response
+            .on_hover_text(format!("{}: change what this area shows", editor.title()));
+        };
+        type_menu(&mut head, &mut action);
         if area.editors.len() > 1 {
+            // Stacked tabs: the shown one with its name, the others as icons.
             for (i, e) in area.editors.iter().enumerate() {
-                let label = egui::RichText::new(e.title()).small();
-                if head.selectable_label(i == area.active, label).clicked() {
+                let shown = i == area.active;
+                let image = crate::icons::editor_icon(*e).image(icon_size, text);
+                let label = if shown && roomy { e.title() } else { "" };
+                let tab = head.add(egui::Button::image_and_text(image, egui::RichText::new(label).small()).selected(shown).frame(shown));
+                if tab.on_hover_text(e.title()).clicked() {
                     action = Some(AreaAction::ShowTab(*e));
                 }
             }
         }
+        // Viewports (the canvas, a reference) don't fold.
+        let can_fold = many_areas && !area.editors.iter().any(|e| e.is_viewport());
         head.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.menu_button("···", |ui| {
+            if can_fold && crate::icons::glyph_button(ui, crate::icons::Glyph::Fold, icon_size - 4.0, "Fold this area to its header").clicked() {
+                action = Some(AreaAction::Fold(true));
+            }
+            ui.menu_button(egui::RichText::new("···").small(), |ui| {
                 if ui.button("Split Right").clicked() {
                     action = Some(AreaAction::Split(SplitKind::SideBySide));
                     ui.close_menu();
@@ -516,6 +638,9 @@ impl PainterApp {
             AreaAction::Close => {
                 tiles.close(id);
             }
+            AreaAction::Fold(fold) => {
+                tiles.set_collapsed(id, fold);
+            }
         }
         // The canvas can't go missing: if a retype removed it, it comes back as a tab.
         if tiles.find(EditorType::Canvas).is_none() {
@@ -574,7 +699,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 38] = [
+        let fixed: [FixedCommand; 41] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
             ("file.open", "Open...", C::File, "Ctrl+O", &["load"], true),
@@ -610,6 +735,9 @@ impl PainterApp {
             ("rulers.snap", "Snap to Rulers", C::View, "Ctrl+1", &["perspective", "symmetry", "ruler"], true),
             ("view.zen", "Toggle Zen Mode", C::View, "Tab / F11", &["fullscreen", "hide panels", "distraction free"], true),
             ("view.modifier_keys", "On-Screen Modifier Keys", C::View, "", &["ctrl", "shift", "alt", "touch", "keyboard"], true),
+            ("view.ui_bigger", "Bigger Interface", C::View, "Ctrl +", &["scale", "zoom", "size", "resolution"], true),
+            ("view.ui_smaller", "Smaller Interface", C::View, "Ctrl -", &["scale", "zoom", "size", "resolution"], true),
+            ("view.ui_reset", "Interface Size 100%", C::View, "Ctrl 0", &["scale", "zoom", "size", "resolution", "reset"], true),
             ("view.theme_editor", "Theme Editor...", C::View, "", &["colors", "colours", "dark", "light"], true),
             ("workspace.reset", "Reset Workspace Layout", C::Workspace, "", &["default layout"], true),
             ("workspace.duplicate", "New Workspace (copy of this one)", C::Workspace, "", &["custom layout"], true),
@@ -701,6 +829,9 @@ impl PainterApp {
             "view.grid" => self.doc.rulers.grid.visible = !self.doc.rulers.grid.visible,
             "rulers.snap" => self.toggle_ruler_snapping(),
             "view.zen" => self.toggle_zen(),
+            "view.ui_bigger" => self.step_ui_scale(1),
+            "view.ui_smaller" => self.step_ui_scale(-1),
+            "view.ui_reset" => self.step_ui_scale(0),
             "view.modifier_keys" => {
                 self.modifier_keys.shown = !self.modifier_keys.shown;
                 if !self.modifier_keys.shown {

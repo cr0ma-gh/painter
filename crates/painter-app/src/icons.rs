@@ -108,6 +108,89 @@ impl Icon {
     }
 }
 
+/// The icon of each kind of area.
+pub fn editor_icon(editor: ui_workspace::tiles::EditorType) -> Icon {
+    use ui_workspace::tiles::EditorType as E;
+    match editor {
+        E::Canvas => Icon::Template,
+        E::Reference => Icon::ZoomOriginal,
+        E::Viewport3D => Icon::Transform3d,
+        E::Layers => Icon::Layer,
+        E::ToolSettings => Icon::Options,
+        E::ToolGroup => Icon::Preset,
+        E::BrushSize => Icon::Paintbrush,
+        E::ColorWheel => Icon::ColorTriangle,
+        E::Navigator => Icon::Navigation,
+        E::ComicPanels => Icon::Grid,
+        E::Timeline => Icon::Curve,
+        E::NodeGraph => Icon::Path,
+    }
+}
+
+/// Small line icons drawn in code (no image needed).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Glyph {
+    /// Fold an area (chevron up).
+    Fold,
+    /// Unfold it (chevron down).
+    Unfold,
+    /// Unfold a narrow column (chevron right).
+    UnfoldSide,
+    Search,
+    /// Zen mode: four outward corners.
+    FullScreen,
+    /// Interface size: a small and a large square.
+    Scale,
+}
+
+/// Paints `glyph` centred in `rect`, `size` points across.
+pub fn paint_glyph(painter: &egui::Painter, rect: egui::Rect, size: f32, glyph: Glyph, color: Color32) {
+    let c = rect.center();
+    let s = size * 0.5;
+    let stroke = egui::Stroke::new((size / 9.0).max(1.2), color);
+    let p = |x: f32, y: f32| c + Vec2::new(x * s, y * s);
+    match glyph {
+        Glyph::Fold => painter.add(egui::Shape::line(vec![p(-0.6, 0.3), p(0.0, -0.3), p(0.6, 0.3)], stroke)),
+        Glyph::Unfold => painter.add(egui::Shape::line(vec![p(-0.6, -0.3), p(0.0, 0.3), p(0.6, -0.3)], stroke)),
+        Glyph::UnfoldSide => painter.add(egui::Shape::line(vec![p(-0.3, -0.6), p(0.3, 0.0), p(-0.3, 0.6)], stroke)),
+        Glyph::Search => {
+            painter.circle_stroke(p(-0.15, -0.15), s * 0.5, stroke);
+            painter.line_segment([p(0.22, 0.22), p(0.7, 0.7)], stroke);
+            egui::layers::ShapeIdx(0)
+        }
+        Glyph::FullScreen => {
+            for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+                let corner = p(sx * 0.75, sy * 0.75);
+                painter.line_segment([corner, corner - Vec2::new(sx * s * 0.45, 0.0)], stroke);
+                painter.line_segment([corner, corner - Vec2::new(0.0, sy * s * 0.45)], stroke);
+            }
+            egui::layers::ShapeIdx(0)
+        }
+        Glyph::Scale => {
+            painter.rect_stroke(egui::Rect::from_min_max(p(-0.8, 0.0), p(-0.2, 0.6)), 1.0, stroke, egui::StrokeKind::Middle);
+            painter.rect_stroke(egui::Rect::from_min_max(p(0.0, -0.75), p(0.8, 0.6)), 1.0, stroke, egui::StrokeKind::Middle);
+            egui::layers::ShapeIdx(0)
+        }
+    };
+}
+
+/// A square button showing a [`Glyph`].
+pub fn glyph_button(ui: &mut Ui, glyph: Glyph, size: f32, hint: &str) -> Response {
+    let side = size + 6.0;
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(side), Sense::click());
+    let visuals = ui.visuals();
+    if response.hovered() {
+        ui.painter().rect_filled(rect, 3.0, visuals.widgets.hovered.weak_bg_fill);
+    }
+    let tint = if response.hovered() { crate::theme::strong() } else { visuals.text_color() };
+    paint_glyph(ui.painter(), rect, size, glyph, tint);
+    if hint.is_empty() {
+        response
+    } else {
+        response.on_hover_text(hint)
+    }
+}
+
 /// A square icon button; `selected` draws it pressed.
 pub fn icon_button(ui: &mut Ui, icon: Icon, size: f32, selected: bool, hint: &str) -> Response {
     let side = size + 10.0;

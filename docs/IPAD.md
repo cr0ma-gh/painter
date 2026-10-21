@@ -52,6 +52,9 @@ one-year signatures and TestFlight.
 - **Your brushes** (imported ones, edits, order) are kept between launches,
   textures included. Right-click the import button in the brush list to add
   back default brushes you deleted.
+- Panels fold with the ^ in their header to free space; tap the strip to
+  open them again. The squares icon at the top right sets the interface
+  size (it starts at 125% on iPad).
 - **Settings** (workspaces and their layouts, zen mode, themes) are saved
   as you change them and come back at the next launch.
 - The iOS status bar is hidden and swipes from the screen edges go to

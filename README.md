@@ -76,8 +76,14 @@ cargo run --release -p painter-app -- drawing.painter
 - **Workspaces** (crate `ui-workspace`, after Blender): tabs for Painting,
   Inking, 3D Layout, Comic and Compositing, each with its own areas and
   toolbar, plus custom copies (right-click a tab to rename, reset or delete).
-  Every area has an editor-type menu, stacked tabs, Split Right / Split Down
-  / Close, and borders that drag. F3 or Ctrl+Space opens a fuzzy command
+  Every area has an editor-type menu (its icon, and the name when there's
+  room), stacked tabs (the hidden ones as icons), Split Right / Split Down /
+  Close, and borders that drag. The ^ in an area's header folds it to its
+  header strip (or to a narrow icon column beside a side-by-side neighbour),
+  like a collapsed Clip Studio palette; its neighbours take the space, and a
+  click on the strip opens it again. The interface scales as a whole from 50%
+  to 300% (the squares icon at the top right, Window → Interface Size, or
+  Ctrl + / Ctrl − / Ctrl 0), like Blender's Resolution Scale. F3 or Ctrl+Space opens a fuzzy command
   palette (menus, tools, brushes, workspaces, themes); Tab or F11 toggles zen
   mode (canvas only). Window → Theme Editor edits colours, text size and
   rounding with contrast warnings; dark, light and high-contrast presets,

@@ -270,6 +270,10 @@ impl PainterApp {
                         ui.close_menu();
                         self.ws.theme_editor = true;
                     }
+                    ui.menu_button("Interface Size", |ui| {
+                        ui.set_min_width(220.0);
+                        self.ui_scale_controls(ui);
+                    });
                 });
             });
         });
