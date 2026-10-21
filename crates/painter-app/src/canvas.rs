@@ -111,6 +111,7 @@ impl PainterApp {
         self.draw_rulers_overlay(&painter, rect);
         self.draw_tool_overlay(&painter, rect);
         self.draw_brush_cursor(&painter, rect, &response);
+        self.draw_eyedropper(&painter);
         self.transform_hud(ui.ctx(), rect);
     }
 
@@ -129,11 +130,13 @@ impl PainterApp {
         }
         let multi = ui.input(|i| i.multi_touch());
         self.touch_gestures(multi, rect);
+        // A finger resting still picks a colour instead of panning.
+        let long_press = self.eyedropper_touches(ui.ctx(), &events, rect);
 
         // Navigation. On a 3D layer with the 3D tool, the middle button and the
         // wheel steer the scene's camera instead (Space + drag still pans the canvas).
         // With "Pencil only", a finger pans instead of painting.
-        let finger = self.tools.pencil_only && self.tablet.finger_down();
+        let finger = self.tools.pencil_only && self.tablet.finger_down() && !long_press;
         let hand = self.tool == Tool::Hand || space || finger || multi.is_some();
         let scene_nav = self.scene_navigation_active();
         if scene_nav {
@@ -175,6 +178,20 @@ impl PainterApp {
                 self.tablet.next_event();
             }
             match event {
+                // Alt with a brush, fill or gradient: the eyedropper while the button is held.
+                Event::PointerButton { pos, button: PointerButton::Primary, pressed: true, modifiers, .. }
+                    if !hand && hovering && rect.contains(*pos) && modifiers.alt && self.alt_eyedropper() && self.drag.is_none() =>
+                {
+                    let p = to_doc(&self.view, *pos);
+                    self.begin_temporary_pick(p);
+                }
+                Event::PointerMoved(pos) if self.eyedropper_held() && !long_press => {
+                    let p = to_doc(&self.view, *pos);
+                    self.eyedrop_at(p);
+                }
+                Event::PointerButton { button: PointerButton::Primary, pressed: false, .. } if self.eyedropper_held() && !long_press => {
+                    self.end_pick();
+                }
                 Event::PointerButton { pos, button: PointerButton::Primary, pressed: true, modifiers, .. }
                     if !hand && hovering && rect.contains(*pos) && self.stroke.is_none() && self.drag.is_none() =>
                 {

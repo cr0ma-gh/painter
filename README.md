@@ -63,7 +63,10 @@ cargo run --release -p painter-app -- drawing.painter
 - **Tools:** rectangle, ellipse and lasso selections (new, add, subtract,
   intersect); fill bucket (tolerance, contiguous, gap closing up to 40 px, reads the edited layer, all layers or
   layers marked as reference, anti-halo expansion under the lines or inset; ~0.2 s on a 600 dpi A4 page);
-  gradient tool; clear selected area.
+  gradient tool; clear selected area. Eyedropper (I): the colour shown on the canvas or only the current
+  layer's, one pixel or averaged over 3×3 to 11×11; also while Alt is held
+  with a brush, fill or gradient, and by resting a finger on the canvas on
+  iPad; a loupe shows the new colour over the old one.
 - **Correction layers** (Layer → New Correction Layer; `painter_core::adjust`):
   brightness / contrast, levels, tone curve, hue / saturation / lightness,
   colour balance, posterize, threshold, invert and gradient map. They recolour

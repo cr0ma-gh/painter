@@ -11,6 +11,7 @@ mod comic_ui;
 mod curve;
 mod dialogs;
 mod document_manager;
+mod eyedropper;
 mod files;
 mod icons;
 mod ios_ui;

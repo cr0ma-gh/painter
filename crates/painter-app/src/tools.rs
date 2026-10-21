@@ -23,6 +23,8 @@ pub enum Tool {
     Frame,
     /// 3D layers: navigate, pick and transform objects.
     Scene3D,
+    /// Picks a colour from the canvas or the current layer.
+    Eyedropper,
     /// Perspective, symmetry and special rulers, guides: place and edit them.
     Ruler,
     Hand,
@@ -36,10 +38,11 @@ pub enum SelectShape {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 12] = [
+    pub const ALL: [Tool; 13] = [
         Tool::Brush,
         Tool::Fill,
         Tool::Gradient,
+        Tool::Eyedropper,
         Tool::Select(SelectShape::Rect),
         Tool::Select(SelectShape::Ellipse),
         Tool::Select(SelectShape::Lasso),
@@ -64,6 +67,7 @@ impl Tool {
             Tool::Frame => Icon::Grid,
             Tool::Scene3D => Icon::Transform3d,
             Tool::Ruler => Icon::Path,
+            Tool::Eyedropper => Icon::ColorPicker,
             Tool::Hand => Icon::Move,
         }
     }
@@ -80,6 +84,7 @@ impl Tool {
             Tool::Frame => "frame",
             Tool::Scene3D => "scene3d",
             Tool::Ruler => "ruler",
+            Tool::Eyedropper => "eyedropper",
             Tool::Hand => "hand",
         }
     }
@@ -97,6 +102,7 @@ impl Tool {
             Tool::Frame => "Panel Frames",
             Tool::Scene3D => "3D Layer Tool",
             Tool::Ruler => "Rulers and Guides",
+            Tool::Eyedropper => "Eyedropper",
             Tool::Hand => "Hand (pan)",
         }
     }
@@ -113,6 +119,7 @@ impl Tool {
             Tool::Crop => "C",
             Tool::Frame => "U",
             Tool::Scene3D | Tool::Ruler => return None,
+            Tool::Eyedropper => "I",
             Tool::Hand => "H",
         })
     }
@@ -130,6 +137,7 @@ impl Tool {
             Tool::Frame => "Panel frames (U): draw rectangles or polygons, divide panels, reshape them",
             Tool::Scene3D => "3D layer: middle drag orbits, Shift pans, wheel zooms; click picks, G / R / S gizmo",
             Tool::Ruler => "Rulers: perspective, symmetry, special rulers and guides. Drag their handles; Ctrl+1 toggles snapping",
+            Tool::Eyedropper => "Eyedropper (I): pick a colour from the canvas or the current layer. Alt with a brush, or hold a finger still on an iPad",
             Tool::Hand => "Pan the canvas (H, or hold Space)",
         }
     }
@@ -251,6 +259,10 @@ impl PainterApp {
             Tool::Frame => self.frame_press(at),
             Tool::Scene3D => self.scene_press(at),
             Tool::Ruler => self.ruler_press(at),
+            Tool::Eyedropper => {
+                self.eyedrop_at(at);
+                self.drag = Some(ToolDrag { start: at, current: at, points: vec![at], op: SelectionOp::Replace });
+            }
             Tool::Brush | Tool::Hand => {}
         }
     }
@@ -262,6 +274,7 @@ impl PainterApp {
             Tool::Frame => self.frame_move(at),
             Tool::Scene3D => self.scene_move(at),
             Tool::Ruler => self.ruler_move(at),
+            Tool::Eyedropper => self.eyedrop_at(at),
             _ => {}
         }
         if let Some(drag) = &mut self.drag {
@@ -439,6 +452,9 @@ impl PainterApp {
         }
         if key(Key::L, false) {
             self.tool = Tool::Select(SelectShape::Lasso);
+        }
+        if key(Key::I, false) {
+            self.tool = Tool::Eyedropper;
         }
         if key(Key::H, false) {
             self.tool = Tool::Hand;

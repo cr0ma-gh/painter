@@ -8,7 +8,7 @@
 
 use super::{par_rows, Bitmap};
 use crate::document::Document;
-use crate::io::composite_layers;
+use crate::io::{composite_layers, Area};
 use crate::layer::{Layer, LayerKind};
 use crate::tile::{TileCoord, TileStore, TILE_SIZE};
 
@@ -59,7 +59,7 @@ pub fn reference_pixels(doc: &Document, options: &ReferenceOptions) -> Option<Ve
         return None;
     }
     let mut buf = vec![0u8; (doc.width * doc.height * 4) as usize];
-    composite_layers(&layers, &mut buf, doc.canvas());
+    composite_layers(&layers, &mut buf, Area::full(doc.canvas()));
     Some(buf)
 }
 

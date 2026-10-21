@@ -21,7 +21,7 @@ pub struct ImportedImage {
 /// Composites the visible layer tree into premultiplied RGBA8, matching the GPU compositor.
 pub fn flatten(doc: &Document) -> Vec<u8> {
     let mut buf = vec![0u8; (doc.width * doc.height * 4) as usize];
-    composite_layers(&doc.layers, &mut buf, doc.canvas());
+    composite_layers(&doc.layers, &mut buf, Area::full(doc.canvas()));
     buf
 }
 
@@ -31,7 +31,7 @@ pub fn render_procedural(layer: &Layer, canvas: (u32, u32)) -> Option<Vec<u8>> {
     let mut buf = vec![0u8; (canvas.0 * canvas.1 * 4) as usize];
     let source = procedural_source(&layer.kind)?;
     let shape = Shape { mask: None, clip: None, opacity: 1.0, mode: BlendMode::Normal };
-    blend_source(&mut buf, canvas, &source, &shape);
+    blend_source(&mut buf, Area::full(canvas), &source, &shape);
     Some(buf)
 }
 
@@ -62,7 +62,46 @@ fn procedural_source(kind: &LayerKind) -> Option<Source<'_>> {
     }
 }
 
-pub(crate) fn composite_layers(layers: &[Layer], buf: &mut [u8], canvas: (u32, u32)) {
+/// The part of the canvas being composited: `w` × `h` pixels from (`x0`, `y0`),
+/// inside a canvas of `canvas` pixels. The buffer holds just that part.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Area {
+    pub canvas: (u32, u32),
+    pub x0: u32,
+    pub y0: u32,
+    pub w: u32,
+    pub h: u32,
+}
+
+impl Area {
+    pub fn full(canvas: (u32, u32)) -> Self {
+        Self { canvas, x0: 0, y0: 0, w: canvas.0, h: canvas.1 }
+    }
+
+    /// Tiles touching the area.
+    fn tiles(&self) -> impl Iterator<Item = TileCoord> {
+        let (tx0, ty0) = ((self.x0 / TILE_SIZE) as i32, (self.y0 / TILE_SIZE) as i32);
+        let tx1 = (self.x0 + self.w).div_ceil(TILE_SIZE) as i32;
+        let ty1 = (self.y0 + self.h).div_ceil(TILE_SIZE) as i32;
+        (ty0..ty1).flat_map(move |y| (tx0..tx1).map(move |x| TileCoord::new(x, y)))
+    }
+
+    fn touches(&self, coord: TileCoord) -> bool {
+        let (ox, oy) = coord.origin();
+        let s = TILE_SIZE as i64;
+        let (ox, oy) = (ox as i64, oy as i64);
+        ox + s > self.x0 as i64 && oy + s > self.y0 as i64 && ox < (self.x0 + self.w) as i64 && oy < (self.y0 + self.h) as i64
+    }
+
+    /// The buffer index of canvas pixel (`x`, `y`), if it is in the area and the canvas.
+    fn index(&self, x: i32, y: i32) -> Option<usize> {
+        let in_canvas = x >= 0 && y >= 0 && (x as u32) < self.canvas.0 && (y as u32) < self.canvas.1;
+        let (x, y) = (x as i64 - self.x0 as i64, y as i64 - self.y0 as i64);
+        (in_canvas && x >= 0 && y >= 0 && x < self.w as i64 && y < self.h as i64).then(|| (y as u32 * self.w + x as u32) as usize)
+    }
+}
+
+pub(crate) fn composite_layers(layers: &[Layer], buf: &mut [u8], area: Area) {
     for (layer, clip) in layers.iter().zip(clip_targets(layers)) {
         if !layer.visible || layer.opacity <= 0.0 || clip == ClipTo::Skip {
             continue;
@@ -73,18 +112,18 @@ pub(crate) fn composite_layers(layers: &[Layer], buf: &mut [u8], canvas: (u32, u
         };
         let shape = Shape { mask: layer.active_mask(), clip, opacity: layer.opacity, mode: layer.blend };
         match &layer.kind {
-            LayerKind::Folder(folder) if !layer.is_isolated_folder() => composite_layers(&folder.children, buf, canvas),
+            LayerKind::Folder(folder) if !layer.is_isolated_folder() => composite_layers(&folder.children, buf, area),
             LayerKind::Folder(folder) => {
                 let mut group = vec![0u8; buf.len()];
-                composite_layers(&folder.children, &mut group, canvas);
-                blend_source(buf, canvas, &Source::Dense(&group), &shape);
+                composite_layers(&folder.children, &mut group, area);
+                blend_source(buf, area, &Source::Dense(&group), &shape);
             }
-            LayerKind::Raster(tiles) => blend_source(buf, canvas, &Source::Tiles(tiles), &shape),
-            LayerKind::Vector(vector) => blend_source(buf, canvas, &Source::Tiles(&vector.cache), &shape),
-            LayerKind::Adjustment(adjustment) => apply_adjustment(buf, canvas, &adjustment.op(), &shape),
+            LayerKind::Raster(tiles) => blend_source(buf, area, &Source::Tiles(tiles), &shape),
+            LayerKind::Vector(vector) => blend_source(buf, area, &Source::Tiles(&vector.cache), &shape),
+            LayerKind::Adjustment(adjustment) => apply_adjustment(buf, area, &adjustment.op(), &shape),
             kind => {
                 let source = procedural_source(kind).expect("remaining kinds are procedural");
-                blend_source(buf, canvas, &source, &shape);
+                blend_source(buf, area, &source, &shape);
             }
         }
     }
@@ -92,13 +131,10 @@ pub(crate) fn composite_layers(layers: &[Layer], buf: &mut [u8], canvas: (u32, u
 
 /// Blends `source × (1 − mask) × clip × opacity` into `buf`, tile by tile.
 /// Mirrors `fs_main` in painter-render's `composite.wgsl`.
-fn blend_source(buf: &mut [u8], canvas: (u32, u32), source: &Source<'_>, shape: &Shape<'_>) {
-    let (w, h) = canvas;
+fn blend_source(buf: &mut [u8], area: Area, source: &Source<'_>, shape: &Shape<'_>) {
     let coords: Vec<TileCoord> = match source {
-        Source::Tiles(tiles) => tiles.iter().map(|(c, _)| c).collect(),
-        _ => (0..h.div_ceil(TILE_SIZE) as i32)
-            .flat_map(|y| (0..w.div_ceil(TILE_SIZE) as i32).map(move |x| TileCoord::new(x, y)))
-            .collect(),
+        Source::Tiles(tiles) => tiles.iter().map(|(c, _)| c).filter(|c| area.touches(*c)).collect(),
+        _ => area.tiles().collect(),
     };
     let pixels = buf.as_chunks_mut::<4>().0;
     for coord in coords {
@@ -117,15 +153,9 @@ fn blend_source(buf: &mut [u8], canvas: (u32, u32), source: &Source<'_>, shape: 
         let (ox, oy) = coord.origin();
         for ty in 0..TILE_SIZE {
             let y = oy + ty as i32;
-            if y < 0 || y >= h as i32 {
-                continue;
-            }
             for tx in 0..TILE_SIZE {
                 let x = ox + tx as i32;
-                if x < 0 || x >= w as i32 {
-                    continue;
-                }
-                let i = (y as u32 * w + x as u32) as usize;
+                let Some(i) = area.index(x, y) else { continue };
                 let mut s = match source {
                     Source::Tiles(_) => to_f32(source_tile.map_or([0; 4], |t| t.pixel(tx, ty))),
                     Source::Dense(group) => to_f32([group[i * 4], group[i * 4 + 1], group[i * 4 + 2], group[i * 4 + 3]]),
@@ -154,58 +184,52 @@ fn blend_source(buf: &mut [u8], canvas: (u32, u32), source: &Source<'_>, shape: 
 /// A correction layer: the backdrop's colour run through `op`, mixed in by
 /// opacity × (1 − mask) × clip. Alpha is untouched. Mirrors the adjustment
 /// branch of `fs_main` in `composite.wgsl`.
-fn apply_adjustment(buf: &mut [u8], canvas: (u32, u32), op: &crate::adjust::AdjustOp, shape: &Shape<'_>) {
-    let (w, h) = canvas;
+fn apply_adjustment(buf: &mut [u8], area: Area, op: &crate::adjust::AdjustOp, shape: &Shape<'_>) {
     let pixels = buf.as_chunks_mut::<4>().0;
-    for ty in 0..h.div_ceil(TILE_SIZE) as i32 {
-        for tx in 0..w.div_ceil(TILE_SIZE) as i32 {
-            let coord = TileCoord::new(tx, ty);
-            let clip_tile = match shape.clip {
-                Some(clip) => match clip.get(coord) {
-                    Some(t) => Some(t),
-                    None => continue,
-                },
-                None => None,
-            };
-            let mask_tile = shape.mask.and_then(|m| m.get(coord));
-            let (ox, oy) = coord.origin();
-            for ly in 0..TILE_SIZE {
-                let y = oy as u32 + ly;
-                if y >= h {
-                    break;
+    for coord in area.tiles() {
+        let clip_tile = match shape.clip {
+            Some(clip) => match clip.get(coord) {
+                Some(t) => Some(t),
+                None => continue,
+            },
+            None => None,
+        };
+        let mask_tile = shape.mask.and_then(|m| m.get(coord));
+        let (ox, oy) = coord.origin();
+        for ly in 0..TILE_SIZE {
+            for lx in 0..TILE_SIZE {
+                let Some(i) = area.index(ox + lx as i32, oy + ly as i32) else { continue };
+                let px = &mut pixels[i];
+                let b = to_f32(*px);
+                if b[3] <= 0.0 {
+                    continue;
                 }
-                for lx in 0..TILE_SIZE {
-                    let x = ox as u32 + lx;
-                    if x >= w {
-                        break;
-                    }
-                    let px = &mut pixels[(y * w + x) as usize];
-                    let b = to_f32(*px);
-                    if b[3] <= 0.0 {
-                        continue;
-                    }
-                    let mut k = shape.opacity;
-                    if let Some(m) = mask_tile {
-                        k *= 1.0 - m.pixel(lx, ly)[3] as f32 / 255.0;
-                    }
-                    if let Some(c) = clip_tile {
-                        k *= c.pixel(lx, ly)[3] as f32 / 255.0;
-                    }
-                    if k <= 0.0 {
-                        continue;
-                    }
-                    let a = op.apply_pixel(*px);
-                    let out = [
-                        b[0] + (a[0] * b[3] - b[0]) * k,
-                        b[1] + (a[1] * b[3] - b[1]) * k,
-                        b[2] + (a[2] * b[3] - b[2]) * k,
-                        b[3],
-                    ];
-                    *px = to_u8(out);
+                let mut k = shape.opacity;
+                if let Some(m) = mask_tile {
+                    k *= 1.0 - m.pixel(lx, ly)[3] as f32 / 255.0;
                 }
+                if let Some(c) = clip_tile {
+                    k *= c.pixel(lx, ly)[3] as f32 / 255.0;
+                }
+                if k <= 0.0 {
+                    continue;
+                }
+                let a = op.apply_pixel(*px);
+                let out = [b[0] + (a[0] * b[3] - b[0]) * k, b[1] + (a[1] * b[3] - b[1]) * k, b[2] + (a[2] * b[3] - b[2]) * k, b[3]];
+                *px = to_u8(out);
             }
         }
     }
+}
+
+/// The visible colour (premultiplied RGBA8) of the `w` × `h` pixels from
+/// (`x0`, `y0`): the whole layer stack composited there only, cheap enough
+/// for an eyedropper on a large page. Pixels outside the canvas are 0.
+pub fn flatten_region(doc: &Document, x0: u32, y0: u32, w: u32, h: u32) -> Vec<u8> {
+    let area = Area { canvas: doc.canvas(), x0, y0, w, h };
+    let mut buf = vec![0u8; (w * h * 4) as usize];
+    composite_layers(&doc.layers, &mut buf, area);
+    buf
 }
 
 fn blend_px(dst: &mut [u8; 4], s: Rgba, mode: BlendMode) {
@@ -379,6 +403,55 @@ mod tests {
         // Clipping uses the base's pixel alpha, not its mask.
         assert_eq!(&px[4..8], &[0, 0, 255, 255]);
         assert_eq!(&px[8..12], &[255, 255, 255, 255], "no base pixels: clipped layer hidden");
+    }
+
+    #[test]
+    fn region_matches_the_full_flatten() {
+        // Paper, a gradient, pixels across tiles in an isolated half-opacity
+        // folder, and an inversion over part of it.
+        let (w, h) = (300u32, 200u32);
+        let mut doc = Document::new(w, h);
+        let gradient = crate::procedural::Gradient {
+            start: [0.0, 0.0],
+            end: [300.0, 200.0],
+            from: [200, 20, 40, 255],
+            to: [10, 90, 200, 120],
+            shape: crate::procedural::GradientShape::Linear,
+        };
+        let id = doc.alloc_id();
+        doc.add_layer(Layer::gradient(id, "Gradient", gradient));
+        let mut folder = Layer::folder(doc.alloc_id(), "F");
+        folder.opacity = 0.5;
+        if let LayerKind::Folder(f) = &mut folder.kind {
+            let mut ink = Layer::raster(LayerId(900), "Ink");
+            let tiles = ink.tiles_mut().unwrap();
+            for (x, y) in [(5u32, 5u32), (130, 70), (260, 190), (128, 64), (127, 63)] {
+                let c = TileCoord::new((x / TILE_SIZE) as i32, (y / TILE_SIZE) as i32);
+                tiles.get_or_create_mut(c).set_pixel(x % TILE_SIZE, y % TILE_SIZE, [30, 60, 90, 255]);
+            }
+            f.children.push(ink);
+        }
+        doc.layers.push(folder);
+        let mut invert = Layer::adjustment(doc.alloc_id(), crate::adjust::Adjustment::Invert);
+        invert.opacity = 0.7;
+        doc.layers.push(invert);
+
+        let full = flatten(&doc);
+        for (x0, y0, rw, rh) in [(0, 0, 300, 200), (125, 60, 7, 6), (127, 63, 1, 1), (255, 185, 20, 20), (0, 199, 3, 1)] {
+            let region = flatten_region(&doc, x0, y0, rw, rh);
+            for y in 0..rh {
+                for x in 0..rw {
+                    let (cx, cy) = (x0 + x, y0 + y);
+                    let got = &region[((y * rw + x) * 4) as usize..][..4];
+                    if cx < w && cy < h {
+                        let want = &full[((cy * w + cx) * 4) as usize..][..4];
+                        assert_eq!(got, want, "pixel ({cx}, {cy}) of region at ({x0}, {y0})");
+                    } else {
+                        assert_eq!(got, [0; 4], "outside the canvas");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

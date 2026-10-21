@@ -99,6 +99,8 @@ pub struct PainterApp {
     /// Picking any colour ends it (`transparent_from` is the colour it started on).
     pub(crate) transparent: bool,
     pub(crate) transparent_from: Hsva,
+    /// The eyedropper's settings and what it's doing.
+    pub(crate) eyedropper: crate::eyedropper::Eyedropper,
     pub(crate) tool: Tool,
     pub(crate) tools: ToolOptions,
     pub(crate) view: ViewTransform,
@@ -213,6 +215,7 @@ impl PainterApp {
             sub_color: Hsva::new(0.0, 0.0, 1.0, 1.0),
             transparent: false,
             transparent_from: Hsva::new(0.0, 0.0, 0.0, 1.0),
+            eyedropper: Default::default(),
             tool: Tool::Brush,
             tools: ToolOptions::default(),
             view: ViewTransform::default(),

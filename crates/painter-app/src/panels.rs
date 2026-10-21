@@ -684,6 +684,10 @@ impl PainterApp {
                 );
                 ui.small("Pixels outside the new canvas are kept and come back if it grows. Enter applies, Esc cancels.");
             }
+            Tool::Eyedropper => {
+                widgets::group_header(ui, Icon::ColorPicker, "Eyedropper");
+                self.eyedropper_panel(ui);
+            }
             Tool::Hand => {
                 widgets::group_header(ui, Icon::Move, "Hand");
                 ui.label("Drag to pan. Wheel zooms, , and . rotate, 0 fits.");
