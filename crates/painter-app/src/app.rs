@@ -95,6 +95,10 @@ pub struct PainterApp {
     pub(crate) last_eraser: usize,
     pub(crate) color: Hsva,
     pub(crate) sub_color: Hsva,
+    /// Painting with the transparent colour (Clip Studio's third chip): brushes erase.
+    /// Picking any colour ends it (`transparent_from` is the colour it started on).
+    pub(crate) transparent: bool,
+    pub(crate) transparent_from: Hsva,
     pub(crate) tool: Tool,
     pub(crate) tools: ToolOptions,
     pub(crate) view: ViewTransform,
@@ -207,6 +211,8 @@ impl PainterApp {
             last_eraser,
             color: Hsva::new(0.0, 0.0, 0.08, 1.0),
             sub_color: Hsva::new(0.0, 0.0, 1.0, 1.0),
+            transparent: false,
+            transparent_from: Hsva::new(0.0, 0.0, 0.0, 1.0),
             tool: Tool::Brush,
             tools: ToolOptions::default(),
             view: ViewTransform::default(),
@@ -287,6 +293,13 @@ impl PainterApp {
             self.last_paint_brush = index;
         }
         self.tool = Tool::Brush;
+    }
+
+    /// Switches the transparent colour on or off.
+    pub(crate) fn toggle_transparent(&mut self) {
+        self.transparent = !self.transparent;
+        self.transparent_from = self.color;
+        self.status = if self.transparent { "Transparent colour: brushes erase".into() } else { String::new() };
     }
 
     pub(crate) fn main_rgb(&self) -> [f32; 3] {
@@ -565,7 +578,11 @@ impl PainterApp {
         let alpha_locked = matches!(plane, Plane::Color(_)) && !is_vector && self.doc.active_layer().is_some_and(|l| l.alpha_locked);
         let before = self.plane_tiles(plane).cloned().unwrap_or_default();
         self.checkpoint();
-        let settings = self.current_brush().clone();
+        let mut settings = self.current_brush().clone();
+        // The transparent colour: any brush erases, with its own tip and dynamics.
+        if self.transparent && matches!(plane, Plane::Color(_)) {
+            settings.mode = BrushMode::Erase;
+        }
         let color = if matches!(plane, Plane::Mask(_)) {
             [1.0; 3]
         } else {
@@ -1235,6 +1252,10 @@ impl eframe::App for PainterApp {
             self.status = notice;
         }
         self.receive_picked_files(ctx);
+        // Choosing any colour (wheel, palette, picker…) ends the transparent colour.
+        if self.transparent && self.color.to_srgba_unmultiplied() != self.transparent_from.to_srgba_unmultiplied() {
+            self.transparent = false;
+        }
         self.brush_library.autosave(&self.brushes, false);
         self.colors.autosave();
         if let Some(err) = self.brush_library.error.take() {

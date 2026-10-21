@@ -153,6 +153,15 @@ impl PainterApp {
             .frame(egui::Frame::new().fill(theme::panel()).inner_margin(egui::Margin::symmetric(3, 6)))
             .show(ctx, |ui| {
                 let strip = ui.max_rect();
+                // Right-click on the strip's background: customise. Registered first, so the
+                // buttons on top of it still get their clicks.
+                let background = ui.interact(strip, ui.id().with("tool_strip_bg"), Sense::click());
+                background.context_menu(|ui| {
+                    if ui.button("Customize Toolbar...").clicked() {
+                        self.ws.toolbar_editing = true;
+                        ui.close_menu();
+                    }
+                });
                 egui::ScrollArea::vertical().id_salt("tool_strip_scroll").show(ui, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
@@ -164,15 +173,10 @@ impl PainterApp {
                         ui.separator();
                         ui.add_space(4.0);
                         crate::widgets::color_chips(ui, &mut self.color, &mut self.sub_color, 24.0);
+                        if crate::widgets::transparent_chip(ui, self.transparent, 20.0).clicked() {
+                            self.toggle_transparent();
+                        }
                     });
-                });
-                // Right-click on the strip's background: customise.
-                let background = ui.interact(strip, ui.id().with("tool_strip_bg"), Sense::click());
-                background.context_menu(|ui| {
-                    if ui.button("Customize Toolbar...").clicked() {
-                        self.ws.toolbar_editing = true;
-                        ui.close_menu();
-                    }
                 });
             });
         if editing {

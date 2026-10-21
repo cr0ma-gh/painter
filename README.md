@@ -48,7 +48,7 @@ cargo run --release -p painter-app -- drawing.painter
   textures, dual brush, main dynamics) or as a Clip Studio `.sut` written into
   a sub tool you exported from Clip Studio once (used as a template: its tip
   images stay, since Clip Studio's material files are encrypted).
-- **Colour:** colour wheel; Color Slider (RGB, HSV and CMYK device values);
+- **Colour:** colour wheel; the transparent colour (the checkered chip beside main / sub: any brush erases with its own tip and dynamics, until a colour is picked); Color Slider (RGB, HSV and CMYK device values);
   Color Set (named sets, GIMP `.gpl` import / export); Color History;
   Intermediate Color (four blended corners); Approximate Color (value /
   saturation around the current colour); Color Mixing (paint, blend, erase

@@ -238,3 +238,13 @@ pub fn checkerboard(painter: &egui::Painter, rect: egui::Rect, cell: f32) {
         }
     }
 }
+
+/// Clip Studio's transparent colour chip: a checkerboard square, ringed when in use.
+pub fn transparent_chip(ui: &mut Ui, on: bool, size: f32) -> Response {
+    let size = size * crate::icons::panel_factor(ui);
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
+    checkerboard(ui.painter(), rect.shrink(2.0), size / 4.0);
+    let ring = if on { crate::theme::accent() } else if response.hovered() { crate::theme::strong() } else { crate::theme::line() };
+    ui.painter().rect_stroke(rect.shrink(1.0), 2.0, Stroke::new(if on { 2.5_f32 } else { 1.0 }, ring), StrokeKind::Inside);
+    response.on_hover_text("Transparent colour: brushes erase with their own shape (pick any colour to go back)")
+}

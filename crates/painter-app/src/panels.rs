@@ -382,6 +382,9 @@ impl PainterApp {
         });
         ui.horizontal(|ui| {
             color_chips(ui, &mut self.color, &mut self.sub_color, 26.0);
+            if widgets::transparent_chip(ui, self.transparent, 22.0).clicked() {
+                self.toggle_transparent();
+            }
             if icon_button(ui, Icon::SwapColors, 14.0, false, "Swap main and sub colour (X)").clicked() {
                 std::mem::swap(&mut self.color, &mut self.sub_color);
             }

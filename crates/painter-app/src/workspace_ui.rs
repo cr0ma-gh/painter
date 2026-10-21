@@ -906,7 +906,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 44] = [
+        let fixed: [FixedCommand; 45] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
             ("file.open", "Open...", C::File, "Ctrl+O", &["load"], true),
@@ -942,6 +942,7 @@ impl PainterApp {
             ("rulers.snap", "Snap to Rulers", C::View, "Ctrl+1", &["perspective", "symmetry", "ruler"], true),
             ("view.zen", "Toggle Zen Mode", C::View, "Tab / F11", &["fullscreen", "hide panels", "distraction free"], true),
             ("view.modifier_keys", "On-Screen Modifier Keys", C::View, "", &["ctrl", "shift", "alt", "touch", "keyboard"], true),
+            ("color.transparent", "Transparent Colour", C::Brush, "", &["alpha", "erase", "clear", "transparency"], true),
             ("brush.advanced", "Advanced Tool Settings...", C::Brush, "", &["brush", "export", "abr", "sut", "photoshop", "clip studio", "spray", "jitter"], true),
             ("brush.export_abr", "Export Brush for Photoshop (.abr)...", C::Brush, "", &["photoshop", "abr"], true),
             ("brush.export_sut", "Export Brush for Clip Studio (.sut)...", C::Brush, "", &["clip studio", "sut", "csp"], true),
@@ -1040,6 +1041,7 @@ impl PainterApp {
             "rulers.snap" => self.toggle_ruler_snapping(),
             "view.zen" => self.toggle_zen(),
             "view.ui_bigger" => self.step_ui_scale(1),
+            "color.transparent" => self.toggle_transparent(),
             "brush.advanced" => self.open_advanced_tool_settings(),
             "brush.export_abr" => self.export_abr(self.brush),
             "brush.export_sut" => self.export_sut(self.brush),

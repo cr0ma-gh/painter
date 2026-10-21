@@ -338,6 +338,9 @@ impl PainterApp {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             crate::widgets::color_chips(ui, &mut self.color, &mut self.sub_color, 24.0);
+            if crate::widgets::transparent_chip(ui, self.transparent, 22.0).clicked() {
+                self.toggle_transparent();
+            }
             let [r, g, b] = rgb;
             let mut hex = format!("{r:02X}{g:02X}{b:02X}");
             ui.label("#");
