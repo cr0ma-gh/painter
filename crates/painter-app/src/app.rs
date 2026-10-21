@@ -274,6 +274,7 @@ impl PainterApp {
             started: Instant::now(),
         };
         app.resync_gpu();
+        app.docs.reference.load_saved();
         app
     }
 
@@ -1055,11 +1056,10 @@ impl PainterApp {
 
     /// Files dropped on the window: brushes are imported, images and projects opened.
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
-        let dropped = ctx.input(|i| i.raw.dropped_files.clone());
-        for file in dropped {
-            let Some(path) = file.path else {
-                continue;
-            };
+        let dropped: Vec<std::path::PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
+        // Pictures dropped on the reference board go there.
+        let dropped = if dropped.is_empty() { dropped } else { self.drop_on_board(ctx, dropped) };
+        for path in dropped {
             if brush_io::is_brush_file(&path) {
                 self.import_brushes(&path);
             } else {
@@ -1256,6 +1256,7 @@ impl PainterApp {
                 Purpose::NewModelLayer => self.new_scene_layer_from(path),
                 Purpose::AddModel => self.add_model_from(&path),
                 Purpose::Theme => self.import_theme_from(&path),
+                Purpose::ReferenceImage => self.add_board_image(&path),
             }
         }
         if crate::files::picking() {
@@ -1353,10 +1354,12 @@ impl eframe::App for PainterApp {
         // On-screen modifier keys first, so they count for every shortcut.
         self.modifier_keys.inject(raw_input);
         self.intercept_document_keys(raw_input);
+        self.intercept_board_keys(raw_input);
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.brush_library.autosave(&self.brushes, true);
+        self.docs.reference.autosave(true);
         self.ws.save(storage);
     }
 }

@@ -124,11 +124,19 @@ cargo run --release -p painter-app -- drawing.painter
   mode (canvas only). Window → Theme Editor edits colours, text size and
   rounding with contrast warnings; dark, light and high-contrast presets,
   themes import and export as JSON. All of it is saved between sessions.
+- **Reference board** (Reference View, like PureRef): pictures dropped on it,
+  pasted (Ctrl+V), added from files, or live pictures of other open
+  documents, laid out freely: move, scale from a corner, turn from the handle
+  (Shift snaps to 15°), mirror, grey, opacity, stack, lock, duplicate,
+  arrange in rows, fit, mirror the view. The pen draws marks over them to
+  point things out (a mark drawn on a picture follows it), the eraser rubs
+  them out. Own undo, pan and zoom; kept between launches, and saved to or
+  opened from `.refboard` files. Layers dropped on a document's picture are
+  copied into that document.
 - **Several documents:** a tab per open document (`*` marks unsaved changes;
   Ctrl+W closes, Ctrl+Tab / Ctrl+Shift+Tab cycle), each with its own zoom,
   rotation, pan and undo history. Files open and save on worker threads.
-  A Reference View area shows another open document beside the canvas (own
-  zoom, pan, mirror). Layers, folders, 3D layers and selections copy into
+  Layers, folders, 3D layers and selections copy into
   another document by dragging the layer onto its tab, from the tab menu or
   Layer → Copy Layer to Document, resampled to keep their print size when the
   resolutions differ (Ctrl+C / Ctrl+V across tabs does the same). File → Save

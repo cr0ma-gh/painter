@@ -37,3 +37,7 @@ rfd.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 libloading.workspace = true
+
+[target.'cfg(any(windows, target_os = "macos", target_os = "linux"))'.dependencies]
+# Pasting pictures onto the reference board (already used by egui for text).
+arboard = { version = "3.7", default-features = false, features = ["image-data"] }

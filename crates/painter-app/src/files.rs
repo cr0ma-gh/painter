@@ -25,6 +25,8 @@ pub(crate) enum Purpose {
     /// A model added to the active 3D layer.
     AddModel,
     Theme,
+    /// Pictures for the reference board.
+    ReferenceImage,
 }
 
 /// The subset of `rfd::FileDialog` the app uses, plus the purpose.

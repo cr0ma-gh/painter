@@ -313,9 +313,6 @@ impl PainterApp {
     /// Closes without asking. The last tab becomes a fresh blank canvas.
     pub(crate) fn close_tab_now(&mut self, id: u64) {
         let Some(i) = self.docs.index_of(id) else { return };
-        if self.docs.reference.doc == Some(id) {
-            self.docs.reference.doc = None;
-        }
         if self.docs.slots.len() == 1 {
             let size = self.doc.canvas();
             let dpi = self.doc.dpi;

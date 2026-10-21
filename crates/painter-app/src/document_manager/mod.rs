@@ -8,6 +8,7 @@
 //! - [`layer_transfer`]: layers, folders, 3D layers and selections into another tab.
 
 pub(crate) mod layer_transfer;
+pub(crate) mod board;
 pub(crate) mod session_store;
 pub(crate) mod split_viewport;
 pub(crate) mod tab_bar;
