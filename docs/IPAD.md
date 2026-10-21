@@ -43,6 +43,9 @@ one-year signatures and TestFlight.
     (`%APPDATA%\CELSYSUserData\CELSYS\CLIPStudioCommon\Material`, or just the
     `PaintNNN` folders inside `Install`) into **Painter → Materials** in the
     Files app, then import the `.sut` again.
+- **Your brushes** (imported ones, edits, order) are kept between launches,
+  textures included. Right-click the import button in the brush list to add
+  back default brushes you deleted.
 - **Settings** (workspaces and their layouts, zen mode, themes) are saved
   as you change them and come back at the next launch.
 - If the app closes unexpectedly, `painter-crash.txt` appears in that folder

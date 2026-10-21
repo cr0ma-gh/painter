@@ -2,6 +2,7 @@
 
 mod adjust_ui;
 mod app;
+mod brush_library;
 mod canvas;
 mod comic_ui;
 mod curve;

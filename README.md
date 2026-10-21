@@ -86,6 +86,10 @@ cargo run --release -p painter-app -- drawing.painter
   resolutions differ (Ctrl+C / Ctrl+V across tabs does the same). File → Save
   All / Close All; quitting lists every unsaved document. Only the active
   document is on the GPU.
+- **Brush library:** the brush list (built-in and imported brushes, edits,
+  order, tips and textures) is saved to `%APPDATA%\Painter\brushes.rustbrush`
+  and comes back at the next launch; right-click the import button to add
+  back deleted default brushes.
 - **Tablet:** WinTab (pressure, tilt, automatic switch on the eraser end) with
   a fallback to Windows Ink.
 - **Files:** `.painter` projects, PSD import/export, PNG open/import/export.

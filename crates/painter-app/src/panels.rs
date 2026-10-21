@@ -539,11 +539,22 @@ impl PainterApp {
         }
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
-            if icon_button(ui, Icon::Open, 16.0, false, "Import brushes: Clip Studio .sut/.todb, Photoshop .abr, Painter .rustbrush")
-                .clicked()
-            {
+            let import = icon_button(
+                ui,
+                Icon::Open,
+                16.0,
+                false,
+                "Import brushes: Clip Studio .sut/.todb, Photoshop .abr, Painter .rustbrush (right-click: default brushes)",
+            );
+            if import.clicked() {
                 self.import_brushes_dialog();
             }
+            import.context_menu(|ui| {
+                if ui.button("Add Back Missing Default Brushes").clicked() {
+                    self.restore_default_brushes();
+                    ui.close_menu();
+                }
+            });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
                 ui.add_enabled_ui(self.brushes.len() > 1, |ui| {

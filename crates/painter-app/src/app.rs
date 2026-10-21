@@ -71,6 +71,8 @@ pub struct PainterApp {
     /// Bumped when the document is replaced so the GPU drops stale state.
     pub(crate) epoch: u64,
     pub(crate) brushes: Vec<BrushPreset>,
+    /// The brush list on disk, kept between launches.
+    pub(crate) brush_library: crate::brush_library::BrushLibrary,
     /// Stroke thumbnails for the Tool Group panel.
     pub(crate) previews: StrokePreviews,
     /// The toolbar's brush group, and the brush last used in each group.
@@ -172,13 +174,15 @@ impl PainterApp {
             None => false,
         };
         let ws = crate::workspace_ui::WorkspaceUi::load(cc.storage);
-        let brushes: Vec<BrushPreset> = BrushSettings::presets().into_iter().map(BrushPreset::new).collect();
+        let (brush_library, saved_brushes) = crate::brush_library::BrushLibrary::load();
+        let brushes: Vec<BrushPreset> = saved_brushes.unwrap_or_else(default_brushes);
         let last_eraser = brushes.iter().position(|b| b.settings.mode == BrushMode::Erase).unwrap_or(0);
         let mut app = Self {
             doc: Document::new(2480, 3508),
             history: History::new(UNDO_LIMIT),
             epoch: 1,
             brushes,
+            brush_library,
             previews: StrokePreviews::default(),
             brush_group: BrushGroup::Pen,
             group_brush: HashMap::new(),
@@ -951,6 +955,19 @@ impl PainterApp {
         self.select_brush(self.brush);
     }
 
+    /// Adds the built-in brushes that are no longer in the list (by name).
+    pub(crate) fn restore_default_brushes(&mut self) {
+        let missing: Vec<BrushPreset> =
+            default_brushes().into_iter().filter(|d| !self.brushes.iter().any(|b| b.settings.name == d.settings.name)).collect();
+        self.status = if missing.is_empty() {
+            "All the default brushes are already there".into()
+        } else {
+            format!("Added back {} default brushes", missing.len())
+        };
+        self.brushes.extend(missing);
+        self.group_brush.clear();
+    }
+
     /// Copies a brush in place, right after the original, and selects the copy.
     pub(crate) fn duplicate_brush(&mut self, index: usize) {
         let mut copy = self.brushes[index].clone();
@@ -1192,6 +1209,10 @@ impl eframe::App for PainterApp {
             self.status = notice;
         }
         self.receive_picked_files(ctx);
+        self.brush_library.autosave(&self.brushes, false);
+        if let Some(err) = self.brush_library.error.take() {
+            self.status = err;
+        }
         self.ws.autosave();
         self.sync_tool_sessions();
         self.prune_scenes();
@@ -1238,8 +1259,14 @@ impl eframe::App for PainterApp {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.brush_library.autosave(&self.brushes, true);
         self.ws.save(storage);
     }
+}
+
+/// The brushes Painter starts with.
+pub(crate) fn default_brushes() -> Vec<BrushPreset> {
+    BrushSettings::presets().into_iter().map(BrushPreset::new).collect()
 }
 
 pub(crate) fn hsva_rgb(c: Hsva) -> [f32; 3] {

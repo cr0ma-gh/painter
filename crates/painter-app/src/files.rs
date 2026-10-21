@@ -211,10 +211,25 @@ pub(crate) fn materials_dir() -> Option<PathBuf> {
 /// Library/Application Support (not shown in the Files app).
 pub(crate) fn settings_file() -> Option<PathBuf> {
     if cfg!(target_os = "ios") {
-        Some(PathBuf::from(std::env::var_os("HOME")?).join("Library/Application Support/Painter/settings.json"))
+        Some(app_data_dir()?.join("settings.json"))
     } else {
         None
     }
+}
+
+/// The app's own data folder (the brush library): `%APPDATA%\Painter` on
+/// Windows, `Library/Application Support/Painter` on iPadOS and macOS,
+/// `$XDG_DATA_HOME/Painter` (or `~/.local/share/Painter`) elsewhere.
+pub(crate) fn app_data_dir() -> Option<PathBuf> {
+    let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    let base = if cfg!(windows) {
+        var("APPDATA")?
+    } else if cfg!(any(target_os = "ios", target_os = "macos")) {
+        var("HOME")?.join("Library/Application Support")
+    } else {
+        var("XDG_DATA_HOME").or_else(|| var("HOME").map(|h| h.join(".local/share")))?
+    };
+    Some(base.join("Painter"))
 }
 
 /// Files in the documents folder Painter can open, newest first.
