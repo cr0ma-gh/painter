@@ -10,6 +10,7 @@ mod dialogs;
 mod document_manager;
 mod files;
 mod icons;
+mod ios_ui;
 mod panels;
 mod previews;
 mod rulers_ui;

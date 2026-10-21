@@ -73,6 +73,8 @@ pub struct PainterApp {
     pub(crate) brushes: Vec<BrushPreset>,
     /// The brush list on disk, kept between launches.
     pub(crate) brush_library: crate::brush_library::BrushLibrary,
+    /// iPadOS: status bar, edge gestures, safe area.
+    pub(crate) ios_window: crate::ios_ui::IosWindow,
     /// Stroke thumbnails for the Tool Group panel.
     pub(crate) previews: StrokePreviews,
     /// The toolbar's brush group, and the brush last used in each group.
@@ -183,6 +185,7 @@ impl PainterApp {
             epoch: 1,
             brushes,
             brush_library,
+            ios_window: Default::default(),
             previews: StrokePreviews::default(),
             brush_group: BrushGroup::Pen,
             group_brush: HashMap::new(),
@@ -1219,6 +1222,8 @@ impl eframe::App for PainterApp {
         self.commit_scenes(false);
         self.scene_repaint(ctx);
         self.workspace_frame(ctx);
+        // Outermost: the bands iPadOS draws over (rounded corners, camera).
+        self.ios_window.safe_area(ctx, crate::theme::backdrop());
         let chrome = self.ws.chrome;
         if chrome.show_menu_bar() {
             self.menu_bar(ctx);

@@ -48,6 +48,9 @@ one-year signatures and TestFlight.
   back default brushes you deleted.
 - **Settings** (workspaces and their layouts, zen mode, themes) are saved
   as you change them and come back at the next launch.
+- The iOS status bar is hidden and swipes from the screen edges go to
+  Painter first, so the menu bar at the top can be tapped; swipe a second
+  time to open the Notification or Control Center.
 - If the app closes unexpectedly, `painter-crash.txt` appears in that folder
   with the reason; please attach it to a bug report.
 

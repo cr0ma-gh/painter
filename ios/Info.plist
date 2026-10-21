@@ -42,6 +42,9 @@
 	<true/>
 	<key>UIStatusBarHidden</key>
 	<true/>
+	<!-- Let UIStatusBarHidden apply (the app's view controller would decide otherwise). -->
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
