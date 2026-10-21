@@ -198,6 +198,15 @@ pub(crate) fn documents_dir() -> Option<PathBuf> {
     }
 }
 
+/// Where Clip Studio materials copied from a computer go (iPadOS:
+/// Documents/Materials, created so it shows in the Files app). Brushes from
+/// `.sut` files find their textures and tips there.
+pub(crate) fn materials_dir() -> Option<PathBuf> {
+    let dir = documents_dir()?.join("Materials");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+}
+
 /// Where settings are kept when eframe has no storage: iPadOS's
 /// Library/Application Support (not shown in the Files app).
 pub(crate) fn settings_file() -> Option<PathBuf> {

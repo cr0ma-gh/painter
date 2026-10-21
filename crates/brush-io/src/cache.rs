@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use crate::types::{BrushIoError, ImportReport};
-use crate::{import_report, native};
+use crate::{import_report_with, native, sut::MaterialLibrary};
 
 /// Bumped when readers change what they produce, invalidating old entries.
 const CACHE_VERSION: &str = "brush-cache-6";
@@ -41,6 +41,11 @@ fn cache_file(path: &Path, cache_dir: &Path) -> Option<PathBuf> {
 /// Imports `path`, using and filling the cache in `cache_dir`.
 /// `.rustbrush` files are read directly; cache write failures are ignored.
 pub fn import_cached(path: &Path, cache_dir: &Path) -> Result<ImportReport, BrushIoError> {
+    import_cached_with(path, cache_dir, &MaterialLibrary::for_current_user())
+}
+
+/// [`import_cached`], resolving Clip Studio materials through `library`.
+pub fn import_cached_with(path: &Path, cache_dir: &Path, library: &MaterialLibrary) -> Result<ImportReport, BrushIoError> {
     let is_native = path.extension().is_some_and(|e| e.eq_ignore_ascii_case(native::EXTENSION));
     let entry = if is_native { None } else { cache_file(path, cache_dir) };
     if let Some(entry) = &entry {
@@ -48,7 +53,7 @@ pub fn import_cached(path: &Path, cache_dir: &Path) -> Result<ImportReport, Brus
             return Ok(ImportReport { presets, warnings: Vec::new(), from_cache: true });
         }
     }
-    let report = import_report(path)?;
+    let report = import_report_with(path, library)?;
     if let Some(entry) = entry.filter(|_| report.warnings.is_empty() && !report.presets.is_empty()) {
         let _ = (|| -> Result<(), BrushIoError> {
             std::fs::create_dir_all(cache_dir)?;

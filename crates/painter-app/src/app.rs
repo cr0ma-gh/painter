@@ -857,7 +857,11 @@ impl PainterApp {
 
     /// Adds every preset from a `.sut`, `.abr`, `.rustbrush` or `.todb` file.
     pub(crate) fn import_brushes(&mut self, path: &std::path::Path) {
-        match brush_io::cache::import_cached(path, &brush_io::cache::default_dir()) {
+        let mut library = brush_io::sut::MaterialLibrary::for_current_user();
+        if let Some(dir) = crate::files::materials_dir() {
+            library.add_copied(&dir);
+        }
+        match brush_io::cache::import_cached_with(path, &brush_io::cache::default_dir(), &library) {
             Ok(report) if report.presets.is_empty() => {
                 self.status = format!("No brushes found in {}", file_name(path));
                 self.import_warnings = report.warnings;
@@ -874,6 +878,9 @@ impl PainterApp {
                 }
                 if !report.warnings.is_empty() {
                     notes.push(format!("{} fallbacks, see Sub Tool", report.warnings.len()));
+                }
+                if crate::files::materials_dir().is_some() && report.warnings.iter().any(|w| w.contains("isn't installed")) {
+                    notes.push("missing textures: copy Clip Studio's Material folder into Painter/Materials, then import again".into());
                 }
                 if partial > 0 {
                     notes.push(format!("{partial} use features Painter doesn't paint yet"));

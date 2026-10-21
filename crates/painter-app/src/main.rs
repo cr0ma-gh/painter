@@ -38,6 +38,8 @@ fn install_crash_log() {
 
 fn main() -> eframe::Result {
     install_crash_log();
+    // iPadOS: the Materials folder appears in Files, ready for Clip Studio materials.
+    let _ = files::materials_dir();
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
         viewport: eframe::egui::ViewportBuilder::default()

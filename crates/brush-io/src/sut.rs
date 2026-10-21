@@ -190,6 +190,34 @@ impl MaterialLibrary {
         Self { roots }
     }
 
+    /// Adds every material folder found under `dir` (a few levels deep): a
+    /// copy of Clip Studio's `Material\Install` folder, of a folder above it
+    /// (`Material`, `CLIPStudioCommon`, …) or of single `PaintNNN` folders.
+    /// For devices without Clip Studio, such as an iPad.
+    pub fn add_copied(&mut self, dir: &Path) {
+        fn is_category(p: &Path) -> bool {
+            p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                n.len() > 5 && n.starts_with("Paint") && n[5..].chars().all(|c| c.is_ascii_digit())
+            })
+        }
+        fn walk(dir: &Path, depth: u32, roots: &mut Vec<PathBuf>) {
+            let Ok(entries) = std::fs::read_dir(dir) else { return };
+            let subdirs: Vec<PathBuf> = entries.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect();
+            if subdirs.iter().any(|p| is_category(p)) {
+                if !roots.iter().any(|r| r == dir) {
+                    roots.push(dir.to_path_buf());
+                }
+                return;
+            }
+            if depth > 0 {
+                for sub in subdirs {
+                    walk(&sub, depth - 1, roots);
+                }
+            }
+        }
+        walk(dir, 6, &mut self.roots);
+    }
+
     /// The installed folder of a reference like `:Paint004:ad4b…dfba:data:material.layer`.
     pub fn material_dir(&self, reference: &str) -> Option<PathBuf> {
         let parts: Vec<&str> = reference.split(':').filter(|p| !p.is_empty()).collect();
@@ -583,6 +611,24 @@ mod tests {
         image.put_pixel(2, 2, image::Rgba([0, 0, 0, 0]));
         image.save(dir.join("thumbnail.png")).unwrap();
         (MaterialLibrary { roots: vec![root.clone()] }, root)
+    }
+
+    #[test]
+    fn finds_copied_material_folders() {
+        // A copy of Clip Studio's folder tree, nested under the app's Materials folder.
+        let (_, install) = library();
+        let copied = install.parent().unwrap().join(format!("{}-copied", install.file_name().unwrap().to_string_lossy()));
+        let nested = copied.join("CLIPStudioCommon").join("Material").join("Install");
+        std::fs::create_dir_all(nested.parent().unwrap()).unwrap();
+        std::fs::rename(&install, &nested).unwrap();
+        let mut found = MaterialLibrary::default();
+        found.add_copied(&copied);
+        assert_eq!(found.roots, vec![nested.clone()]);
+        let report = read_db_with(&fixture(), &found).unwrap();
+        assert!(report.presets[0].texture.is_some(), "texture from the copied material");
+        found.add_copied(&copied);
+        assert_eq!(found.roots.len(), 1, "no duplicates");
+        std::fs::remove_dir_all(copied).ok();
     }
 
     #[test]

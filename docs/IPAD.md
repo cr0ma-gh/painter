@@ -34,6 +34,15 @@ one-year signatures and TestFlight.
   lists what it holds. After an export (PNG, PSD, SVG, brushes, theme) a
   second picker offers to put a copy anywhere else; cancel it to keep just the
   one in the Painter folder.
+- **Brushes with textures**: Photoshop `.abr` and Painter `.rustbrush` files
+  carry their textures. Clip Studio `.sut` files don't: they point to
+  materials installed by Clip Studio, which the iPad doesn't have. Either
+  - import the `.sut` in Painter on Windows and use **Export brushes** to get a
+    `.rustbrush` with the textures inside, then import that on the iPad, or
+  - copy Clip Studio's material folder from the PC
+    (`%APPDATA%\CELSYSUserData\CELSYS\CLIPStudioCommon\Material`, or just the
+    `PaintNNN` folders inside `Install`) into **Painter → Materials** in the
+    Files app, then import the `.sut` again.
 - **Settings** (workspaces and their layouts, zen mode, themes) are saved
   as you change them and come back at the next launch.
 - If the app closes unexpectedly, `painter-crash.txt` appears in that folder

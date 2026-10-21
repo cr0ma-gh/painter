@@ -26,9 +26,14 @@ pub const IMPORT_EXTENSIONS: [&str; 4] = ["sut", "abr", "rustbrush", "todb"];
 /// Imports a brush file, reporting fallbacks taken (see [`ImportReport`]).
 /// Clip Studio materials are resolved from this user's installed library.
 pub fn import_report(path: &Path) -> Result<ImportReport, BrushIoError> {
+    import_report_with(path, &sut::MaterialLibrary::for_current_user())
+}
+
+/// [`import_report`], resolving Clip Studio materials through `library`.
+pub fn import_report_with(path: &Path, library: &sut::MaterialLibrary) -> Result<ImportReport, BrushIoError> {
     let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
     match ext.as_str() {
-        "sut" | "todb" => sut::read_report(path, &sut::MaterialLibrary::for_current_user()),
+        "sut" | "todb" => sut::read_report(path, library),
         "abr" => abr::read_report(&std::fs::read(path)?),
         "rustbrush" => Ok(ImportReport { presets: native::read(&std::fs::read(path)?)?, ..ImportReport::default() }),
         other => Err(BrushIoError::Unsupported(format!("brush file type .{other}"))),
