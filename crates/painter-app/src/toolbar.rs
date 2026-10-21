@@ -162,7 +162,8 @@ impl PainterApp {
                         ui.close_menu();
                     }
                 });
-                egui::ScrollArea::vertical().id_salt("tool_strip_scroll").show(ui, |ui| {
+                // No drag-to-scroll: on a touch screen a pen tap that moves a hair would scroll instead of pressing.
+                egui::ScrollArea::vertical().id_salt("tool_strip_scroll").drag_to_scroll(false).show(ui, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
                         if editing {
