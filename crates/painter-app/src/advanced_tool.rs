@@ -358,6 +358,15 @@ impl PainterApp {
                 {
                     self.export_sut(index);
                 }
+                if ui.button("Krita bundle (.bundle)...").on_hover_text("Preset with its tip; open it in Krita with Settings → Manage Resources → Import").clicked() {
+                    self.export_brush_as(index, BrushFormat::Krita);
+                }
+                if ui.button("MyPaint brush (.myb)...").clicked() {
+                    self.export_brush_as(index, BrushFormat::MyPaint);
+                }
+                if ui.button("GIMP brush (.gbr / .vbr)...").on_hover_text("The tip: .gbr for a bitmap tip, .vbr for a round one").clicked() {
+                    self.export_brush_as(index, BrushFormat::Gimp);
+                }
                 let template = crate::files::app_data_dir().map(|d| d.join(SUT_TEMPLATE));
                 match template.filter(|t| t.is_file()) {
                     Some(_) => {
@@ -392,6 +401,35 @@ impl PainterApp {
                 format!("Exported {} for Photoshop (no stabilisation, spray, colour jitter or starting taper there)", path.display())
             }
             Err(err) => format!("Photoshop export failed: {err}"),
+        };
+    }
+
+    /// Exports one brush for Krita, MyPaint or GIMP.
+    pub(crate) fn export_brush_as(&mut self, index: usize, format: BrushFormat) {
+        let preset = self.brushes[index].clone();
+        let encoded = match format {
+            BrushFormat::Krita => brush_io::krita::write_bundle(std::slice::from_ref(&preset), preset.name()).map(|b| ("bundle", b)),
+            BrushFormat::MyPaint => brush_io::mypaint::write(&preset).map(|b| ("myb", b)),
+            BrushFormat::Gimp => brush_io::gimp::write(&preset),
+        };
+        let (ext, bytes) = match encoded {
+            Ok(x) => x,
+            Err(err) => {
+                self.status = format!("Export failed: {err}");
+                return;
+            }
+        };
+        let label = format.label();
+        let name = format!("{}.{ext}", preset.name().replace(['/', '\\', ':'], "_"));
+        let Some(path) = crate::files::FileDialog::new().add_filter(label, &[ext]).set_file_name(name).save_file() else {
+            return;
+        };
+        self.status = match std::fs::write(&path, bytes) {
+            Ok(()) => {
+                crate::files::offer_export(&path);
+                format!("Exported {} for {label} ({})", path.display(), format.caveat())
+            }
+            Err(err) => format!("{label} export failed: {err}"),
         };
     }
 
@@ -452,4 +490,31 @@ fn pressure_curve(ui: &mut egui::Ui, id: &str, curve: &mut PressureCurve) {
     });
     crate::curve::curve_editor(ui, id, curve);
     ui.label(egui::RichText::new("Drag points · double-click to add · right-click to remove").small().color(theme::text_dim()));
+}
+
+/// Other painting programs' brush formats a brush can be exported to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BrushFormat {
+    Krita,
+    MyPaint,
+    Gimp,
+}
+
+impl BrushFormat {
+    fn label(self) -> &'static str {
+        match self {
+            BrushFormat::Krita => "Krita",
+            BrushFormat::MyPaint => "MyPaint",
+            BrushFormat::Gimp => "GIMP",
+        }
+    }
+
+    /// What the other program's engine does differently.
+    fn caveat(self) -> &'static str {
+        match self {
+            BrushFormat::Krita => "pixel engine; colour jitter and starting taper aren't carried over",
+            BrushFormat::MyPaint => "MyPaint's engine; texture, dual tip and bitmap tips aren't carried over",
+            BrushFormat::Gimp => "the tip and spacing; GIMP keeps dynamics separately",
+        }
+    }
 }

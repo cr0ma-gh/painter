@@ -15,3 +15,7 @@ serde.workspace = true
 serde_json.workspace = true
 base64.workspace = true
 image.workspace = true
+# Krita presets and bundles (already in the dependency tree via painter-core).
+flate2 = "1.1"
+crc32fast = "1.5"
+roxmltree = "0.19"

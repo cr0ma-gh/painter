@@ -2371,8 +2371,11 @@ name = "painter-brush-io"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "crc32fast",
+ "flate2",
  "image",
  "painter-core",
+ "roxmltree",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2391,7 +2394,10 @@ dependencies = [
 name = "painter-core"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
+ "flate2",
  "image",
+ "roxmltree",
  "serde",
  "serde_json",
  "zip",

@@ -16,6 +16,7 @@ use ui_workspace::tiles::{self, AreaId, EditorType, SplitKind};
 
 use crate::app::PainterApp;
 use crate::theme;
+use crate::advanced_tool::BrushFormat;
 use crate::tools::{BrushGroup, Tool};
 
 const WORKSPACES_KEY: &str = "workspaces_v1";
@@ -906,7 +907,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 48] = [
+        let fixed: [FixedCommand; 53] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
             ("file.open", "Open...", C::File, "Ctrl+O", &["load"], true),
@@ -914,9 +915,11 @@ impl PainterApp {
             ("file.save_as", "Save As...", C::File, "Ctrl+Shift+S", &[], true),
             ("file.import_png", "Import PNG as Layer...", C::File, "", &["image", "picture"], true),
             ("file.scan", "Import from Scanner...", C::File, "", &["scan", "wia"], true),
-            ("file.import_brushes", "Import Brushes...", C::Brush, "", &["sut", "abr", "clip studio", "photoshop"], true),
+            ("file.import_brushes", "Import Brushes...", C::Brush, "", &["sut", "abr", "clip studio", "photoshop", "krita", "kpp", "bundle", "mypaint", "myb", "gimp", "gbr"], true),
             ("file.export_png", "Export PNG...", C::File, "", &["save image"], true),
             ("file.export_psd", "Export PSD...", C::File, "", &["photoshop"], true),
+            ("file.export_kra", "Export Krita (.kra)...", C::File, "", &["krita", "kra"], true),
+            ("file.export_ora", "Export OpenRaster (.ora)...", C::File, "", &["openraster", "mypaint", "gimp", "ora"], true),
             ("file.export_svg", "Export SVG...", C::File, "", &["vector"], true),
             ("file.export_brushes", "Export All Brushes...", C::Brush, "", &[], true),
             ("edit.undo", "Undo", C::Edit, "Ctrl+Z", &[], self.history.can_undo()),
@@ -949,6 +952,9 @@ impl PainterApp {
             ("brush.advanced", "Advanced Tool Settings...", C::Brush, "", &["brush", "export", "abr", "sut", "photoshop", "clip studio", "spray", "jitter"], true),
             ("brush.export_abr", "Export Brush for Photoshop (.abr)...", C::Brush, "", &["photoshop", "abr"], true),
             ("brush.export_sut", "Export Brush for Clip Studio (.sut)...", C::Brush, "", &["clip studio", "sut", "csp"], true),
+            ("brush.export_krita", "Export Brush for Krita (.bundle)...", C::Brush, "", &["krita", "kpp", "bundle"], true),
+            ("brush.export_mypaint", "Export Brush for MyPaint (.myb)...", C::Brush, "", &["mypaint", "myb", "drawpile"], true),
+            ("brush.export_gimp", "Export Brush for GIMP (.gbr / .vbr)...", C::Brush, "", &["gimp", "gbr", "vbr"], true),
             ("view.ui_bigger", "Bigger Interface", C::View, "Ctrl +", &["scale", "zoom", "size", "resolution"], true),
             ("view.ui_smaller", "Smaller Interface", C::View, "Ctrl -", &["scale", "zoom", "size", "resolution"], true),
             ("view.ui_reset", "Interface Size 100%", C::View, "Ctrl 0", &["scale", "zoom", "size", "resolution", "reset"], true),
@@ -1019,6 +1025,8 @@ impl PainterApp {
             "file.import_brushes" => self.import_brushes_dialog(),
             "file.export_png" => self.export_png(),
             "file.export_psd" => self.export_psd(),
+            "file.export_kra" => self.export_layered("kra"),
+            "file.export_ora" => self.export_layered("ora"),
             "file.export_svg" => self.svg_export = Some(crate::dialogs::SvgExportDialog::default()),
             "file.export_brushes" => self.export_brushes(None),
             "edit.undo" => self.undo(),
@@ -1054,6 +1062,9 @@ impl PainterApp {
             "brush.advanced" => self.open_advanced_tool_settings(),
             "brush.export_abr" => self.export_abr(self.brush),
             "brush.export_sut" => self.export_sut(self.brush),
+            "brush.export_krita" => self.export_brush_as(self.brush, BrushFormat::Krita),
+            "brush.export_mypaint" => self.export_brush_as(self.brush, BrushFormat::MyPaint),
+            "brush.export_gimp" => self.export_brush_as(self.brush, BrushFormat::Gimp),
             "view.ui_smaller" => self.step_ui_scale(-1),
             "view.ui_reset" => self.step_ui_scale(0),
             "view.modifier_keys" => {

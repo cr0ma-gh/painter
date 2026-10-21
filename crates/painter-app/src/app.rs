@@ -951,6 +951,9 @@ impl PainterApp {
             .add_filter("Brushes", &brush_io::IMPORT_EXTENSIONS)
             .add_filter("Clip Studio sub tool", &["sut"])
             .add_filter("Photoshop brushes", &["abr"])
+            .add_filter("Krita presets and bundles", &["kpp", "bundle"])
+            .add_filter("MyPaint brushes", &["myb"])
+            .add_filter("GIMP brushes", &["gbr", "gih", "vbr"])
             .add_filter("Painter brushes", &[brush_io::native::EXTENSION])
             .purpose(crate::files::Purpose::Brushes)
             .pick_files()
@@ -1091,9 +1094,11 @@ impl PainterApp {
 
     pub(crate) fn open_dialog(&mut self) {
         let Some(path) = crate::files::FileDialog::new()
-            .add_filter("All supported", &[project::EXTENSION, "psd", "png"])
+            .add_filter("All supported", &[project::EXTENSION, "psd", "kra", "ora", "png", "jpg"])
             .add_filter("Painter project", &[project::EXTENSION])
             .add_filter("Photoshop", &["psd"])
+            .add_filter("Krita", &["kra"])
+            .add_filter("OpenRaster", &["ora"])
             .add_filter("PNG image", &["png"])
             .pick_file()
         else {
@@ -1136,7 +1141,12 @@ impl PainterApp {
             .as_ref()
             .and_then(|p| p.file_name())
             .map_or_else(|| format!("painting.{}", project::EXTENSION), |n| n.to_string_lossy().into_owned());
-        if let Some(path) = crate::files::FileDialog::new().add_filter("Painter project", &[project::EXTENSION]).set_file_name(name).save_file()
+        if let Some(path) = crate::files::FileDialog::new()
+            .add_filter("Painter project", &[project::EXTENSION])
+            .add_filter("Krita (layers, masks and clipping flattened)", &["kra"])
+            .add_filter("OpenRaster (MyPaint, GIMP, Krita)", &["ora"])
+            .set_file_name(name)
+            .save_file()
         {
             self.save_to(path);
         }
@@ -1204,6 +1214,31 @@ impl PainterApp {
             Ok(()) => {
                 crate::files::offer_export(&path);
                 format!("Exported {} (procedural and vector layers rasterised)", path.display())
+            }
+            Err(err) => format!("Export failed: {err}"),
+        };
+    }
+
+    /// Export → Krita (`"kra"`) or OpenRaster (`"ora"`): the layers without drafts.
+    pub(crate) fn export_layered(&mut self, ext: &str) {
+        self.commit_scenes(true);
+        type Save = fn(&painter_core::Document, &std::path::Path) -> Result<Vec<String>, String>;
+        let (label, save): (&str, Save) = match ext {
+            "kra" => ("Krita", painter_core::kra::save),
+            _ => ("OpenRaster", painter_core::ora::save),
+        };
+        let name = format!("painting.{ext}");
+        let Some(path) = crate::files::FileDialog::new().add_filter(label, &[ext]).set_file_name(name).save_file() else {
+            return;
+        };
+        self.status = match save(&self.doc.without_drafts(), &path) {
+            Ok(notes) => {
+                crate::files::offer_export(&path);
+                if notes.is_empty() {
+                    format!("Exported {}", path.display())
+                } else {
+                    format!("Exported {} — {}", path.display(), crate::document_manager::session_store::summarize(&notes))
+                }
             }
             Err(err) => format!("Export failed: {err}"),
         };

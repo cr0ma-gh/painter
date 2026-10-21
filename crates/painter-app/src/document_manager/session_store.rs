@@ -60,7 +60,11 @@ struct PendingLoad {
 }
 
 /// A failed save hands its copy back, so a closed tab can be reopened.
-type Saved = Result<(), (String, Document, project::Extras)>;
+/// Ok: what the format couldn't keep (always empty for projects).
+type Saved = Result<Vec<String>, (String, Document, project::Extras)>;
+
+/// Extras entry carrying what opening a foreign file couldn't keep as is, one per line.
+pub(crate) const OPEN_WARNINGS: &str = "painter/open-warnings";
 
 struct PendingSave {
     slot: u64,
@@ -142,6 +146,17 @@ impl DocManager {
 pub(crate) fn load_file(path: &Path) -> Loaded {
     let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
     match ext.as_str() {
+        "kra" | "ora" => {
+            let read = if ext == "kra" { painter_core::kra::load(path) } else { painter_core::ora::load(path) };
+            read.map(|(doc, warnings)| {
+                let mut extras = project::Extras::new();
+                if !warnings.is_empty() {
+                    extras.insert(OPEN_WARNINGS.into(), warnings.join("\n").into_bytes());
+                }
+                // Saving writes the same format back.
+                (doc, true, extras)
+            })
+        }
         "psd" => psd::load(path).map(|d| (d, false, project::Extras::new())).map_err(|e| e.to_string()),
         "png" | "jpg" | "jpeg" => io::import_png(path)
             .map(|image| {
@@ -397,7 +412,7 @@ impl PainterApp {
         let (tx, rx) = channel();
         let job = path.clone();
         std::thread::spawn(move || {
-            let result = project::save_with(&doc, &extras, &job).map_err(|e| (e.to_string(), doc, extras));
+            let result = save_by_extension(&doc, &extras, &job).map_err(|e| (e.to_string(), doc, extras));
             let _ = tx.send(result);
         });
         self.docs.saves.push(PendingSave { slot: self.docs.active_id(), path: path.clone(), rx });
@@ -435,7 +450,8 @@ impl PainterApp {
         });
         for (slot, path, result) in saved {
             match result {
-                Ok(()) => self.status = format!("Saved {}", path.display()),
+                Ok(notes) if notes.is_empty() => self.status = format!("Saved {}", path.display()),
+                Ok(notes) => self.status = format!("Saved {} — {}", path.display(), summarize(&notes)),
                 Err((err, doc, extras)) => {
                     self.status = format!("Save failed: {err}");
                     match self.docs.index_of(slot) {
@@ -475,6 +491,10 @@ impl PainterApp {
                 }
                 self.status = format!("Opened {}", path.display());
                 self.apply_project_extras(&path, &extras);
+                if let Some(notes) = extras.get(OPEN_WARNINGS) {
+                    let notes: Vec<String> = String::from_utf8_lossy(notes).lines().map(str::to_string).collect();
+                    self.status = format!("Opened {} — {}", path.display(), summarize(&notes));
+                }
             }
             Err(err) => self.status = format!("Couldn't open {}: {err}", path.display()),
         }
@@ -485,6 +505,24 @@ impl PainterApp {
         let parked: usize = self.docs.slots.iter().filter_map(|s| s.parked.as_ref()).map(|s| s.doc.tile_count()).sum();
         (parked + self.doc.tile_count()) * painter_core::TILE_BYTES
     }
+}
+
+/// Writes a project, or a Krita / OpenRaster file when the name says so.
+fn save_by_extension(doc: &Document, extras: &project::Extras, path: &Path) -> Result<Vec<String>, String> {
+    match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+        Some("kra") => painter_core::kra::save(doc, path),
+        Some("ora") => painter_core::ora::save(doc, path),
+        _ => project::save_with(doc, extras, path).map(|()| Vec::new()).map_err(|e| e.to_string()),
+    }
+}
+
+/// A status-bar line for a format's notes: the first two, and how many more.
+pub(crate) fn summarize(notes: &[String]) -> String {
+    let mut s = notes.iter().take(2).cloned().collect::<Vec<_>>().join("; ");
+    if notes.len() > 2 {
+        s += &format!(" (+{} more)", notes.len() - 2);
+    }
+    s
 }
 
 #[cfg(test)]
@@ -509,6 +547,17 @@ mod tests {
         assert!(!is_project);
         assert_eq!((img.width, img.dpi), (70, 350), "resolution from pHYs");
         assert!(load_file(&dir.join("missing.painter")).is_err());
+
+        // Krita and OpenRaster: saved by name, opened back as documents that save in place.
+        for ext in ["kra", "ora"] {
+            let path = dir.join(format!("c.{ext}"));
+            assert!(save_by_extension(&doc, &project::Extras::new(), &path).unwrap().is_empty());
+            let (back, saves_in_place, extras) = load_file(&path).unwrap();
+            assert!(saves_in_place);
+            assert!(!extras.contains_key(OPEN_WARNINGS));
+            assert_eq!((back.width, back.height, back.dpi), (70, 40, 350), "{ext}");
+            assert_eq!(crate::files::kind_of(&path), Some(crate::files::FileKind::Document));
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 }

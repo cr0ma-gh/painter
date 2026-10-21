@@ -105,6 +105,16 @@ whatever its layer count.
 - **PSD** (`psd.rs`): written from the format specification, with PackBits RLE
   channels, `lsct` group dividers, `luni` names and user masks. Reading accepts
   8-bit RGB with raw/RLE channels and rejects other variants with a clear error.
+- **Krita `.kra`** (`kra.rs`) and **OpenRaster `.ora`** (`ora.rs`): ZIPs
+  through `zipfile.rs`, a small reader / writer (stored and deflated entries)
+  that can store the leading `mimetype` uncompressed as both formats require.
+  `.ora` has `stack.xml` and one PNG per layer. `.kra` has `maindoc.xml` and
+  each layer in Krita's tiled format: 64 × 64 tiles, each LZF-compressed
+  planar BGRA (or raw), unpremultiplied; 8 / 16-bit RGBA and grey layers and
+  transparency masks (`.pixelselection`) are read. Both also carry the
+  composite and a thumbnail. `interchange.rs` holds what they share (a layer's
+  pixels whatever its kind, blend mode names). Loading returns warnings for
+  what was approximated; the app shows them in the status bar.
 
 ## Input
 

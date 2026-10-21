@@ -103,7 +103,7 @@ fn command_icon(id: &str) -> Option<Icon> {
         "file.new" => Icon::New,
         "file.open" => Icon::Open,
         "file.save" => Icon::Save,
-        "file.save_as" | "file.export_png" | "file.export_psd" | "file.export_svg" => Icon::SaveAs,
+        "file.save_as" | "file.export_png" | "file.export_psd" | "file.export_kra" | "file.export_ora" | "file.export_svg" => Icon::SaveAs,
         "file.import_brushes" | "file.export_brushes" => Icon::Brushes,
         "edit.undo" => Icon::Undo,
         "edit.redo" => Icon::Redo,

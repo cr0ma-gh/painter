@@ -105,6 +105,14 @@ impl PainterApp {
                             ui.close_menu();
                             self.export_psd();
                         }
+                        if ui.button("Krita (.kra)...").clicked() {
+                            ui.close_menu();
+                            self.export_layered("kra");
+                        }
+                        if ui.button("OpenRaster (.ora)...").clicked() {
+                            ui.close_menu();
+                            self.export_layered("ora");
+                        }
                         if ui.button("Layer / Canvas as SVG...").clicked() {
                             ui.close_menu();
                             self.svg_export = Some(crate::dialogs::SvgExportDialog::default());

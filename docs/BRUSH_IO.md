@@ -2,8 +2,11 @@
 
 | Module | Format | Read | Write |
 |---|---|---|---|
-| `sut.rs` | Clip Studio Paint sub tool `.sut`, tool database `.todb` (SQLite) | ✅ | — |
-| `abr.rs` | Photoshop `.abr` v1, v2, v6, v7, v10 | ✅ | — |
+| `sut.rs` | Clip Studio Paint sub tool `.sut`, tool database `.todb` (SQLite) | ✅ | ✅ (into a template) |
+| `abr.rs`, `abr_write.rs` | Photoshop `.abr` v1, v2, v6, v7, v10 (written as v6.2) | ✅ | ✅ |
+| `krita.rs` | Krita presets `.kpp` and resource bundles `.bundle` | ✅ | ✅ (`.bundle`, `.kpp`) |
+| `mypaint.rs` | MyPaint `.myb` (version 3 JSON) | ✅ | ✅ |
+| `gimp.rs` | GIMP `.gbr`, `.gih` (first cell), `.vbr` | ✅ | ✅ (`.gbr`, `.vbr`) |
 | `native.rs` | Painter `.rustbrush` (JSON) | ✅ | ✅ |
 | `cache.rs` | On-disk cache of imports (as `.rustbrush`) | | |
 | `types.rs` | `BrushPreset`, `ImportReport`: the unified representation | | |
@@ -177,6 +180,62 @@ available on this machine to check against.
   into the size curve; the effector header words of the template are
   kept). Columns the template's Clip Studio version lacks are reported.
   Tip, texture and second-tip images stay the template's.
+
+## Krita, MyPaint and GIMP
+
+Each program has its own engine, so a brush can't paint exactly the same
+everywhere. What Painter guarantees is the **same-format round trip**: an
+imported preset keeps its original file (`BrushPreset::keep_original`, in
+`extras` as base64 with a fingerprint of the engine settings). Exported back
+to its own format **without edits**, it is written **byte for byte as it was
+read** (`unchanged_original`). After edits, the writer starts from the
+original and changes only the parameters Painter maps, so the source's own
+parameters (smudging, Krita-only options, MyPaint inputs Painter lacks) stay.
+
+**Krita (`krita.rs`).** A `.kpp` is a PNG whose `preset` text chunk (tEXt,
+zTXt or iTXt) holds `<Preset paintopid="…" name="…">` with one
+`<param name="…">` per setting. Read:
+
+- `brush_definition`: `auto_brush` (`MaskGenerator` diameter, ratio →
+  thickness, fade → hardness, angle in radians, spacing or auto spacing) or a
+  predefined tip (`gbr_brush`, `png_brush`…) by file name, found in the
+  bundle's `brushes/`, in Krita 5's embedded `resource_N` chunks, or next to
+  the `.kpp`. Grey PNG tips ink their dark parts, colour ones their alpha;
+- `OpacityValue` → opacity (stroke ceiling), `FlowValue` → density (per dab),
+  `EraserMode` / `CompositeOp=erase` → eraser;
+- curve options `Size`, `Opacity`, `Flow`, `Ratio`, `Rotation`
+  (`Pressure<Id>`, `<Id>Sensor` with one sensor or a `sensorslist`,
+  `<Id>UseCurve`, `<Id>UseSameCurve`, `<Id>commonCurve`): pressure, speed,
+  tilt and fuzzy (random) sensors; `drawingangle` on rotation = follow the
+  stroke;
+- scatter (`PressureScatter`, `ScatterValue`, `Scattering/AxisX|Y`) and
+  texture (`Texture/Pattern/Pattern`, a base64 PNG, scale, strength, invert).
+
+Engines other than the pixel engine (`paintbrush`) are approximated and say
+so. A `.bundle` is a ZIP: stored `mimetype`
+(`application/x-krita-resourcebundle`), `META-INF/manifest.xml` (type and MD5
+of every resource), `meta.xml`, `preview.png`, `paintoppresets/`,
+`brushes/`. Export writes a bundle with each preset and its tip as `.gbr`
+(or the original tip file, unchanged).
+
+**MyPaint (`mypaint.rs`).** `settings` maps libmypaint settings to
+`base_value` + `inputs` (offset curves). Mapped: `radius_logarithmic` (log
+space) and its pressure input → size and size curve; `opaque` ×
+`opaque_multiply` → per-dab density through libmypaint's linearisation
+(`1 − (1 − a)^(1/dabs per pixel)`) and its pressure curve; `hardness`;
+`dabs_per_actual_radius` + `dabs_per_basic_radius` → spacing (`1 / 2n`);
+`offset_by_random` → scatter; `radius_by_random` → size jitter;
+`elliptical_dab_ratio` / `_angle` (and a `direction` input) → thickness,
+angle, follow the stroke; `eraser`; `slow_tracking` → stabilisation.
+Smudging and colour changes along the stroke are reported, not painted. The
+old text format (before MyPaint 1.0) isn't read.
+
+**GIMP (`gimp.rs`).** `.gbr`: big-endian header (size, version 1–3, width,
+height, bytes per pixel, `GIMP`, spacing %), name, pixels (grey coverage, or
+RGBA colour brushes whose alpha becomes the tip). `.gih` image hoses: the
+first of their cells (Painter has one tip per brush). `.vbr`: generated
+circle tips (1.0 and 1.5; square and diamond are drawn round). Export:
+`.gbr` for a bitmap tip, `.vbr` for a round one.
 
 ## `.rustbrush`
 

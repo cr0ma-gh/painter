@@ -159,6 +159,12 @@ pub enum PresetSource {
         version: u16,
         sample_id: Option<String>,
     },
+    /// A Krita paint op preset; `paintop` is its engine ("paintbrush", "colorsmudge"…).
+    Krita {
+        paintop: String,
+    },
+    MyPaint,
+    Gimp,
 }
 
 /// One brush preset in Painter's unified representation.
@@ -261,6 +267,42 @@ impl BrushPreset {
             Some(DabTexture { bitmap: bitmap(&t.image)?, scale: t.scale / 100.0, density: t.density, invert: t.invert })
         });
         self.settings.dual = self.dual.as_ref().and_then(|d| Some(DualTip { bitmap: bitmap(&d.tip)?, scale: d.scale }));
+    }
+
+    /// A hash of everything the engine uses, to tell whether the preset was
+    /// edited since it was imported.
+    fn fingerprint(&self) -> String {
+        let json = serde_json::to_vec(&(&self.settings, &self.tip, &self.texture, &self.dual, &self.dynamics, self.thickness, self.angle))
+            .unwrap_or_default();
+        let hash = json.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ *b as u64).wrapping_mul(0x0100_0000_01b3));
+        format!("{hash:016x}")
+    }
+
+    /// Keeps the file this preset was read from (`format`: "krita", "mypaint"…)
+    /// so exporting it back to that format, unedited, gives the same bytes.
+    /// Call it once the preset is complete.
+    pub fn keep_original(&mut self, format: &str, bytes: &[u8]) {
+        use base64::Engine;
+        let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+        self.extras.insert(format!("{format}.original"), data.into());
+        self.extras.insert(format!("{format}.fingerprint"), self.fingerprint().into());
+    }
+
+    /// The original `format` file, if this preset came from one and hasn't been edited since.
+    pub fn unchanged_original(&self, format: &str) -> Option<Vec<u8>> {
+        use base64::Engine;
+        let print = self.extras.get(&format!("{format}.fingerprint"))?.as_str()?;
+        if print != self.fingerprint() {
+            return None;
+        }
+        base64::engine::general_purpose::STANDARD.decode(self.extras.get(&format!("{format}.original"))?.as_str()?).ok()
+    }
+
+    /// The original `format` file even if the preset was edited (for its
+    /// parameters our engine doesn't have).
+    pub fn original(&self, format: &str) -> Option<Vec<u8>> {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.decode(self.extras.get(&format!("{format}.original"))?.as_str()?).ok()
     }
 
     /// Features of this preset the brush engine doesn't apply.

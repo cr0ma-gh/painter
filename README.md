@@ -9,7 +9,7 @@ CELSYS code or assets are used.
 
 - [docs/FEATURE_MAP.md](docs/FEATURE_MAP.md): the behaviour we target and what is done
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): crates, GPU tile atlas, data flow, file formats
-- [docs/BRUSH_IO.md](docs/BRUSH_IO.md): importing Clip Studio `.sut` and Photoshop `.abr` brushes, `.rustbrush`
+- [docs/BRUSH_IO.md](docs/BRUSH_IO.md): brushes from Clip Studio `.sut`, Photoshop `.abr`, Krita `.kpp` / `.bundle`, MyPaint `.myb`, GIMP `.gbr` / `.gih` / `.vbr`, `.rustbrush`
 
 ## Build
 
@@ -39,8 +39,8 @@ cargo run --release -p painter-app -- drawing.painter
   below or into a folder; duplicate (Ctrl+J, folders with their contents),
   group into a folder (Ctrl+G), delete, show / hide, lock or change opacity
   and blend mode for all of them at once (right-click menu too). Draft
-  layers stay visible while you work and are left out of PNG, PSD and SVG
-  exports.
+  layers stay visible while you work and are left out of PNG, PSD, SVG,
+  Krita and OpenRaster exports.
 - **Brushes:** pressure curves for size and density (with an editor),
   per-stroke opacity, per-dab density, spacing, hardness, anti-aliasing,
   stabilisation (weighted average or pulled string), erasers. On vector layers
@@ -51,9 +51,15 @@ cargo run --release -p painter-app -- drawing.painter
   jitter and a starting taper. **Advanced Tool Settings** (Tool Settings, or
   the command palette) shows every setting by category, like Clip Studio's
   window, and exports the brush as `.rustbrush`, as a Photoshop `.abr` (tips,
-  textures, dual brush, main dynamics) or as a Clip Studio `.sut` written into
+  textures, dual brush, main dynamics), as a Clip Studio `.sut` written into
   a sub tool you exported from Clip Studio once (used as a template: its tip
-  images stay, since Clip Studio's material files are encrypted).
+  images stay, since Clip Studio's material files are encrypted), as a Krita
+  `.bundle`, a MyPaint `.myb` or a GIMP `.gbr` / `.vbr`. Krita (`.kpp`,
+  `.bundle`), MyPaint and GIMP (`.gbr`, `.gih`, `.vbr`) brushes import too. An
+  imported Krita or MyPaint brush exported back to its own format, unedited,
+  is the same file byte for byte; edited, it keeps the settings Painter
+  doesn't have. Between different programs the engines differ, so brushes
+  are mapped as closely as their settings allow (see docs/BRUSH_IO.md).
 - **Colour:** colour wheel; the transparent colour (the checkered chip beside main / sub: any brush erases with its own tip and dynamics, until a colour is picked); Color Slider (RGB, HSV and CMYK device values);
   Color Set (named sets, GIMP `.gpl` import / export); Color History;
   Intermediate Color (four blended corners); Approximate Color (value /
@@ -134,7 +140,13 @@ cargo run --release -p painter-app -- drawing.painter
   back deleted default brushes.
 - **Tablet:** WinTab (pressure, tilt, automatic switch on the eraser end) with
   a fallback to Windows Ink.
-- **Files:** `.painter` projects, PSD import/export, PNG open/import/export.
+- **Files:** `.painter` projects, PSD import/export, PNG open/import/export,
+  Krita `.kra` and OpenRaster `.ora` (MyPaint, GIMP, Krita…) open, Save As and
+  Export: layers, folders (pass-through or not), opacity, blend modes,
+  visibility, lock, offsets and Krita transparency masks are read; on save,
+  masks and clipping are baked into the pixels and correction layers left
+  out (the status bar says what). Krita filter, vector and fill layers come
+  in as a hidden "Krita composite" layer so nothing is lost.
   The app asks before closing with unsaved changes.
 - **Transform and crop** (Transform tool / Ctrl+T, Crop tool / C; crate
   `transform-tools`): the layer or selection floats under a gizmo while the
