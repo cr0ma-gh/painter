@@ -26,6 +26,15 @@ pub struct TabletState {
     /// Every WinTab sample of this frame, oldest first.
     #[cfg(windows)]
     frame_samples: Vec<PenSample>,
+    /// The window, to place WinTab's desktop positions in it.
+    #[cfg(windows)]
+    hwnd: Option<isize>,
+    /// WinTab positions agree with the pointer (checked every frame); after a
+    /// few frames of disagreement they are no longer used.
+    #[cfg(windows)]
+    positions_ok: bool,
+    #[cfg(windows)]
+    position_misses: u32,
     /// Pointer events this frame and the one being handled (see `begin_events`).
     events: usize,
     event: Option<usize>,
@@ -43,7 +52,8 @@ impl TabletState {
         {
             if !self.wintab_tried {
                 self.wintab_tried = true;
-                self.wintab = window_handle(frame).and_then(WinTab::open);
+                self.hwnd = window_handle(frame);
+                self.wintab = self.hwnd.and_then(WinTab::open);
             }
             self.frame_samples = self.wintab.as_mut().map(WinTab::poll).unwrap_or_default();
             if let Some(&sample) = self.frame_samples.last() {
@@ -123,6 +133,55 @@ impl TabletState {
         0.0
     }
 
+    /// This frame's pen samples while touching, as window points (egui
+    /// coordinates) with pressure, tilt and a time on the app clock (`now`
+    /// is the app time of the newest sample). The pointer events Windows
+    /// sends for a pen are few and merged; WinTab's packets come 100–200 times
+    /// a second, so a fast stroke keeps its shape. Empty when WinTab isn't in
+    /// use or its positions don't match the pointer (`pointer`: egui's latest
+    /// pointer position, checked every frame).
+    pub fn packet_points(&mut self, pixels_per_point: f32, now: f32, pointer: Option<eframe::egui::Pos2>) -> Vec<PacketPoint> {
+        #[cfg(windows)]
+        {
+            let (Some(hwnd), Some(last)) = (self.hwnd, self.frame_samples.last()) else { return Vec::new() };
+            let Some(origin) = client_origin(hwnd) else { return Vec::new() };
+            let ppp = pixels_per_point.max(0.1);
+            let to_points = |s: &PenSample| eframe::egui::pos2((s.screen[0] - origin[0]) / ppp, (s.screen[1] - origin[1]) / ppp);
+            // Does the newest packet sit where the pointer is? (Both are this frame's latest.)
+            if let Some(pointer) = pointer {
+                if (to_points(last) - pointer).length() < 24.0 {
+                    self.positions_ok = true;
+                    self.position_misses = 0;
+                } else if self.position_misses < 3 {
+                    self.position_misses += 1;
+                    if self.position_misses == 3 {
+                        self.positions_ok = false;
+                    }
+                }
+            }
+            if !self.positions_ok || self.position_misses >= 3 {
+                return Vec::new();
+            }
+            let newest = last.time_ms;
+            self
+                .frame_samples
+                .iter()
+                .filter(|s| s.touching)
+                .map(|s| PacketPoint {
+                    pos: to_points(s),
+                    pressure: s.pressure,
+                    tilt: s.tilt,
+                    time: now - newest.wrapping_sub(s.time_ms) as f32 / 1000.0,
+                })
+                .collect()
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (pixels_per_point, now, pointer);
+            Vec::new()
+        }
+    }
+
     /// `Some(true)` once when the eraser end comes into use, `Some(false)` when the tip returns.
     pub fn take_eraser_switch(&mut self) -> Option<bool> {
         self.eraser_switch.take()
@@ -149,6 +208,28 @@ impl TabletState {
             None => "Mouse / Windows Ink".into(),
         }
     }
+}
+
+/// One WinTab sample on the canvas: see [`TabletState::packet_points`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PacketPoint {
+    pub pos: eframe::egui::Pos2,
+    pub pressure: f32,
+    pub tilt: f32,
+    /// Seconds, on the app's clock.
+    pub time: f32,
+}
+
+/// The window's client area origin on the desktop, in physical pixels.
+#[cfg(windows)]
+fn client_origin(hwnd: isize) -> Option<[f32; 2]> {
+    #[link(name = "user32")]
+    extern "system" {
+        fn ClientToScreen(hwnd: isize, point: *mut [i32; 2]) -> i32;
+    }
+    let mut p = [0i32; 2];
+    // SAFETY: `hwnd` is this app's window; `p` is a POINT (two LONGs).
+    (unsafe { ClientToScreen(hwnd, &mut p) } != 0).then_some([p[0] as f32, p[1] as f32])
 }
 
 #[cfg(windows)]

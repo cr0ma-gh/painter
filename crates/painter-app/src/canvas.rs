@@ -153,6 +153,22 @@ impl PainterApp {
         let to_doc = |view: &ViewTransform, pos: Pos2| view.screen_to_doc(rect, doc_size, pos);
         let is_pointer = |e: &Event| matches!(e, Event::PointerMoved(_) | Event::PointerButton { .. });
         self.tablet.begin_events(events.iter().filter(|e| is_pointer(e)).count());
+        // WinTab: every pen packet of the frame instead of the few merged
+        // pointer moves Windows sends, so fast strokes keep their shape.
+        let now = self.started.elapsed().as_secs_f32();
+        let pointer = ui.input(|i| i.pointer.latest_pos());
+        let packets = self.tablet.packet_points(ui.ctx().pixels_per_point(), now, pointer);
+        let mut packets_fed = packets.is_empty();
+        let feed_packets = |app: &mut PainterApp, fed: &mut bool| {
+            if *fed {
+                return;
+            }
+            *fed = true;
+            for pp in &packets {
+                let p = app.view.screen_to_doc(rect, doc_size, pp.pos);
+                app.continue_stroke(StrokePoint::new(p.x, p.y, pp.pressure).with_tilt(pp.tilt).at_time(pp.time));
+            }
+        };
         for event in &events {
             self.tablet.observe(event);
             if is_pointer(event) {
@@ -169,6 +185,7 @@ impl PainterApp {
                         self.tool_press(p, *modifiers);
                     }
                 }
+                Event::PointerMoved(_) if self.stroke.is_some() && !packets.is_empty() => feed_packets(self, &mut packets_fed),
                 Event::PointerMoved(pos) if self.stroke.is_some() => {
                     let p = to_doc(&self.view, *pos);
                     self.continue_stroke(self.stroke_point(p));
@@ -179,6 +196,7 @@ impl PainterApp {
                 }
                 Event::PointerButton { button: PointerButton::Primary, pressed: false, .. } | Event::PointerGone => {
                     if self.stroke.is_some() {
+                        feed_packets(self, &mut packets_fed);
                         self.end_stroke();
                     }
                     if self.drag.is_some() {
@@ -187,6 +205,10 @@ impl PainterApp {
                 }
                 _ => {}
             }
+        }
+        // Packets in a frame with no pointer move (Windows merged them all away).
+        if self.stroke.is_some() {
+            feed_packets(self, &mut packets_fed);
         }
         if !ui.input(|i| i.pointer.primary_down()) {
             if self.stroke.is_some() {

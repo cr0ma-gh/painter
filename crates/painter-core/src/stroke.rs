@@ -22,11 +22,15 @@ pub struct StrokeEngine {
     /// Direction of the current segment, degrees (counter-clockwise on screen).
     direction: f32,
     rng: u64,
-    /// Distance along the stroke so far (for the starting taper).
+    /// Distance along the stroke at the dab being made (for the starting taper).
     travelled: f32,
+    /// Length of the stroke's path up to the last point walked to.
+    path: f32,
     /// A second generator for scattering, so brushes without it draw the same
     /// random numbers as before it existed.
     scatter_rng: u64,
+    /// The last few input points, for the curve through them (see `feed`).
+    curve: Vec<StrokePoint>,
 }
 
 impl StrokeEngine {
@@ -51,14 +55,16 @@ impl StrokeEngine {
                 (z ^ (z >> 31)) | 1
             },
             travelled: 0.0,
+            path: 0.0,
             scatter_rng: (seed.rotate_left(17) ^ 0xD1B5_4A32_D192_ED03) | 1,
+            curve: Vec::new(),
         }
     }
 
     pub fn add(&mut self, p: StrokePoint) -> Vec<Dab> {
         let mut out = Vec::new();
         if let Some(target) = self.smoother.push(p) {
-            self.walk_to(target, &mut out);
+            self.feed(target, &mut out);
         }
         out
     }
@@ -66,9 +72,84 @@ impl StrokeEngine {
     pub fn finish(&mut self) -> Vec<Dab> {
         let mut out = Vec::new();
         for target in self.smoother.finish() {
-            self.walk_to(target, &mut out);
+            self.feed(target, &mut out);
         }
+        // The last segment waited for a point after it; draw it now.
+        let n = self.curve.len();
+        if n >= 2 {
+            let p0 = if n >= 3 { self.curve[n - 3] } else { reflect(self.curve[n - 1], self.curve[n - 2]) };
+            let (p1, p2) = (self.curve[n - 2], self.curve[n - 1]);
+            let p3 = if n >= 3 { extrapolate(p2, p1, p0) } else { reflect(p1, p2) };
+            self.spline_segment(p0, p1, p2, p3, &mut out);
+        }
+        self.curve.clear();
         out
+    }
+
+    /// Input points become a curve, not a polyline: a centripetal
+    /// Catmull-Rom spline through them, so sparse samples (a fast stroke
+    /// at a low event rate) still draw round. Each segment is drawn once the
+    /// point after it is known, one sample behind the pen.
+    fn feed(&mut self, p: StrokePoint, out: &mut Vec<Dab>) {
+        let Some(&last) = self.curve.last() else {
+            self.curve.push(p);
+            self.walk_to(p, out);
+            return;
+        };
+        if last.distance(p) < 1e-3 {
+            // Same place: keep the newest pressure / time for the next segment.
+            if let Some(l) = self.curve.last_mut() {
+                *l = StrokePoint { x: l.x, y: l.y, ..p };
+            }
+            return;
+        }
+        self.curve.push(p);
+        if self.curve.len() > 4 {
+            self.curve.remove(0);
+        }
+        let n = self.curve.len();
+        if n >= 3 {
+            let (p1, p2, p3) = (self.curve[n - 3], self.curve[n - 2], self.curve[n - 1]);
+            let p0 = if n >= 4 { self.curve[n - 4] } else { extrapolate(p1, p2, p3) };
+            self.spline_segment(p0, p1, p2, p3, out);
+        }
+    }
+
+    /// Walks the curve from `p1` to `p2` (with neighbours `p0`, `p3`) in
+    /// short straight steps; pressure, tilt and time change evenly.
+    fn spline_segment(&mut self, p0: StrokePoint, p1: StrokePoint, p2: StrokePoint, p3: StrokePoint, out: &mut Vec<Dab>) {
+        let chord = p1.distance(p2);
+        if chord < 1e-4 {
+            return;
+        }
+        // About one step per pixel of the chord.
+        let steps = chord.ceil().clamp(1.0, 4096.0) as usize;
+        let knot = |a: StrokePoint, b: StrokePoint| a.distance(b).max(1e-4).sqrt();
+        let (t1, t2, t3) = {
+            let t1 = knot(p0, p1);
+            let t2 = t1 + knot(p1, p2);
+            (t1, t2, t2 + knot(p2, p3))
+        };
+        let at = |t: f32| -> [f32; 2] {
+            // Barry-Goldman pyramid of the centripetal Catmull-Rom.
+            let mix = |a: [f32; 2], b: [f32; 2], ta: f32, tb: f32| {
+                let w = (t - ta) / (tb - ta);
+                [a[0] + (b[0] - a[0]) * w, a[1] + (b[1] - a[1]) * w]
+            };
+            let [q0, q1, q2, q3] = [p0, p1, p2, p3].map(|p| [p.x, p.y]);
+            let a1 = mix(q0, q1, 0.0, t1);
+            let a2 = mix(q1, q2, t1, t2);
+            let a3 = mix(q2, q3, t2, t3);
+            let b1 = mix(a1, a2, 0.0, t2);
+            let b2 = mix(a2, a3, t1, t3);
+            mix(b1, b2, t1, t2)
+        };
+        for i in 1..=steps {
+            let u = i as f32 / steps as f32;
+            let [x, y] = if i == steps { [p2.x, p2.y] } else { at(t1 + (t2 - t1) * u) };
+            let base = p1.lerp(p2, u);
+            self.walk_to(StrokePoint { x, y, ..base }, out);
+        }
     }
 
     /// Uniform in 0..1 (xorshift64*).
@@ -142,10 +223,11 @@ impl StrokeEngine {
             }
             pos += need;
             self.carry = 0.0;
-            self.travelled += need;
+            self.travelled = self.path + pos;
             let dab = self.dab_at(from.lerp(to, pos / len));
             self.emit(dab, out);
         }
+        self.path += len;
         self.last = Some(to);
     }
 
@@ -178,6 +260,18 @@ impl StrokeEngine {
         }
     }
 }
+
+/// The point mirrored from `p` through `centre` (for a curve's missing end neighbour).
+fn reflect(p: StrokePoint, centre: StrokePoint) -> StrokePoint {
+    StrokePoint { x: 2.0 * centre.x - p.x, y: 2.0 * centre.y - p.y, ..centre }
+}
+
+/// The point before `a` on the parabola through `a`, `b`, `c` (evenly
+/// spaced): a curve's missing end neighbour that keeps its bend.
+fn extrapolate(a: StrokePoint, b: StrokePoint, c: StrokePoint) -> StrokePoint {
+    StrokePoint { x: 3.0 * a.x - 3.0 * b.x + c.x, y: 3.0 * a.y - 3.0 * b.y + c.y, ..a }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,6 +328,35 @@ mod tests {
     }
 
     #[test]
+    fn sparse_samples_draw_a_curve_through_them() {
+        // Five samples on a circle of radius 100, as a fast stroke at a low
+        // event rate gives: the dabs stay near the circle, not on its chords.
+        let settings = BrushSettings { size: 4.0, spacing: 0.25, pressure_size: false, stabilization: 0, ..BrushSettings::g_pen() };
+        let mut engine = StrokeEngine::new(&settings);
+        let mut dabs = Vec::new();
+        for k in 0..=4 {
+            let a = (k as f32 * 30.0).to_radians();
+            dabs.extend(engine.add(StrokePoint::new(100.0 * a.cos(), 100.0 * a.sin(), 1.0)));
+        }
+        dabs.extend(engine.finish());
+        let worst = dabs.iter().map(|d| (d.x.hypot(d.y) - 100.0).abs()).fold(0.0f32, f32::max);
+        // A 30° chord sags 3.4 px below the arc; the curve stays well within that.
+        assert!(worst < 1.0, "off the circle by {worst}");
+        // It still passes through every sample and ends at the last one.
+        let last = dabs.last().unwrap();
+        let end = 120f32.to_radians();
+        assert!((last.x - 100.0 * end.cos()).abs() < 2.0 && (last.y - 100.0 * end.sin()).abs() < 2.0);
+        // A straight line stays straight.
+        let mut engine = StrokeEngine::new(&settings);
+        let mut line = engine.add(StrokePoint::new(0.0, 0.0, 1.0));
+        for x in [30.0, 75.0, 90.0, 200.0] {
+            line.extend(engine.add(StrokePoint::new(x, 0.0, 1.0)));
+        }
+        line.extend(engine.finish());
+        assert!(line.iter().all(|d| d.y.abs() < 1e-3) && line.windows(2).all(|w| w[1].x > w[0].x));
+    }
+
+    #[test]
     fn short_moves_carry_distance() {
         let settings = BrushSettings { size: 20.0, spacing: 0.5, pressure_size: false, stabilization: 0, ..BrushSettings::g_pen() };
         let mut engine = StrokeEngine::new(&settings);
@@ -241,6 +364,7 @@ mod tests {
         for i in 1..=40 {
             count += engine.add(StrokePoint::new(i as f32 * 0.5, 0.0, 1.0)).len();
         }
+        count += engine.finish().len();
         // 20 px travelled with 10 px spacing: start dab + 2.
         assert_eq!(count, 3);
     }
@@ -269,6 +393,7 @@ mod tests {
             let mut engine = StrokeEngine::with_seed(settings, 7);
             let mut dabs = engine.add(StrokePoint::new(0.0, 0.0, 1.0));
             dabs.extend(engine.add(StrokePoint::new(400.0, 0.0, 1.0)));
+            dabs.extend(engine.finish());
             dabs
         };
         let plain_dabs = line(&plain());

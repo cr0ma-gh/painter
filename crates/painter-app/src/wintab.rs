@@ -17,13 +17,14 @@ const WTI_DEFSYSCTX: u32 = 4;
 const WTI_DEVICES: u32 = 100;
 const DVC_NPRESSURE: u32 = 15;
 
+const PK_TIME: u32 = 0x0004;
 const PK_CURSOR: u32 = 0x0020;
 const PK_BUTTONS: u32 = 0x0040;
 const PK_X: u32 = 0x0080;
 const PK_Y: u32 = 0x0100;
 const PK_NORMAL_PRESSURE: u32 = 0x0400;
 const PK_ORIENTATION: u32 = 0x1000;
-const PACKET_DATA: u32 = PK_CURSOR | PK_BUTTONS | PK_X | PK_Y | PK_NORMAL_PRESSURE | PK_ORIENTATION;
+const PACKET_DATA: u32 = PK_TIME | PK_CURSOR | PK_BUTTONS | PK_X | PK_Y | PK_NORMAL_PRESSURE | PK_ORIENTATION;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -55,6 +56,8 @@ struct LogContextA {
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 struct Packet {
+    /// Milliseconds, driver clock.
+    time: u32,
     cursor: u32,
     buttons: u32,
     x: i32,
@@ -90,6 +93,29 @@ pub struct PenSample {
     pub azimuth: f32,
     pub eraser: bool,
     pub touching: bool,
+    /// Where the pen is on the desktop, in physical pixels (sub-pixel), from
+    /// the tablet's own coordinates.
+    pub screen: [f32; 2],
+    /// Driver timestamp, milliseconds.
+    pub time_ms: u32,
+}
+
+/// How tablet coordinates map onto the desktop.
+#[derive(Clone, Copy, Debug)]
+struct Mapping {
+    out_org: [f32; 2],
+    out_ext: [f32; 2],
+    sys_org: [f32; 2],
+    sys_ext: [f32; 2],
+}
+
+impl Mapping {
+    /// Desktop pixels for packet coordinates. Tablet y grows upwards.
+    fn screen(&self, x: i32, y: i32) -> [f32; 2] {
+        let fx = (x as f32 - self.out_org[0]) / self.out_ext[0];
+        let fy = (y as f32 - self.out_org[1]) / self.out_ext[1];
+        [self.sys_org[0] + fx * self.sys_ext[0], self.sys_org[1] + (1.0 - fy) * self.sys_ext[1]]
+    }
 }
 
 pub struct WinTab {
@@ -99,6 +125,7 @@ pub struct WinTab {
     packets_get: WtPacketsGet,
     ctx: Hctx,
     pressure_max: f32,
+    mapping: Mapping,
 }
 
 // The context handle is only used from the UI thread.
@@ -128,6 +155,10 @@ impl WinTab {
             ctx.pkt_data = PACKET_DATA;
             ctx.pkt_mode = 0;
             ctx.move_mask = PACKET_DATA;
+            // Packets in the tablet's full resolution (sub-pixel on screen); mapped to
+            // the desktop with the system extents below.
+            ctx.out_org = ctx.in_org;
+            ctx.out_ext = ctx.in_ext;
 
             let mut axis = Axis::default();
             info(WTI_DEVICES, DVC_NPRESSURE, (&mut axis as *mut Axis).cast());
@@ -137,7 +168,14 @@ impl WinTab {
             if handle.is_null() {
                 return None;
             }
-            Some(Self { _lib: lib, close, packets_get, ctx: handle, pressure_max })
+            let f = |v: [i32; 2]| [v[0] as f32, v[1] as f32];
+            let mapping = Mapping {
+                out_org: f([ctx.out_org[0], ctx.out_org[1]]),
+                out_ext: f([ctx.out_ext[0], ctx.out_ext[1]]).map(|e| if e == 0.0 { 1.0 } else { e }),
+                sys_org: f(ctx.sys_org),
+                sys_ext: f(ctx.sys_ext),
+            };
+            Some(Self { _lib: lib, close, packets_get, ctx: handle, pressure_max, mapping })
         }
     }
 
@@ -168,6 +206,8 @@ impl WinTab {
             // Common driver convention: cursor 1 = pen tip, 2 = eraser (per tablet).
             eraser: p.cursor % 3 == 2,
             touching: p.pressure > 0,
+            screen: self.mapping.screen(p.x, p.y),
+            time_ms: p.time,
         }
     }
 }
