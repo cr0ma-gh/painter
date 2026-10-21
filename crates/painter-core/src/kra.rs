@@ -444,8 +444,26 @@ impl Reader<'_> {
     fn pixels(&mut self, n: roxmltree::Node, file: &str, space: Space) -> Result<TileStore, String> {
         let data = self.data(file).ok_or_else(|| format!("missing {file}"))?;
         let (ox, oy) = (num::<i32>(n, "x").unwrap_or(0), num::<i32>(n, "y").unwrap_or(0));
+        let tiles = read_tiles(&data, space)?;
         let mut store = TileStore::new();
-        for (x, y, rgba) in read_tiles(&data, space)? {
+        // Outside its tiles a layer has its `.defaultpixel` (usually transparent).
+        let default = self.data(&format!("{file}.defaultpixel")).filter(|d| d.len() == space.size()).map(|d| space.rgba(&d));
+        if let Some(fill) = default.filter(|p| p[3] != 0) {
+            let (w, h) = (self.canvas.0 as i32, self.canvas.1 as i32);
+            let mut canvas = fill.repeat((w * h) as usize);
+            for (x, y, rgba) in &tiles {
+                for (i, p) in rgba.as_chunks::<4>().0.iter().enumerate() {
+                    let (px, py) = (x + ox + (i % T) as i32, y + oy + (i / T) as i32);
+                    if px >= 0 && py >= 0 && px < w && py < h {
+                        let at = ((py * w + px) * 4) as usize;
+                        canvas[at..at + 4].copy_from_slice(p);
+                    }
+                }
+            }
+            ix::blit_rgba(&mut store, 0, 0, w as u32, h as u32, &canvas);
+            return Ok(store);
+        }
+        for (x, y, rgba) in tiles {
             ix::blit_rgba(&mut store, x + ox, y + oy, TILE_SIZE, TILE_SIZE, &rgba);
         }
         clip_to_canvas(&mut store, self.canvas);
@@ -453,10 +471,11 @@ impl Reader<'_> {
     }
 
     /// A transparency mask's selection (255 = shown) as our mask tiles (alpha
-    /// = amount hidden). Where the file has no tile its default pixel applies.
+    /// = amount hidden). Where the file has no tile its default pixel applies:
+    /// the `.defaultpixel` file, else transparent (hidden), as Krita reads it.
     fn mask(&self, n: roxmltree::Node, file: &str) -> Result<TileStore, String> {
         let data = self.data(file).ok_or_else(|| format!("missing {file}"))?;
-        let default_shown = self.data(&format!("{file}.defaultpixel")).and_then(|d| d.first().copied()).unwrap_or(255);
+        let default_shown = self.data(&format!("{file}.defaultpixel")).and_then(|d| d.first().copied()).unwrap_or(0);
         let (ox, oy) = (num::<i32>(n, "x").unwrap_or(0), num::<i32>(n, "y").unwrap_or(0));
         let (w, h) = (self.canvas.0 as i32, self.canvas.1 as i32);
         let mut hide = TileStore::new();
@@ -532,6 +551,12 @@ impl Reader<'_> {
                     }
                 };
                 let mut l = Layer::raster_with(id, name.clone(), tiles);
+                // "Inherit alpha" (alpha left out of channelflags): the nearest Painter
+                // equivalent is clipping to the layer below.
+                if n.attribute("channelflags").is_some_and(|f| f.len() == 4 && f.ends_with('0')) {
+                    l.clip = true;
+                    self.warnings.push(format!("“{name}”: Krita's inherit alpha became clipping to the layer below"));
+                }
                 l.alpha_locked = n.attribute("channellockflags").is_some_and(|f| f.ends_with('0') && f.len() == 4);
                 l
             }
@@ -737,5 +762,39 @@ mod tests {
         assert_eq!(mask.pixel(5, 5)[3], 0, "shown");
         assert_eq!(mask.pixel(40, 5)[3], 255, "hidden");
         assert_eq!(doc.dpi, 72);
+    }
+
+    #[test]
+    fn default_pixels_and_inherit_alpha() {
+        let mut zip = ZipWriter::new();
+        zip.add("mimetype", MIMETYPE.as_bytes(), false);
+        let main = r#"<?xml version="1.0" encoding="UTF-8"?>
+<DOC xmlns="http://www.calligra.org/DTD/krita" syntaxVersion="2.0">
+ <IMAGE name="img" width="128" height="64" colorspacename="RGBA">
+  <layers>
+   <layer nodetype="paintlayer" name="Shade" filename="layer3" colorspacename="RGBA" channelflags="1110"/>
+   <layer nodetype="paintlayer" name="Red" filename="layer2" colorspacename="RGBA">
+    <masks><mask nodetype="transparencymask" name="m" filename="mask1" visible="1"/></masks>
+   </layer>
+  </layers>
+ </IMAGE>
+</DOC>"#;
+        zip.add("maindoc.xml", main.as_bytes(), true);
+        // Red everywhere by default; the right tile is cleared.
+        zip.add("img/layers/layer2", &write_tiles(&[(64, 0, vec![0; T * T * 4])]), true);
+        zip.add("img/layers/layer2.defaultpixel", &[0, 0, 255, 255], false);
+        zip.add("img/layers/layer3", &write_tiles(&[]), true);
+        // A mask with no tiles and no default pixel hides everything.
+        zip.add("img/layers/mask1.pixelselection", b"VERSION 2\nTILEWIDTH 64\nTILEHEIGHT 64\nPIXELSIZE 1\nDATA 0\n", true);
+        let (doc, warnings) = read(zip.finish()).unwrap();
+        assert!(warnings.iter().any(|w| w.contains("inherit alpha")), "{warnings:?}");
+        let rows = doc.rows_top_down();
+        let shade = doc.find(rows[0].0).unwrap();
+        assert!(shade.clip);
+        let red = doc.find(rows[1].0).unwrap();
+        let t = red.tiles().unwrap();
+        assert_eq!(crate::blend::unpremultiply(t.pixel(10, 10)), [255, 0, 0, 255]);
+        assert_eq!(t.pixel(100, 10)[3], 0);
+        assert_eq!(red.active_mask().unwrap().pixel(10, 10)[3], 255, "hidden");
     }
 }

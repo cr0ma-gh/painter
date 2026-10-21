@@ -192,33 +192,53 @@ read** (`unchanged_original`). After edits, the writer starts from the
 original and changes only the parameters Painter maps, so the source's own
 parameters (smudging, Krita-only options, MyPaint inputs Painter lacks) stay.
 
-**Krita (`krita.rs`).** A `.kpp` is a PNG whose `preset` text chunk (tEXt,
-zTXt or iTXt) holds `<Preset paintopid="…" name="…">` with one
-`<param name="…">` per setting. Read:
+**Krita (`krita.rs`).** Checked against Krita's own source (read, not
+copied): `KisPaintOpPreset`, the auto and predefined brush factories,
+`KisKritaSensorPack`, the scatter and texture option data and
+`KoResourceBundle`. A `.kpp` is a PNG whose `preset` text chunk (tEXt, zTXt or
+iTXt) holds `<Preset paintopid="…" name="…">` with one `<param name="…">` per
+setting; Krita reads presets whose `version` text is 2.2 or 5.0. In 5.0 the
+tips and patterns the preset links to are embedded in it as
+`<resources><resource type name filename md5sum>` (base64). Read:
 
-- `brush_definition`: `auto_brush` (`MaskGenerator` diameter, ratio →
-  thickness, fade → hardness, angle in radians, spacing or auto spacing) or a
-  predefined tip (`gbr_brush`, `png_brush`…) by file name, found in the
-  bundle's `brushes/`, in Krita 5's embedded `resource_N` chunks, or next to
-  the `.kpp`. Grey PNG tips ink their dark parts, colour ones their alpha;
+- `brush_definition`: `auto_brush` (`MaskGenerator` diameter, written as
+  `radius` by Krita 2.2; ratio → thickness; fade = the solid part of the
+  radius → hardness; `type` other than `circle` is square; angle in radians;
+  spacing defaults to 1.0) or a predefined tip (`gbr_brush`, `png_brush`,
+  `abr_brush` by name inside an `.abr`…) by file name, from the preset's
+  embedded resources, the bundle's `brushes/`, or next to the `.kpp`;
+  spacing defaults to 0.25 and `BrushVersion` 1 doubles the scale. Image tips
+  used as a mask ink their dark parts within their alpha; image stamps keep
+  their alpha. Auto spacing is `coefficient × √size` pixels;
 - `OpacityValue` → opacity (stroke ceiling), `FlowValue` → density (per dab),
   `EraserMode` / `CompositeOp=erase` → eraser;
-- curve options `Size`, `Opacity`, `Flow`, `Ratio`, `Rotation`
-  (`Pressure<Id>`, `<Id>Sensor` with one sensor or a `sensorslist`,
-  `<Id>UseCurve`, `<Id>UseSameCurve`, `<Id>commonCurve`): pressure, speed,
-  tilt and fuzzy (random) sensors; `drawingangle` on rotation = follow the
-  stroke;
-- scatter (`PressureScatter`, `ScatterValue`, `Scattering/AxisX|Y`) and
-  texture (`Texture/Pattern/Pattern`, a base64 PNG, scale, strength, invert).
+- curve options `Size`, `Ratio`, `Rotation` (on with `Pressure<Id>`) and
+  `Opacity`, `Flow` (always on in Krita 5): `<Id>Sensor` with one sensor or a
+  `sensorslist` (pressure when none), `<Id>UseSameCurve` (default on, then
+  `<Id>commonCurve` for all), `<Id>UseCurve`, older `Custom<Id>` /
+  `Curve<Id>`. Pressure, speed, tilt and fuzzy (random) sensors are mapped;
+  `drawingangle` on rotation = follow the stroke; a curve that is always full
+  does nothing;
+- scatter (`PressureScatter`; `ScatterValue` or older `Scattering/Amount` in
+  diameters, 5 when absent; `Scattering/AxisX|Y`, on when absent) and texture
+  (linked by `Texture/Pattern/PatternFileName` / MD5 from the bundle's
+  `patterns/`, PNG or GIMP `.pat`, or the older base64
+  `Texture/Pattern/Pattern`; `Texture/Pattern/Scale`, `Invert`, strength
+  `Texture/Strength/Value`).
 
 Engines other than the pixel engine (`paintbrush`) are approximated and say
-so. A `.bundle` is a ZIP: stored `mimetype`
-(`application/x-krita-resourcebundle`), `META-INF/manifest.xml` (type and MD5
-of every resource), `meta.xml`, `preview.png`, `paintoppresets/`,
-`brushes/`. Export writes a bundle with each preset and its tip as `.gbr`
-(or the original tip file, unchanged).
+so. Export writes Krita 5 presets (`version` 5.0) with the tip (`.gbr`, or
+the original file unchanged) and texture embedded, so a `.kpp` works on its
+own. Opacity and flow without pressure are written with a flat curve, since
+Krita applies pressure to them otherwise. A `.bundle` is a ZIP: stored
+`mimetype` (`application/x-krita-resourcebundle`), `META-INF/manifest.xml`
+(type and MD5 of every resource), `meta.xml` (root `meta:meta`),
+`preview.png`, `paintoppresets/`, `brushes/`, `patterns/`.
 
-**MyPaint (`mypaint.rs`).** `settings` maps libmypaint settings to
+**MyPaint (`mypaint.rs`).** Checked against libmypaint (`mypaint-brush.c`,
+`brushsettings.json`). Like libmypaint, settings missing from a file take
+their defaults: notably `opaque_multiply` = 0 + pressure (0, 0)–(1, 1), so
+opacity follows pressure. `settings` maps libmypaint settings to
 `base_value` + `inputs` (offset curves). Mapped: `radius_logarithmic` (log
 space) and its pressure input → size and size curve; `opaque` ×
 `opaque_multiply` → per-dab density through libmypaint's linearisation
@@ -230,9 +250,11 @@ angle, follow the stroke; `eraser`; `slow_tracking` → stabilisation.
 Smudging and colour changes along the stroke are reported, not painted. The
 old text format (before MyPaint 1.0) isn't read.
 
-**GIMP (`gimp.rs`).** `.gbr`: big-endian header (size, version 1–3, width,
-height, bytes per pixel, `GIMP`, spacing %), name, pixels (grey coverage, or
-RGBA colour brushes whose alpha becomes the tip). `.gih` image hoses: the
+**GIMP (`gimp.rs`).** Checked against GIMP's loaders. `.gbr`: big-endian
+header (size, version 1–3, width, height, bytes per pixel, `GIMP`, spacing
+%), name, pixels (grey coverage, RGBA colour brushes whose alpha becomes the
+tip, or CinePaint's version 3 with 16-bit floats). `.pat` patterns (for
+Krita textures): `GPAT`, 1–4 channels. `.gih` image hoses: the
 first of their cells (Painter has one tip per brush). `.vbr`: generated
 circle tips (1.0 and 1.5; square and diamond are drawn round). Export:
 `.gbr` for a bitmap tip, `.vbr` for a round one.

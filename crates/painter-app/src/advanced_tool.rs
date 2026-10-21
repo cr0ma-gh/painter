@@ -361,6 +361,9 @@ impl PainterApp {
                 if ui.button("Krita bundle (.bundle)...").on_hover_text("Preset with its tip; open it in Krita with Settings → Manage Resources → Import").clicked() {
                     self.export_brush_as(index, BrushFormat::Krita);
                 }
+                if ui.button("Krita preset (.kpp)...").on_hover_text("One preset with its tip and texture inside (Krita 5)").clicked() {
+                    self.export_brush_as(index, BrushFormat::KritaPreset);
+                }
                 if ui.button("MyPaint brush (.myb)...").clicked() {
                     self.export_brush_as(index, BrushFormat::MyPaint);
                 }
@@ -409,6 +412,7 @@ impl PainterApp {
         let preset = self.brushes[index].clone();
         let encoded = match format {
             BrushFormat::Krita => brush_io::krita::write_bundle(std::slice::from_ref(&preset), preset.name()).map(|b| ("bundle", b)),
+            BrushFormat::KritaPreset => brush_io::krita::write_kpp(&preset).map(|(b, _)| ("kpp", b)),
             BrushFormat::MyPaint => brush_io::mypaint::write(&preset).map(|b| ("myb", b)),
             BrushFormat::Gimp => brush_io::gimp::write(&preset),
         };
@@ -496,6 +500,8 @@ fn pressure_curve(ui: &mut egui::Ui, id: &str, curve: &mut PressureCurve) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BrushFormat {
     Krita,
+    /// One `.kpp`, its tip and texture embedded (Krita 5).
+    KritaPreset,
     MyPaint,
     Gimp,
 }
@@ -503,7 +509,7 @@ pub(crate) enum BrushFormat {
 impl BrushFormat {
     fn label(self) -> &'static str {
         match self {
-            BrushFormat::Krita => "Krita",
+            BrushFormat::Krita | BrushFormat::KritaPreset => "Krita",
             BrushFormat::MyPaint => "MyPaint",
             BrushFormat::Gimp => "GIMP",
         }
@@ -512,7 +518,7 @@ impl BrushFormat {
     /// What the other program's engine does differently.
     fn caveat(self) -> &'static str {
         match self {
-            BrushFormat::Krita => "pixel engine; colour jitter and starting taper aren't carried over",
+            BrushFormat::Krita | BrushFormat::KritaPreset => "pixel engine; colour jitter and starting taper aren't carried over",
             BrushFormat::MyPaint => "MyPaint's engine; texture, dual tip and bitmap tips aren't carried over",
             BrushFormat::Gimp => "the tip and spacing; GIMP keeps dynamics separately",
         }

@@ -96,12 +96,16 @@ pub fn read(bytes: &[u8], name: &str) -> Result<ImportReport, BrushIoError> {
 
     // Opacity: opaque × opaque_multiply, spread over the overlapping dabs.
     let (o, o_in) = (base(s, "opaque", 1.0), input(s, "opaque", "pressure"));
-    let has_multiply = setting(s, "opaque_multiply").is_some();
-    let (m, m_in) = (base(s, "opaque_multiply", 0.0), input(s, "opaque_multiply", "pressure"));
+    // libmypaint loads its defaults first: without the setting, opaque_multiply
+    // is 0 + pressure (0, 0)-(1, 1), i.e. opacity follows pressure.
+    let (m, m_in) = match setting(s, "opaque_multiply") {
+        Some(_) => (base(s, "opaque_multiply", 0.0), input(s, "opaque_multiply", "pressure")),
+        None => (0.0, Some(vec![[0.0, 0.0], [1.0, 1.0]])),
+    };
     let dpp = dabs_per_pixel(s);
     let alpha = |p: f32| {
         let o = o + o_in.as_ref().map_or(0.0, |pts| lookup(pts, p));
-        let m = if has_multiply { m + m_in.as_ref().map_or(0.0, |pts| lookup(pts, p)) } else { 1.0 };
+        let m = m + m_in.as_ref().map_or(0.0, |pts| lookup(pts, p));
         let a = (o * m).clamp(0.0, 1.0);
         1.0 - (1.0 - a).powf(1.0 / dpp)
     };
@@ -289,5 +293,15 @@ mod tests {
         // G-Pen: 10 % of the size at no pressure.
         assert!((back.settings.size_curve.eval(0.0) - 0.1).abs() < 0.01);
         assert!(read(b"version 2\nradius_logarithmic 2.0", "old").is_err());
+    }
+
+    #[test]
+    fn missing_settings_take_libmypaint_defaults() {
+        // Only the radius: opacity then follows pressure (opaque_multiply's default mapping).
+        let minimal = r#"{"version": 3, "settings": {"radius_logarithmic": {"base_value": 2.0, "inputs": {}}}}"#;
+        let p = &read(minimal.as_bytes(), "Min").unwrap().presets[0];
+        assert!(p.settings.pressure_density);
+        assert!(p.settings.density_curve.eval(0.0) < 0.01 && (p.settings.density - 1.0).abs() < 1e-4);
+        assert!((p.settings.hardness - 0.8).abs() < 1e-6 && (p.settings.spacing - 0.25).abs() < 1e-6);
     }
 }

@@ -44,7 +44,13 @@ fn preset(name: &str, tip: Option<BrushTip>, size: f32, spacing_percent: f32) ->
 fn gbr_at(data: &[u8], warnings: &mut Vec<String>) -> Result<(BrushPreset, usize), BrushIoError> {
     let header = be32(data, 0)? as usize;
     let version = be32(data, 4)?;
-    let (w, h, bpp) = (be32(data, 8)?, be32(data, 12)?, be32(data, 16)? as usize);
+    let (w, h, mut bpp) = (be32(data, 8)?, be32(data, 12)?, be32(data, 16)? as usize);
+    if version == 3 {
+        if bpp != 18 {
+            return Err(BrushIoError::Unsupported(format!("CinePaint brush depth {bpp}")));
+        }
+        bpp = 2;
+    }
     let (spacing, name_at) = match version {
         1 => (25, 20),
         2 | 3 => {
@@ -68,7 +74,13 @@ fn gbr_at(data: &[u8], warnings: &mut Vec<String>) -> Result<(BrushPreset, usize
             warnings.push(format!("“{name}”: colour brush; its shape is kept, its colours aren't"));
             pixels.as_chunks::<4>().0.iter().map(|p| p[3]).collect()
         }
-        2 => pixels.as_chunks::<2>().0.iter().map(|p| p[0]).collect(),
+        // CinePaint (version 3, depth 18): the top 16 bits of a big-endian float.
+        2 if version == 3 => pixels
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|p| (f32::from_bits((u16::from_be_bytes(*p) as u32) << 16) * 255.0 + 0.5).clamp(0.0, 255.0) as u8)
+            .collect(),
         b => return Err(BrushIoError::Unsupported(format!("{b} bytes per pixel"))),
     };
     let tip = BrushTip::new(w, h, alpha)?;
@@ -79,6 +91,36 @@ pub fn read_gbr(data: &[u8]) -> Result<ImportReport, BrushIoError> {
     let mut warnings = Vec::new();
     let (preset, _) = gbr_at(data, &mut warnings)?;
     Ok(ImportReport { presets: vec![preset], warnings, from_cache: false })
+}
+
+/// A GIMP pattern (`.pat`, also used in Krita bundles) as RGBA8: big-endian
+/// header size, version 1, width, height, bytes per pixel (1 grey, 2 grey +
+/// alpha, 3 RGB, 4 RGBA), magic `GPAT`, then the name and the pixels.
+pub fn read_pat(data: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
+    let header = be32(data, 0).ok()? as usize;
+    let (version, w, h, bpp) = (be32(data, 4).ok()?, be32(data, 8).ok()?, be32(data, 12).ok()?, be32(data, 16).ok()? as usize);
+    if version != 1
+        || data.get(20..24)? != b"GPAT"
+        || header <= 24
+        || !(1..=4).contains(&bpp)
+        || w == 0
+        || h == 0
+        || w > 10_000
+        || h > 10_000
+    {
+        return None;
+    }
+    let pixels = data.get(header..header + (w * h) as usize * bpp)?;
+    let rgba = pixels
+        .chunks_exact(bpp)
+        .flat_map(|p| match bpp {
+            1 => [p[0], p[0], p[0], 255],
+            2 => [p[0], p[0], p[0], p[1]],
+            3 => [p[0], p[1], p[2], 255],
+            _ => [p[0], p[1], p[2], p[3]],
+        })
+        .collect();
+    Some((w, h, rgba))
 }
 
 pub fn read_gih(data: &[u8]) -> Result<ImportReport, BrushIoError> {
@@ -100,7 +142,7 @@ pub fn read_gih(data: &[u8]) -> Result<ImportReport, BrushIoError> {
 pub fn read_vbr(data: &[u8]) -> Result<ImportReport, BrushIoError> {
     let text = String::from_utf8_lossy(data);
     let lines: Vec<&str> = text.lines().map(str::trim).collect();
-    if lines.first() != Some(&"GIMP-VBR") {
+    if !lines.first().is_some_and(|l| l.starts_with("GIMP-VBR")) {
         return Err(corrupt("not a GIMP-VBR file"));
     }
     let f = |i: usize| -> Result<f32, BrushIoError> {
@@ -109,7 +151,17 @@ pub fn read_vbr(data: &[u8]) -> Result<ImportReport, BrushIoError> {
     let name = lines.get(2).copied().unwrap_or("");
     let mut warnings = Vec::new();
     // 1.0: spacing radius hardness aspect angle. 1.5 adds the shape and spikes.
-    let (spacing, radius, hardness, aspect, angle) = match lines.get(1).copied() {
+    // GIMP accepts the version line by its prefix.
+    let version = lines.get(1).map(|v| {
+        if v.starts_with("1.0") {
+            "1.0"
+        } else if v.starts_with("1.5") {
+            "1.5"
+        } else {
+            v
+        }
+    });
+    let (spacing, radius, hardness, aspect, angle) = match version {
         Some("1.0") => (f(3)?, f(4)?, f(5)?, f(6)?, f(7)?),
         Some("1.5") => {
             let shape = lines.get(3).copied().unwrap_or("circle");
@@ -231,5 +283,29 @@ mod tests {
         let r = read_vbr(v15).unwrap();
         assert_eq!(r.presets[0].settings.size, 10.0);
         assert_eq!(r.warnings.len(), 1);
+    }
+
+    #[test]
+    fn reads_patterns_and_cinepaint_brushes() {
+        let mut pat = Vec::new();
+        for v in [24 + 2, 1, 2, 1, 2] {
+            pat.extend((v as u32).to_be_bytes());
+        }
+        pat.extend(b"GPATp\0");
+        pat.extend([10, 255, 20, 0]);
+        assert_eq!(read_pat(&pat).unwrap(), (2, 1, vec![10, 10, 10, 255, 20, 20, 20, 0]));
+        assert!(read_pat(b"nope").is_none());
+
+        // Version 3, depth 18: 0.5 and 1.0 as the top halves of f32s.
+        let mut cine = Vec::new();
+        for v in [28 + 2, 3, 2, 1, 18] {
+            cine.extend((v as u32).to_be_bytes());
+        }
+        cine.extend(b"GIMP");
+        cine.extend(10u32.to_be_bytes());
+        cine.extend(b"c\0");
+        cine.extend(((0.5f32.to_bits() >> 16) as u16).to_be_bytes());
+        cine.extend(((1.0f32.to_bits() >> 16) as u16).to_be_bytes());
+        assert_eq!(read_gbr(&cine).unwrap().presets[0].tip.as_ref().unwrap().alpha, [128, 255]);
     }
 }

@@ -93,7 +93,7 @@ impl Writer<'_> {
                         if layer.visible && !hidden { "visible" } else { "hidden" }
                     );
                 }
-                self.xml += &format!("{pad}<stack {common} isolation=\"{isolation}\" x=\"0\" y=\"0\">\n");
+                self.xml += &format!("{pad}<stack {common} isolation=\"{isolation}\">\n");
                 self.list(&f.children, depth + 1)?;
                 self.xml += &format!("{pad}</stack>\n");
             }
@@ -191,7 +191,9 @@ impl Reader<'_> {
             "stack" => {
                 let children = self.stack(n);
                 let mut folder = Layer::folder(id, name.clone());
-                let isolate = attr(n, "isolation") == Some("isolate") || blend != BlendMode::Normal || opacity < 1.0;
+                // The spec's default is "isolate"; "auto" passes through unless the
+                // stack's own blending or opacity needs a separate image.
+                let isolate = attr(n, "isolation") != Some("auto") || blend != BlendMode::Normal || opacity < 1.0;
                 folder.kind = LayerKind::Folder(Folder { children, pass_through: !isolate });
                 folder
             }
@@ -206,7 +208,7 @@ impl Reader<'_> {
                     }
                     _ => self.warnings.push(format!("“{name}”: couldn't read {src} (only PNG layers are supported)")),
                 }
-                Layer::raster_with(id, name, tiles)
+                Layer::raster_with(id, name.clone(), tiles)
             }
             _ => return None,
         };
@@ -214,6 +216,11 @@ impl Reader<'_> {
         layer.opacity = opacity;
         layer.visible = attr(n, "visibility") != Some("hidden");
         layer.locked = attr(n, "edit-locked") == Some("true");
+        if op == "svg:src-atop" && !layer.is_folder() {
+            // Source atop: painted only over what is below, the nearest thing to clipping.
+            layer.clip = true;
+            self.warnings.push(format!("“{name}”: svg:src-atop became clipping to the layer below"));
+        }
         if attr(n, "selected") == Some("true") && !layer.is_folder() {
             self.active = Some(layer.id);
         }
@@ -365,5 +372,24 @@ pub(crate) mod tests {
         let mut z = ZipWriter::new();
         z.add("a.txt", b"x", false);
         assert!(read(z.finish()).is_err());
+    }
+
+    #[test]
+    fn follows_the_spec_defaults() {
+        let mut z = ZipWriter::new();
+        z.add("mimetype", MIMETYPE.as_bytes(), false);
+        let png = ix::encode_png(1, 1, &[255, 0, 0, 255]).unwrap();
+        z.add("data/a.png", &png, false);
+        let stack = r#"<image w="4" h="4"><stack>
+            <stack name="no isolation attribute"><layer name="clip" src="data/a.png" composite-op="svg:src-atop"/><layer name="a" src="data/a.png"/></stack>
+            <stack name="auto" isolation="auto"><layer name="b" src="data/a.png"/></stack>
+        </stack></image>"#;
+        z.add("stack.xml", stack.as_bytes(), true);
+        let (doc, warnings) = read(z.finish()).unwrap();
+        let rows = doc.rows_top_down();
+        let name = |i: usize| doc.find(rows[i].0).unwrap();
+        assert!(name(0).is_isolated_folder(), "isolate is the default");
+        assert!(name(1).clip && warnings.iter().any(|w| w.contains("src-atop")));
+        assert!(!name(3).is_isolated_folder(), "auto passes through");
     }
 }

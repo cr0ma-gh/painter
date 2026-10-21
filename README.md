@@ -54,7 +54,7 @@ cargo run --release -p painter-app -- drawing.painter
   textures, dual brush, main dynamics), as a Clip Studio `.sut` written into
   a sub tool you exported from Clip Studio once (used as a template: its tip
   images stay, since Clip Studio's material files are encrypted), as a Krita
-  `.bundle`, a MyPaint `.myb` or a GIMP `.gbr` / `.vbr`. Krita (`.kpp`,
+  `.bundle` or `.kpp`, a MyPaint `.myb` or a GIMP `.gbr` / `.vbr`. Krita (`.kpp`,
   `.bundle`), MyPaint and GIMP (`.gbr`, `.gih`, `.vbr`) brushes import too. An
   imported Krita or MyPaint brush exported back to its own format, unedited,
   is the same file byte for byte; edited, it keeps the settings Painter

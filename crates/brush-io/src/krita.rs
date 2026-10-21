@@ -145,8 +145,34 @@ fn with_texts(png: &[u8], texts: &[(&str, &str)]) -> Vec<u8> {
 
 // ---- tips and resources -----------------------------------------------------------------
 
-/// A tip file from a bundle or a preset's embedded resources, as coverage.
-fn decode_tip(name: &str, data: &[u8]) -> Option<BrushTip> {
+/// A file a preset links to: a tip (`brushes`) or a texture (`patterns`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Resource {
+    /// Krita's resource type: "brushes" or "patterns".
+    pub kind: String,
+    pub file: String,
+    pub data: Vec<u8>,
+}
+
+impl Resource {
+    fn json(&self) -> serde_json::Value {
+        serde_json::json!({ "kind": self.kind, "file": self.file, "data": base64::engine::general_purpose::STANDARD.encode(&self.data) })
+    }
+
+    fn from_json(v: &serde_json::Value) -> Option<Self> {
+        Some(Self {
+            kind: v.get("kind")?.as_str()?.to_string(),
+            file: v.get("file")?.as_str()?.to_string(),
+            data: base64::engine::general_purpose::STANDARD.decode(v.get("data")?.as_str()?).ok()?,
+        })
+    }
+}
+
+/// A tip file as coverage, as Krita reads it: `.gbr` / `.gih` as GIMP does;
+/// images used as a mask (the default) ink their dark parts within their
+/// alpha (grey images without alpha are laid on white first, which is the
+/// same); image stamps keep their colours, of which Painter keeps the alpha.
+fn decode_tip(name: &str, data: &[u8], stamp: bool) -> Option<BrushTip> {
     let lower = name.to_ascii_lowercase();
     if lower.ends_with(".gbr") {
         return crate::gimp::read_gbr(data).ok()?.presets.pop()?.tip;
@@ -154,31 +180,41 @@ fn decode_tip(name: &str, data: &[u8]) -> Option<BrushTip> {
     if lower.ends_with(".gih") {
         return crate::gimp::read_gih(data).ok()?.presets.pop()?.tip;
     }
-    // PNG and other images: Krita inks the dark parts of grey images (within
-    // their alpha) and the alpha of colour ones.
-    let img = image::load_from_memory(data).ok()?;
-    let grey = !img.color().has_color();
-    let rgba = img.to_rgba8();
+    let rgba = image::load_from_memory(data).ok()?.to_rgba8();
     let alpha = rgba
         .pixels()
         .map(|p| {
             let [r, g, b, a] = p.0;
-            if grey {
+            if stamp {
+                a
+            } else {
                 let l = (r as u32 * 299 + g as u32 * 587 + b as u32 * 114) / 1000;
                 ((255 - l) * a as u32 / 255) as u8
-            } else {
-                a
             }
         })
         .collect();
     BrushTip::new(rgba.width(), rgba.height(), alpha).ok()
 }
 
-/// A pattern image as luminance (light lets ink through).
-fn decode_pattern(data: &[u8]) -> Option<BrushTip> {
-    let img = image::load_from_memory(data).ok()?.to_luma_alpha8();
-    let lum = img.pixels().map(|p| ((p.0[0] as u32 * p.0[1] as u32 + 255 * (255 - p.0[1] as u32)) / 255) as u8).collect();
-    BrushTip::new(img.width(), img.height(), lum).ok()
+/// A pattern (PNG or GIMP `.pat`) as luminance: light lets ink through,
+/// transparent parts count as white.
+fn decode_pattern(name: &str, data: &[u8]) -> Option<BrushTip> {
+    let (w, h, rgba) = if name.to_ascii_lowercase().ends_with(".pat") {
+        crate::gimp::read_pat(data)?
+    } else {
+        let img = image::load_from_memory(data).ok()?.to_rgba8();
+        (img.width(), img.height(), img.into_raw())
+    };
+    let lum = rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|[r, g, b, a]| {
+            let l = (*r as u32 * 299 + *g as u32 * 587 + *b as u32 * 114) / 1000;
+            ((l * *a as u32 + 255 * (255 - *a as u32)) / 255) as u8
+        })
+        .collect();
+    BrushTip::new(w, h, lum).ok()
 }
 
 fn file_name(path: &str) -> &str {
@@ -203,45 +239,87 @@ fn curve_string(c: &PressureCurve) -> String {
     c.points().iter().map(|[x, y]| format!("{x},{y};")).collect()
 }
 
+/// A curve that always gives full value: the option has no effect.
+fn is_flat_full(c: &PressureCurve) -> bool {
+    c.points().iter().all(|p| p[1] >= 0.999)
+}
+
 fn xml(s: &str) -> Option<roxmltree::Document<'_>> {
     roxmltree::Document::parse_with_options(s, roxmltree::ParsingOptions { allow_dtd: true, ..Default::default() }).ok()
 }
 
-/// One curve option ("Size", "Opacity", "Flow", "Rotation"…) as a dynamic.
-fn curve_option(p: &BTreeMap<String, String>, id: &str) -> Option<Dynamic> {
-    if p.get(&format!("Pressure{id}")).map(String::as_str) != Some("true") {
+fn num(p: &BTreeMap<String, String>, key: &str) -> Option<f32> {
+    p.get(key)?.trim().parse().ok()
+}
+
+/// A boolean param ("true" / "false", or 1 / 0).
+fn boolean(p: &BTreeMap<String, String>, key: &str, default: bool) -> bool {
+    p.get(key).map_or(default, |v| matches!(v.trim(), "true" | "1"))
+}
+
+fn flag(p: &BTreeMap<String, String>, key: &str) -> bool {
+    boolean(p, key, false)
+}
+
+/// The sensors of a curve option's `<id>Sensor` XML: one `<params id="…">`
+/// or a `sensorslist` of `<ChildSensor id="…">`, each with its own curve.
+fn sensors(p: &BTreeMap<String, String>, id: &str) -> Vec<(String, Option<PressureCurve>)> {
+    let text = p.get(&format!("{id}Sensor")).map(String::as_str).unwrap_or("");
+    let Some(doc) = xml(text) else { return Vec::new() };
+    let root = doc.root_element();
+    let nodes: Vec<roxmltree::Node> = if root.attribute("id") == Some("sensorslist") {
+        root.children().filter(|c| c.has_tag_name("ChildSensor")).collect()
+    } else {
+        vec![root]
+    };
+    nodes
+        .into_iter()
+        .map(|n| {
+            let curve = n.children().find(|c| c.has_tag_name("curve")).and_then(|c| c.text()).and_then(parse_curve);
+            (n.attribute("id").unwrap_or("").to_string(), curve)
+        })
+        .collect()
+}
+
+/// One curve option ("Size", "Opacity", "Flow", "Ratio", "Rotation") as a
+/// dynamic, read the way Krita 5 does. A checkable option is on only with
+/// `Pressure<id>`; Opacity and Flow can't be switched off. With no sensor
+/// listed, pressure is the sensor. With `<id>UseSameCurve` (the default)
+/// every sensor uses `<id>commonCurve`; presets older than per-sensor curves
+/// use `Custom<id>` / `Curve<id>`. A curve that is always full does nothing.
+fn curve_option(p: &BTreeMap<String, String>, id: &str, checkable: bool) -> Option<Dynamic> {
+    if checkable && !flag(p, &format!("Pressure{id}")) {
         return None;
     }
-    let same = p.get(&format!("{id}UseSameCurve")).is_none_or(|v| v == "true");
-    let use_curve = p.get(&format!("{id}UseCurve")).is_none_or(|v| v == "true");
-    let common = p.get(&format!("{id}commonCurve")).and_then(|c| parse_curve(c));
-    let mut d = Dynamic::default();
-    let sensors = p.get(&format!("{id}Sensor")).map(String::as_str).unwrap_or("");
-    let doc = xml(sensors);
-    let mut list: Vec<(String, Option<PressureCurve>)> = Vec::new();
-    if let Some(doc) = &doc {
-        let root = doc.root_element();
-        let nodes: Vec<roxmltree::Node> = if root.attribute("id") == Some("sensorslist") {
-            root.children().filter(|c| c.has_tag_name("ChildSensor")).collect()
-        } else {
-            vec![root]
-        };
-        for n in nodes {
-            let curve = n.children().find(|c| c.has_tag_name("curve")).and_then(|c| c.text()).and_then(parse_curve);
-            list.push((n.attribute("id").unwrap_or("").to_string(), curve));
-        }
-    }
+    let mut list = sensors(p, id);
     if list.is_empty() {
         list.push(("pressure".into(), None));
     }
-    for (sensor, curve) in list {
+    let defined = p.get(&format!("{id}Sensor")).is_some_and(|s| s.contains("curve"));
+    let mut common = list.iter().rev().find_map(|(_, c)| c.clone());
+    if !defined {
+        common = if flag(p, &format!("Custom{id}")) { p.get(&format!("Curve{id}")).and_then(|c| parse_curve(c)) } else { None };
+        list.iter_mut().for_each(|s| s.1 = common.clone());
+    }
+    let same = boolean(p, &format!("{id}UseSameCurve"), true);
+    if same {
+        if let Some(c) = p.get(&format!("{id}commonCurve")).and_then(|c| parse_curve(c)) {
+            common = Some(c);
+        }
+    }
+    let use_curve = boolean(p, &format!("{id}UseCurve"), true);
+    let mut d = Dynamic::default();
+    for (sensor, own) in list {
         let curve = if !use_curve {
             PressureCurve::linear()
         } else if same {
-            common.clone().or(curve).unwrap_or_else(PressureCurve::linear)
+            common.clone().unwrap_or_else(PressureCurve::linear)
         } else {
-            curve.or(common.clone()).unwrap_or_else(PressureCurve::linear)
+            own.or_else(|| common.clone()).unwrap_or_else(PressureCurve::linear)
         };
+        if is_flat_full(&curve) {
+            continue;
+        }
         match sensor.as_str() {
             "pressure" | "pressurein" => d.pressure = Some(curve),
             "speed" => d.velocity = Some(curve),
@@ -250,80 +328,74 @@ fn curve_option(p: &BTreeMap<String, String>, id: &str) -> Option<Dynamic> {
             _ => {}
         }
     }
-    // The option's own minimum (Krita 5's strength range).
-    if let Some(min) = p.get(&format!("{id}MinValue")).and_then(|v| v.parse::<f32>().ok()) {
-        d.minimum = Some(min.clamp(0.0, 1.0));
-    }
     Some(d)
 }
 
-fn sensor_list(p: &BTreeMap<String, String>, id: &str) -> Vec<String> {
-    let s = p.get(&format!("{id}Sensor")).map(String::as_str).unwrap_or("");
-    xml(s)
-        .map(|doc| {
-            let root = doc.root_element();
-            if root.attribute("id") == Some("sensorslist") {
-                root.children().filter_map(|c| c.attribute("id").map(str::to_string)).collect()
-            } else {
-                root.attribute("id").map(str::to_string).into_iter().collect()
-            }
-        })
-        .unwrap_or_default()
+/// A preset's engine, name, params (in order) and embedded resources.
+struct ParsedPreset {
+    paintop: String,
+    name: String,
+    params: Vec<(String, String)>,
+    resources: Vec<Resource>,
 }
-
-fn num(p: &BTreeMap<String, String>, key: &str) -> Option<f32> {
-    p.get(key)?.trim().parse().ok()
-}
-
-fn flag(p: &BTreeMap<String, String>, key: &str) -> bool {
-    p.get(key).is_some_and(|v| v == "true" || v == "1")
-}
-
-/// The params of a preset's XML, in order.
-/// A preset's engine, name and params.
-type ParsedPreset = (String, String, Vec<(String, String)>);
 
 fn parse_preset(xml_text: &str) -> Result<ParsedPreset, BrushIoError> {
-    let doc = xml(xml_text).ok_or_else(|| corrupt("unreadable preset XML"))?;
+    // Krita fixes presets saved with a CDATA section nested in curves.
+    let xml_text = xml_text.replace("<curve><![CDATA[", "<curve>").replace("]]></curve>", "</curve>");
+    let doc = xml(&xml_text).ok_or_else(|| corrupt("unreadable preset XML"))?;
     let root = doc.root_element();
     if !root.has_tag_name("Preset") {
         return Err(corrupt("no <Preset>"));
     }
-    let paintop = root.attribute("paintopid").unwrap_or("paintbrush").to_string();
-    let name = root.attribute("name").unwrap_or("Krita brush").to_string();
     let params = root
         .children()
         .filter(|c| c.has_tag_name("param"))
         .map(|c| (c.attribute("name").unwrap_or("").to_string(), c.text().unwrap_or("").to_string()))
         .collect();
-    Ok((paintop, name, params))
+    // Krita 5 ("version" 5.0) embeds the tips and patterns it links to.
+    let resources = root
+        .children()
+        .filter(|c| c.has_tag_name("resources"))
+        .flat_map(|r| r.children().filter(|c| c.has_tag_name("resource")))
+        .filter_map(|r| {
+            let clean: String = r.text().unwrap_or("").chars().filter(|c| !c.is_whitespace()).collect();
+            Some(Resource {
+                kind: r.attribute("type").unwrap_or("").to_string(),
+                file: file_name(r.attribute("filename").or(r.attribute("name"))?).to_string(),
+                data: base64::engine::general_purpose::STANDARD.decode(clean).ok()?,
+            })
+        })
+        .collect();
+    Ok(ParsedPreset {
+        paintop: root.attribute("paintopid").unwrap_or("paintbrush").to_string(),
+        name: root.attribute("name").unwrap_or("Krita brush").to_string(),
+        params,
+        resources,
+    })
 }
 
-/// Reads one `.kpp`. `resource` finds a tip or pattern file by name (in the bundle).
+/// Reads one `.kpp`. `resource` finds a tip or pattern file by name (in a
+/// bundle, or next to the preset) when the preset doesn't embed it.
 pub fn read_kpp(bytes: &[u8], resource: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<ImportReport, BrushIoError> {
     let texts = png_texts(bytes)?;
     let preset_xml = texts.get("preset").ok_or_else(|| corrupt("no Krita preset in this PNG"))?;
-    let (paintop, name, params) = parse_preset(preset_xml)?;
+    let ParsedPreset { paintop, name, params, resources } = parse_preset(preset_xml)?;
     let p: BTreeMap<String, String> = params.iter().cloned().collect();
     let mut warnings = Vec::new();
-
-    // Resources embedded in the preset (Krita 5): "resource_N" chunks, base64 in XML.
-    let mut embedded: BTreeMap<String, Vec<u8>> = BTreeMap::new();
-    for (key, text) in &texts {
-        if !key.starts_with("resource_") {
-            continue;
+    // Files the preset linked to, kept so an unedited export gives them back.
+    let mut linked: Vec<Resource> = Vec::new();
+    let mut find = |kind: &str, file: &str| -> Option<Vec<u8>> {
+        let file = file_name(file);
+        if file.is_empty() {
+            return None;
         }
-        if let Some(doc) = xml(text) {
-            for n in doc.descendants().filter(|n| n.is_element()) {
-                let (Some(file), Some(data)) = (n.attribute("filename").or(n.attribute("name")), n.text()) else { continue };
-                let clean: String = data.chars().filter(|c| !c.is_whitespace()).collect();
-                if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(clean) {
-                    embedded.insert(file_name(file).to_string(), bytes);
-                }
-            }
+        if let Some(r) = resources.iter().find(|r| r.file.eq_ignore_ascii_case(file)) {
+            return Some(r.data.clone());
         }
-    }
-    let find = |file: &str| embedded.get(file_name(file)).cloned().or_else(|| resource(file_name(file)));
+        let data = resource(file)?;
+        linked.push(Resource { kind: kind.into(), file: file.into(), data: data.clone() });
+        Some(data)
+    };
 
     let mut settings = BrushSettings::g_pen();
     settings.name = name.clone();
@@ -339,32 +411,27 @@ pub fn read_kpp(bytes: &[u8], resource: &dyn Fn(&str) -> Option<Vec<u8>>) -> Res
     preset.source = PresetSource::Krita { paintop: paintop.clone() };
 
     // The tip.
-    let mut tip_file = None;
-    if let Some(def) = p.get("brush_definition").and_then(|d| xml(d).map(|_| d.clone())) {
-        let doc = xml(&def).expect("parsed above");
+    if let Some(def) = p.get("brush_definition").filter(|d| xml(d).is_some()) {
+        let doc = xml(def).expect("parsed above");
         let brush = doc.descendants().find(|n| n.has_tag_name("Brush")).ok_or_else(|| corrupt("no <Brush>"))?;
-        let attr = |n: roxmltree::Node, k: &str| n.attribute(k).and_then(|v| v.parse::<f32>().ok());
-        preset.settings.spacing = attr(brush, "spacing").unwrap_or(0.1).clamp(0.01, 10.0);
-        if brush.attribute("useAutoSpacing") == Some("1") {
-            // Krita's auto spacing grows with the square root of the size.
-            let coeff = attr(brush, "autoSpacingCoeff").unwrap_or(1.0);
-            let size = attr(brush, "diameter").unwrap_or(40.0).max(1.0);
-            preset.settings.spacing = (coeff * size.sqrt() / size).clamp(0.01, 10.0);
-        }
+        let attr = |n: roxmltree::Node, k: &str| n.attribute(k).and_then(|v| v.trim().parse::<f32>().ok());
+        let kind = brush.attribute("type").unwrap_or("auto_brush");
+        // Krita's defaults differ: 1.0 for generated tips, 0.25 for the others.
+        preset.settings.spacing = attr(brush, "spacing").unwrap_or(if kind == "auto_brush" { 1.0 } else { 0.25 }).clamp(0.01, 10.0);
         preset.angle = attr(brush, "angle").unwrap_or(0.0).to_degrees();
-        match brush.attribute("type").unwrap_or("auto_brush") {
+        match kind {
             "auto_brush" => {
-                let mask = brush.children().find(|c| c.has_tag_name("MaskGenerator"));
-                if let Some(m) = mask {
-                    let diameter = attr(m, "diameter").or(attr(m, "radius").map(|r| r * 2.0)).unwrap_or(40.0);
-                    preset.settings.size = diameter.max(0.5);
+                if let Some(m) = brush.children().find(|c| c.has_tag_name("MaskGenerator")) {
+                    // Krita 2.2 wrote the diameter as "radius".
+                    preset.settings.size = attr(m, "radius").or(attr(m, "diameter")).unwrap_or(1.0).max(0.5);
                     preset.thickness = attr(m, "ratio").unwrap_or(1.0).clamp(0.01, 1.0);
+                    // Fade = the part of the radius that is solid: our hardness.
                     let fade = attr(m, "hfade").unwrap_or(1.0).clamp(0.0, 1.0);
                     preset.settings.hardness = match m.attribute("id") {
                         Some("soft") | Some("gaussian") => fade * 0.5,
                         _ => fade,
                     };
-                    if m.attribute("type") == Some("rect") {
+                    if m.attribute("type").is_some_and(|t| t != "circle") {
                         warnings.push(format!("“{name}”: a square tip is drawn round"));
                     }
                     if attr(m, "spikes").unwrap_or(2.0) > 2.0 {
@@ -377,67 +444,94 @@ pub fn read_kpp(bytes: &[u8], resource: &dyn Fn(&str) -> Option<Vec<u8>>) -> Res
             }
             kind => {
                 let file = brush.attribute("filename").unwrap_or("");
-                match find(file).and_then(|data| decode_tip(file, &data).map(|t| (t, data))) {
-                    Some((tip, data)) => {
-                        let scale = attr(brush, "scale").unwrap_or(1.0);
+                // brushApplication: 0 alpha mask, 1 image stamp, 2 / 3 lightness / gradient map.
+                let stamp = brush.attribute("brushApplication").map_or(brush.attribute("ColorAsMask") == Some("0"), |a| a == "1");
+                let tip = find("brushes", file).and_then(|data| {
+                    if kind == "abr_brush" {
+                        // A tip inside a Photoshop brush file, by name.
+                        let wanted = brush.attribute("name").unwrap_or("");
+                        let mut tips = crate::abr::read(&data).ok()?;
+                        let i = tips.iter().position(|t| t.name() == wanted).unwrap_or(0);
+                        (i < tips.len()).then(|| tips.swap_remove(i).tip).flatten()
+                    } else {
+                        decode_tip(file, &data, stamp)
+                    }
+                });
+                // Before Krita 2.4 (BrushVersion 1) the scale was halved.
+                let mut scale = attr(brush, "scale").unwrap_or(1.0);
+                if brush.attribute("BrushVersion").unwrap_or("1") == "1" {
+                    scale *= 2.0;
+                }
+                match tip {
+                    Some(tip) => {
                         preset.settings.size = (tip.width.max(tip.height) as f32 * scale).max(0.5);
                         preset.tip = Some(tip);
-                        tip_file = Some((file_name(file).to_string(), data));
                     }
                     None => {
                         warnings.push(format!("“{name}”: tip {file} ({kind}) not found; using a round one"));
-                        preset.settings.size = 40.0 * attr(brush, "scale").unwrap_or(1.0);
+                        preset.settings.size = (40.0 * scale).max(0.5);
                     }
                 }
+                if stamp {
+                    warnings.push(format!("“{name}”: a colour image tip paints with the brush colour"));
+                }
             }
+        }
+        if brush.attribute("useAutoSpacing") == Some("1") {
+            // Krita's auto spacing: coefficient × √size pixels.
+            let coeff = attr(brush, "autoSpacingCoeff").unwrap_or(1.0);
+            let size = preset.settings.size.max(1.0);
+            preset.settings.spacing = (coeff * size.sqrt() / size).clamp(0.01, 10.0);
         }
     } else {
         warnings.push(format!("“{name}”: no tip definition; using a round one"));
     }
 
     // Dynamics.
-    if let Some(d) = curve_option(&p, "Size") {
+    if let Some(d) = curve_option(&p, "Size", true) {
         preset.dynamics.size = d;
     }
-    if let Some(d) = curve_option(&p, "Opacity") {
+    if let Some(d) = curve_option(&p, "Opacity", false) {
         preset.dynamics.opacity = d;
     }
-    if let Some(d) = curve_option(&p, "Flow") {
+    if let Some(d) = curve_option(&p, "Flow", false) {
         preset.dynamics.flow = d;
     }
-    if let Some(d) = curve_option(&p, "Ratio") {
+    if let Some(d) = curve_option(&p, "Ratio", true) {
         preset.dynamics.thickness = d;
     }
-    if let Some(mut d) = curve_option(&p, "Rotation") {
-        if sensor_list(&p, "Rotation").iter().any(|s| s == "drawingangle") {
+    if let Some(mut d) = curve_option(&p, "Rotation", true) {
+        if sensors(&p, "Rotation").iter().any(|(s, _)| s == "drawingangle") {
             preset.dynamics.rotation_follows_direction = true;
         }
-        // Krita's rotation from pressure etc. spans a full turn, like ours.
         d.minimum = None;
         preset.dynamics.rotation = d;
     }
     if flag(&p, "PressureScatter") {
-        let amount = num(&p, "ScatterValue").unwrap_or(1.0);
+        // Amount in brush diameters, 0..=5 (5 when absent); both axes by default.
+        let amount = num(&p, "ScatterValue").or(num(&p, "Scattering/Amount")).unwrap_or(5.0);
         preset.settings.scatter.amount = amount.max(0.0);
         preset.settings.scatter.count = 1;
-        preset.settings.scatter.both_axes = flag(&p, "Scattering/AxisX") && flag(&p, "Scattering/AxisY");
+        preset.settings.scatter.both_axes = boolean(&p, "Scattering/AxisX", true) && boolean(&p, "Scattering/AxisY", true);
     }
     if flag(&p, "Texture/Pattern/Enabled") {
-        let image = p
-            .get("Texture/Pattern/Pattern")
-            .and_then(|b64| base64::engine::general_purpose::STANDARD.decode(b64.trim()).ok())
-            .or_else(|| p.get("Texture/Pattern/PatternFileName").and_then(|f| find(f)))
-            .and_then(|data| decode_pattern(&data));
+        // Krita 5 links the pattern by file name / MD5; old presets embed it as base64.
+        let file = p.get("Texture/Pattern/PatternFileName").map(|f| file_name(f).to_string()).unwrap_or_default();
+        let image = find("patterns", &file).and_then(|data| decode_pattern(&file, &data)).or_else(|| {
+            let data = base64::engine::general_purpose::STANDARD.decode(p.get("Texture/Pattern/Pattern")?.trim()).ok()?;
+            decode_pattern("pattern.png", &data)
+        });
         match image {
             Some(image) => {
+                let strength = if flag(&p, "PressureTexture/Strength/") { num(&p, "Texture/Strength/Value") } else { None };
                 preset.texture = Some(BrushTexture {
                     image,
                     scale: num(&p, "Texture/Pattern/Scale").unwrap_or(1.0) * 100.0,
-                    density: num(&p, "Texture/StrengthValue").or(num(&p, "Texture/Strength/Value")).unwrap_or(1.0).clamp(0.0, 1.0),
+                    density: strength.unwrap_or(1.0).clamp(0.0, 1.0),
                     invert: flag(&p, "Texture/Pattern/Invert"),
                 })
             }
-            None => warnings.push(format!("“{name}”: its texture couldn't be read")),
+            None => warnings.push(format!("“{name}”: its texture {file} couldn't be read")),
         }
     }
     match paintop.as_str() {
@@ -448,9 +542,8 @@ pub fn read_kpp(bytes: &[u8], resource: &dyn Fn(&str) -> Option<Vec<u8>>) -> Res
     preset.apply_dynamics();
     preset.apply_tip();
     preset.extras.insert("krita.paintop".into(), paintop.into());
-    if let Some((file, data)) = tip_file {
-        preset.extras.insert("krita.tip_name".into(), file.into());
-        preset.extras.insert("krita_tip.original".into(), base64::engine::general_purpose::STANDARD.encode(data).into());
+    if !linked.is_empty() {
+        preset.extras.insert("krita.resources".into(), linked.iter().map(Resource::json).collect::<Vec<_>>().into());
     }
     preset.keep_original("krita", bytes);
     Ok(ImportReport { presets: vec![preset], warnings, from_cache: false })
@@ -522,27 +615,28 @@ fn sensor_xml(sensors: &[(&str, &PressureCurve)]) -> String {
     s + "</params>\n"
 }
 
-/// Writes one curve option: on with the given sensors, or off.
-fn set_option(p: &mut Vec<(String, String)>, id: &str, sensors: &[(&str, &PressureCurve)]) {
-    let mut put = |k: String, v: String| match p.iter_mut().find(|(n, _)| *n == k) {
-        Some(e) => e.1 = v,
-        None => p.push((k, v)),
-    };
-    put(format!("Pressure{id}"), (!sensors.is_empty()).to_string());
-    if let Some((_, first)) = sensors.first() {
-        put(format!("{id}Sensor"), sensor_xml(sensors));
-        put(format!("{id}UseCurve"), "true".into());
-        put(format!("{id}UseSameCurve"), (sensors.len() == 1).to_string());
-        put(format!("{id}commonCurve"), curve_string(first));
-        put(format!("{id}curveMode"), "0".into());
-    }
-}
-
 fn put(p: &mut Vec<(String, String)>, k: &str, v: impl Into<String>) {
     let v = v.into();
     match p.iter_mut().find(|(n, _)| n == k) {
         Some(e) => e.1 = v,
         None => p.push((k.to_string(), v)),
+    }
+}
+
+/// Writes one curve option: on with the given sensors, or off. Options that
+/// can't be switched off (Opacity, Flow) get a curve that is always full
+/// instead, or Krita would apply pressure.
+fn set_option(p: &mut Vec<(String, String)>, id: &str, sensors: &[(&str, &PressureCurve)], checkable: bool) {
+    let full = PressureCurve::from_points(vec![[0.0, 1.0], [1.0, 1.0]]);
+    let off: [(&str, &PressureCurve); 1] = [("pressure", &full)];
+    let sensors = if sensors.is_empty() && !checkable { &off[..] } else { sensors };
+    put(p, &format!("Pressure{id}"), (!sensors.is_empty()).to_string());
+    if let Some((_, first)) = sensors.first() {
+        put(p, &format!("{id}Sensor"), sensor_xml(sensors));
+        put(p, &format!("{id}UseCurve"), "true");
+        put(p, &format!("{id}UseSameCurve"), (sensors.len() == 1).to_string());
+        put(p, &format!("{id}commonCurve"), curve_string(first));
+        put(p, &format!("{id}curveMode"), "0");
     }
 }
 
@@ -577,53 +671,62 @@ fn preview_png(preset: &BrushPreset) -> Vec<u8> {
     out
 }
 
-/// The preset as a `.kpp`, and the tip file it refers to (name, bytes), if any.
-/// An unedited Krita preset comes back unchanged; an edited one keeps the
-/// parameters Painter doesn't have.
-/// A tip file: its name and bytes.
-pub type TipFile = (String, Vec<u8>);
-
-pub fn write_kpp(preset: &BrushPreset) -> Result<(Vec<u8>, Option<TipFile>), BrushIoError> {
-    let original_tip = || {
-        let name = preset.extras.get("krita.tip_name")?.as_str()?.to_string();
-        Some((name, preset.original("krita_tip")?))
-    };
+/// The preset as a `.kpp` (Krita 5 format, its tip and texture embedded so
+/// the file works on its own), and those files for a bundle. An unedited
+/// Krita preset comes back unchanged with the files it linked to; an edited
+/// one keeps the parameters Painter doesn't have.
+pub fn write_kpp(preset: &BrushPreset) -> Result<(Vec<u8>, Vec<Resource>), BrushIoError> {
+    let linked: Vec<Resource> = preset
+        .extras
+        .get("krita.resources")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(Resource::from_json).collect())
+        .unwrap_or_default();
     if let Some(bytes) = preset.unchanged_original("krita") {
-        return Ok((bytes, original_tip()));
-    }
-    let (paintop, mut params) = match preset.original("krita").and_then(|b| png_texts(&b).ok()).and_then(|t| t.get("preset").cloned())
-    {
-        Some(x) => {
-            let (op, _, params) = parse_preset(&x)?;
-            (op, params)
+        // The files it linked to, and the ones it embeds (for a bundle).
+        let mut all = linked;
+        let embedded = png_texts(&bytes).ok().and_then(|t| t.get("preset").cloned()).and_then(|x| parse_preset(&x).ok());
+        for r in embedded.map(|p| p.resources).unwrap_or_default() {
+            if !all.iter().any(|a| a.kind == r.kind && a.file == r.file) {
+                all.push(r);
+            }
         }
-        None => ("paintbrush".to_string(), Vec::new()),
+        return Ok((bytes, all));
+    }
+    let original = preset.original("krita").and_then(|b| png_texts(&b).ok()).and_then(|t| t.get("preset").cloned());
+    let (paintop, mut params, embedded) = match original {
+        Some(x) => {
+            let parsed = parse_preset(&x)?;
+            (parsed.paintop, parsed.params, parsed.resources)
+        }
+        None => ("paintbrush".to_string(), Vec::new(), Vec::new()),
     };
     let s = &preset.settings;
     let name = preset.name();
+    let mut resources: Vec<Resource> = Vec::new();
 
-    // Tip: the edited preset's own bitmap as a .gbr (or the original tip file, unchanged).
-    let mut tip_file = None;
+    // Tip: the original file when it still gives this bitmap, else a .gbr of it.
     let tip_def = match &preset.tip {
         Some(tip) => {
-            let (file, data) = match original_tip().filter(|(n, d)| decode_tip(n, d).as_ref() == Some(tip)) {
-                Some(t) => t,
-                None => (format!("{}.gbr", safe_name(name)), crate::gimp::write_gbr(preset)?),
+            let original = linked.iter().chain(&embedded).find(|r| r.kind == "brushes" && decode_tip(&r.file, &r.data, false).as_ref() == Some(tip));
+            let res = match original {
+                Some(r) => r.clone(),
+                None => Resource { kind: "brushes".into(), file: format!("{}.gbr", safe_name(name)), data: crate::gimp::write_gbr(preset)? },
             };
             let def = format!(
-                "<Brush type=\"{}\" filename=\"{}\" md5sum=\"{}\" spacing=\"{}\" angle=\"{}\" scale=\"{}\" BrushVersion=\"2\" ColorAsMask=\"1\" useAutoSpacing=\"0\" autoSpacingCoeff=\"1\" brushApplication=\"0\"/>",
-                if file.to_ascii_lowercase().ends_with(".gbr") { "gbr_brush" } else { "png_brush" },
-                xml_attr(&file),
-                md5_hex(&data),
+                "<Brush type=\"{}\" filename=\"{}\" md5sum=\"{}\" spacing=\"{}\" useAutoSpacing=\"0\" autoSpacingCoeff=\"1\" angle=\"{}\" scale=\"{}\" brushApplication=\"0\" ColorAsMask=\"1\" BrushVersion=\"2\"/>",
+                if res.file.to_ascii_lowercase().ends_with(".gbr") { "gbr_brush" } else { "png_brush" },
+                xml_attr(&res.file),
+                md5_hex(&res.data),
                 s.spacing,
                 preset.angle.to_radians(),
                 s.size / tip.width.max(tip.height) as f32,
             );
-            tip_file = Some((file, data));
+            resources.push(res);
             def
         }
         None => format!(
-            "<Brush type=\"auto_brush\" spacing=\"{}\" angle=\"{}\" randomness=\"0\" density=\"1\" BrushVersion=\"2\" useAutoSpacing=\"0\" autoSpacingCoeff=\"0.8\"><MaskGenerator diameter=\"{}\" ratio=\"{}\" hfade=\"{h}\" vfade=\"{h}\" spikes=\"2\" type=\"circle\" id=\"default\" antialiasEdges=\"1\"/></Brush>",
+            "<Brush type=\"auto_brush\" BrushVersion=\"2\" spacing=\"{}\" useAutoSpacing=\"0\" autoSpacingCoeff=\"0.8\" angle=\"{}\" randomness=\"0\" density=\"1\"><MaskGenerator diameter=\"{}\" ratio=\"{}\" hfade=\"{h}\" vfade=\"{h}\" spikes=\"2\" type=\"circle\" antialiasEdges=\"1\" id=\"default\"/></Brush>",
             s.spacing,
             preset.angle.to_radians(),
             s.size,
@@ -644,51 +747,81 @@ pub fn write_kpp(preset: &BrushPreset) -> Result<(Vec<u8>, Option<TipFile>), Bru
     if s.pressure_size {
         size.push(("pressure", &size_curve));
     }
-    let velocity = s.size_dynamics.velocity.clone();
-    if let Some(v) = &velocity {
+    if let Some(v) = &s.size_dynamics.velocity {
         size.push(("speed", v));
     }
-    set_option(&mut params, "Size", &size);
+    set_option(&mut params, "Size", &size, true);
     let flow: Vec<(&str, &PressureCurve)> = if s.pressure_density { vec![("pressure", &s.density_curve)] } else { vec![] };
-    set_option(&mut params, "Flow", &flow);
+    set_option(&mut params, "Flow", &flow, false);
     let opacity: Vec<(&str, &PressureCurve)> = s.opacity_dynamics.pressure.iter().map(|c| ("pressure", c)).collect();
-    set_option(&mut params, "Opacity", &opacity);
+    set_option(&mut params, "Opacity", &opacity, false);
     let linear = PressureCurve::linear();
     let rotation: Vec<(&str, &PressureCurve)> = if s.rotation.follow_direction { vec![("drawingangle", &linear)] } else { vec![] };
-    set_option(&mut params, "Rotation", &rotation);
+    set_option(&mut params, "Rotation", &rotation, true);
+    let full = PressureCurve::from_points(vec![[0.0, 1.0], [1.0, 1.0]]);
     if s.scatter.amount > 0.0 {
-        set_option(&mut params, "Scatter", &[("pressure", &PressureCurve::from_points(vec![[0.0, 1.0], [1.0, 1.0]]))]);
+        set_option(&mut params, "Scatter", &[("pressure", &full)], true);
         put(&mut params, "ScatterValue", s.scatter.amount.to_string());
         put(&mut params, "Scattering/AxisX", "true");
         put(&mut params, "Scattering/AxisY", s.scatter.both_axes.to_string());
     } else {
-        set_option(&mut params, "Scatter", &[]);
+        set_option(&mut params, "Scatter", &[], true);
     }
+    // Texture: linked by file name and MD5 (Krita 5), embedded below, and as
+    // base64 in the preset for older Krita.
+    params.retain(|(k, _)| !k.starts_with("Texture"));
     if let Some(t) = &preset.texture {
         let mut png = Vec::new();
         if let Some(img) = image::GrayImage::from_raw(t.image.width, t.image.height, t.image.alpha.clone()) {
             img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).map_err(|e| corrupt(e.to_string()))?;
         }
+        let file = format!("{} texture.png", safe_name(name));
+        let md5 = md5(&png);
         put(&mut params, "Texture/Pattern/Enabled", "true");
-        put(&mut params, "Texture/Pattern/Pattern", base64::engine::general_purpose::STANDARD.encode(&png));
+        put(&mut params, "Texture/Pattern/PatternFileName", file.as_str());
         put(&mut params, "Texture/Pattern/Name", format!("{} texture", safe_name(name)));
+        put(&mut params, "Texture/Pattern/PatternMD5Sum", md5.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        put(&mut params, "Texture/Pattern/PatternMD5", base64::engine::general_purpose::STANDARD.encode(md5));
+        put(&mut params, "Texture/Pattern/Pattern", base64::engine::general_purpose::STANDARD.encode(&png));
         put(&mut params, "Texture/Pattern/Scale", (t.scale / 100.0).to_string());
         put(&mut params, "Texture/Pattern/Invert", t.invert.to_string());
-        put(&mut params, "Texture/StrengthValue", t.density.to_string());
+        set_option(&mut params, "Texture/Strength/", &[("pressure", &full)], true);
+        put(&mut params, "Texture/Strength/Value", t.density.to_string());
+        resources.push(Resource { kind: "patterns".into(), file, data: png });
     } else {
         put(&mut params, "Texture/Pattern/Enabled", "false");
     }
 
-    let mut xml_out = format!("<Preset paintopid=\"{}\" name=\"{}\">\n", xml_attr(&paintop), xml_attr(name));
+    let mut xml_out = format!(
+        "<Preset paintopid=\"{}\" name=\"{}\" embedded_resources=\"{}\">\n",
+        xml_attr(&paintop),
+        xml_attr(name),
+        resources.len()
+    );
+    if !resources.is_empty() {
+        xml_out += " <resources>\n";
+        for r in &resources {
+            let stem = r.file.rsplit_once('.').map_or(r.file.as_str(), |(s, _)| s);
+            xml_out += &format!(
+                "  <resource type=\"{}\" name=\"{}\" filename=\"{}\" md5sum=\"{}\">{}</resource>\n",
+                r.kind,
+                xml_attr(stem),
+                xml_attr(&r.file),
+                md5_hex(&r.data),
+                base64::engine::general_purpose::STANDARD.encode(&r.data)
+            );
+        }
+        xml_out += " </resources>\n";
+    }
     for (k, v) in &params {
         xml_out += &format!(" <param name=\"{}\" type=\"string\"><![CDATA[{}]]></param>\n", xml_attr(k), v.replace("]]>", "]] >"));
     }
     xml_out += "</Preset>\n";
-    let png = with_texts(&preview_png(preset), &[("version", "2.2"), ("preset", &xml_out)]);
-    Ok((png, tip_file))
+    let png = with_texts(&preview_png(preset), &[("version", "5.0"), ("preset", &xml_out)]);
+    Ok((png, resources))
 }
 
-/// Presets as a Krita bundle, with their tips.
+/// Presets as a Krita bundle, with their tips and textures.
 pub fn write_bundle(presets: &[BrushPreset], title: &str) -> Result<Vec<u8>, BrushIoError> {
     let mut zip = ZipWriter::new();
     zip.add("mimetype", BUNDLE_MIMETYPE.as_bytes(), false);
@@ -704,18 +837,18 @@ pub fn write_bundle(presets: &[BrushPreset], title: &str) -> Result<Vec<u8>, Bru
         used.push(name.to_ascii_lowercase());
         name
     };
-    let mut tips: Vec<String> = Vec::new();
+    let mut files: Vec<String> = Vec::new();
     for preset in presets {
-        let (kpp, tip) = write_kpp(preset)?;
+        let (kpp, linked) = write_kpp(preset)?;
         let path = format!("paintoppresets/{}", unique(safe_name(preset.name()), PRESET_EXTENSION));
-        entries.push(("paintoppresets", path.clone(), md5_hex(&kpp)));
+        entries.push(("paintoppresets".to_string(), path.clone(), md5_hex(&kpp)));
         zip.add(&path, &kpp, false);
-        if let Some((file, data)) = tip {
-            if !tips.contains(&file) {
-                let path = format!("brushes/{file}");
-                entries.push(("brushes", path.clone(), md5_hex(&data)));
-                zip.add(&path, &data, true);
-                tips.push(file);
+        for r in linked {
+            let path = format!("{}/{}", r.kind, r.file);
+            if !files.contains(&path) {
+                entries.push((r.kind.clone(), path.clone(), md5_hex(&r.data)));
+                zip.add(&path, &r.data, true);
+                files.push(path);
             }
         }
     }
@@ -785,8 +918,8 @@ mod tests {
         let mut edited = p.clone();
         edited.settings.size = 50.0;
         edited.settings.pressure_density = true;
-        let (kpp, tip) = write_kpp(&edited).unwrap();
-        assert!(tip.is_none());
+        let (kpp, files) = write_kpp(&edited).unwrap();
+        assert!(files.is_empty());
         let texts = png_texts(&kpp).unwrap();
         assert!(texts["preset"].contains("KritaOnlyThing"), "Krita's own params kept");
         let back = &read_kpp(&kpp, &|_| None).unwrap().presets[0];
@@ -794,6 +927,8 @@ mod tests {
         assert!(back.settings.pressure_density && back.settings.pressure_size);
         assert!((back.settings.size_curve.eval(0.5) - 0.2).abs() < 1e-5);
         assert_eq!(back.name(), "Pencil é");
+        // Opacity and flow follow pressure in Krita unless their curve is flat.
+        assert!(p.dynamics.opacity.pressure.is_some() && back.settings.opacity_dynamics.pressure.is_some());
     }
 
     #[test]
@@ -827,11 +962,92 @@ mod tests {
         let t = back.texture.as_ref().unwrap();
         assert_eq!((t.image.alpha.as_slice(), t.scale, t.density), (&[0u8, 255, 128, 64][..], 50.0, 0.7));
         // Re-exporting the imported preset gives the same preset and tip files.
-        let (kpp, tip) = write_kpp(back).unwrap();
+        let (kpp, files) = write_kpp(back).unwrap();
         assert_eq!(kpp, zip.read("paintoppresets/Chalk_1.kpp").unwrap());
-        assert_eq!(tip.unwrap().1, zip.read("brushes/Chalk_1.gbr").unwrap());
+        let gbr = files.iter().find(|f| f.kind == "brushes").unwrap();
+        assert_eq!(gbr.data, zip.read("brushes/Chalk_1.gbr").unwrap());
+        assert!(files.iter().any(|f| f.kind == "patterns"));
+        assert!(names.contains(&"patterns/Chalk_1 texture.png"), "{names:?}");
+        // No opacity or flow pressure: written as flat curves, read back as none.
+        assert!(r.presets[1].settings.opacity_dynamics.pressure.is_none() && !r.presets[1].settings.pressure_density);
         // Still unchanged after the brush list's own format (and the import cache).
         let kept = crate::native::read(&crate::native::to_bytes(&r.presets).unwrap()).unwrap();
         assert_eq!(write_kpp(&kept[0]).unwrap().0, kpp);
+    }
+
+    /// A preset with only its XML: no resources, Krita defaults left out.
+    fn kpp_with(params: &str, def: &str) -> Vec<u8> {
+        let xml = format!(
+            "<Preset paintopid=\"paintbrush\" name=\"T\">\n <param name=\"brush_definition\" type=\"string\"><![CDATA[{def}]]></param>\n{params}</Preset>\n"
+        );
+        with_texts(&preview_png(&BrushPreset::new(BrushSettings::g_pen())), &[("version", "2.2"), ("preset", &xml)])
+    }
+
+    #[test]
+    fn follows_krita_defaults_and_legacy_keys() {
+        // Krita 2.2 called the diameter "radius"; no spacing means 1.0 for generated tips.
+        let old = r#"<Brush type="auto_brush"><MaskGenerator radius="30" hfade="1" type="rct"/></Brush>"#;
+        let flat = "<!DOCTYPE params>\n<params id=\"pressure\">\n <curve>0,1;1,1;</curve>\n</params>\n";
+        let params = format!(
+            " <param name=\"OpacitySensor\" type=\"string\"><![CDATA[{flat}]]></param>\n <param name=\"FlowSensor\" type=\"string\"><![CDATA[{flat}]]></param>\n <param name=\"PressureSize\" type=\"internal\">true</param>\n <param name=\"CustomSize\" type=\"internal\">true</param>\n <param name=\"CurveSize\" type=\"string\"><![CDATA[0,0.5;1,1;]]></param>\n <param name=\"PressureScatter\" type=\"internal\">1</param>\n"
+        );
+        let r = read_kpp(&kpp_with(&params, old), &|_| None).unwrap();
+        let p = &r.presets[0];
+        assert_eq!(p.settings.size, 30.0);
+        assert_eq!(p.settings.spacing, 1.0);
+        assert!(r.warnings.iter().any(|w| w.contains("square")), "{:?}", r.warnings);
+        assert!(p.settings.opacity_dynamics.pressure.is_none() && !p.settings.pressure_density, "flat curves do nothing");
+        assert!((p.settings.size_curve.eval(0.0) - 0.5).abs() < 1e-5, "legacy CurveSize");
+        assert_eq!((p.settings.scatter.amount, p.settings.scatter.both_axes), (5.0, true), "scatter defaults");
+
+        // Predefined tips: BrushVersion 1 doubled the scale; spacing defaults to 0.25.
+        let tip = crate::gimp::write_gbr(&{
+            let mut b = BrushPreset::new(BrushSettings::g_pen());
+            b.tip = Some(BrushTip::new(10, 4, vec![255; 40]).unwrap());
+            b
+        })
+        .unwrap();
+        let def = r#"<Brush type="gbr_brush" filename="dir/tip.gbr" scale="1.5"/>"#;
+        let r = read_kpp(&kpp_with("", def), &|f| (f == "tip.gbr").then(|| tip.clone())).unwrap();
+        let p = &r.presets[0];
+        assert_eq!((p.settings.size, p.settings.spacing), (30.0, 0.25));
+        // With no opacity sensor, pressure drives it (Krita's opacity can't be switched off).
+        assert!(p.settings.opacity_dynamics.pressure.is_some());
+    }
+
+    #[test]
+    fn standalone_presets_embed_their_tip() {
+        let mut p = BrushPreset::new(BrushSettings::g_pen());
+        p.settings.name = "Stamp".into();
+        p.tip = Some(BrushTip::new(3, 3, vec![0, 255, 0, 255, 255, 255, 0, 255, 0]).unwrap());
+        p.apply_tip();
+        let (kpp, files) = write_kpp(&p).unwrap();
+        assert_eq!(files.len(), 1);
+        let texts = png_texts(&kpp).unwrap();
+        assert_eq!(texts["version"], "5.0");
+        assert!(texts["preset"].contains("embedded_resources=\"1\""));
+        // Read with no bundle around it: the tip comes from the preset itself.
+        let back = &read_kpp(&kpp, &|_| None).unwrap().presets[0];
+        assert_eq!(back.tip, p.tip);
+    }
+
+    #[test]
+    fn png_tips_ink_their_dark_parts() {
+        let mut png = Vec::new();
+        image::GrayImage::from_raw(2, 1, vec![0, 255])
+            .unwrap()
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        assert_eq!(decode_tip("a.png", &png, false).unwrap().alpha, [255, 0]);
+        let mut rgba = Vec::new();
+        image::RgbaImage::from_raw(2, 1, vec![255, 0, 0, 200, 0, 0, 0, 100])
+            .unwrap()
+            .write_to(&mut std::io::Cursor::new(&mut rgba), image::ImageFormat::Png)
+            .unwrap();
+        // As a mask: darkness × alpha. As a stamp: the alpha.
+        let mask = decode_tip("b.png", &rgba, false).unwrap().alpha;
+        assert_eq!(mask[1], 100);
+        assert!(mask[0] > 100 && mask[0] < 200);
+        assert_eq!(decode_tip("b.png", &rgba, true).unwrap().alpha, [200, 100]);
     }
 }

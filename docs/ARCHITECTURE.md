@@ -111,7 +111,11 @@ whatever its layer count.
   `.ora` has `stack.xml` and one PNG per layer. `.kra` has `maindoc.xml` and
   each layer in Krita's tiled format: 64 × 64 tiles, each LZF-compressed
   planar BGRA (or raw), unpremultiplied; 8 / 16-bit RGBA and grey layers and
-  transparency masks (`.pixelselection`) are read. Both also carry the
+  transparency masks (`.pixelselection`) are read. As in Krita's loader, a
+  device's `.defaultpixel` fills what its tiles don't cover (transparent, and
+  so a fully hidden mask, when absent), and "inherit alpha" (alpha left out of
+  `channelflags`) becomes clipping. In `.ora`, a stack without `isolation` is
+  isolated (the spec's default) and `svg:src-atop` becomes clipping. Both also carry the
   composite and a thumbnail. `interchange.rs` holds what they share (a layer's
   pixels whatever its kind, blend mode names). Loading returns warnings for
   what was approximated; the app shows them in the status bar.
