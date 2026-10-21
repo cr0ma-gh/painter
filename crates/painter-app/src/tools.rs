@@ -403,6 +403,16 @@ impl PainterApp {
             ]
         });
         let [redo, undo, save_as, save, open, new, all, deselect, invert] = pressed;
+        // Layers: Ctrl+J duplicates, Ctrl+G groups into a folder (as in Photoshop).
+        let (duplicate, group) = ctx.input_mut(|i| {
+            (i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::J)), i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::G)))
+        });
+        if duplicate {
+            self.duplicate_selected_layers();
+        }
+        if group {
+            self.group_selected_layers();
+        }
         if redo {
             self.redo();
         } else if undo {

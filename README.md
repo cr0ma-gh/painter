@@ -34,7 +34,13 @@ cargo run --release -p painter-app -- drawing.painter
 
 - **Layers:** raster, vector, folders (pass-through or isolated), paper,
   gradient and screentone layers. Each has 13 blend modes, opacity, locks,
-  clipping to the layer below, and layer masks.
+  clipping to the layer below, and layer masks. The Layer palette works like Clip
+  Studio's: Ctrl / Shift + click selects several layers; drag them above,
+  below or into a folder; duplicate (Ctrl+J, folders with their contents),
+  group into a folder (Ctrl+G), delete, show / hide, lock or change opacity
+  and blend mode for all of them at once (right-click menu too). Draft
+  layers stay visible while you work and are left out of PNG, PSD and SVG
+  exports.
 - **Brushes:** pressure curves for size and density (with an editor),
   per-stroke opacity, per-dab density, spacing, hardness, anti-aliasing,
   stabilisation (weighted average or pulled string), erasers. On vector layers

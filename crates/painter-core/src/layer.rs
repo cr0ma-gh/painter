@@ -78,6 +78,9 @@ pub struct Layer {
     /// Fill tools may read their boundaries from layers marked like this
     /// (typically the inks) while painting on another layer.
     pub reference: bool,
+    /// A draft (Clip Studio's draft layer): shown while working, left out of
+    /// exports and prints.
+    pub draft: bool,
     pub mask: Option<Mask>,
 }
 
@@ -94,6 +97,7 @@ impl Layer {
             alpha_locked: false,
             clip: false,
             reference: false,
+            draft: false,
             mask: None,
         }
     }

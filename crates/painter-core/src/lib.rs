@@ -13,6 +13,7 @@ pub mod filters;
 pub mod history;
 pub mod io;
 pub mod layer;
+pub mod layer_ops;
 pub mod procedural;
 pub mod project;
 pub mod psd;

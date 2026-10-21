@@ -458,7 +458,7 @@ impl PainterApp {
         let Some(path) = crate::files::FileDialog::new().add_filter("SVG", &["svg"]).set_file_name(name).save_file() else {
             return;
         };
-        self.status = match export_svg(&self.doc, options) {
+        self.status = match export_svg(&self.doc.without_drafts(), options) {
             Ok(report) => match std::fs::write(&path, report.to_svg()) {
                 Ok(()) => {
                     crate::files::offer_export(&path);

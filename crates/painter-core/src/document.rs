@@ -265,7 +265,7 @@ fn all_ids(list: &[Layer]) -> Vec<LayerId> {
     out
 }
 
-fn find_in(list: &[Layer], id: LayerId) -> Option<&Layer> {
+pub(crate) fn find_in(list: &[Layer], id: LayerId) -> Option<&Layer> {
     for layer in list {
         if layer.id == id {
             return Some(layer);
@@ -294,7 +294,7 @@ fn find_in_mut(list: &mut [Layer], id: LayerId) -> Option<&mut Layer> {
 }
 
 /// The sibling list holding `id`, and its index there.
-fn locate_mut(list: &mut Vec<Layer>, id: LayerId) -> Option<(&mut Vec<Layer>, usize)> {
+pub(crate) fn locate_mut(list: &mut Vec<Layer>, id: LayerId) -> Option<(&mut Vec<Layer>, usize)> {
     if let Some(i) = list.iter().position(|l| l.id == id) {
         return Some((list, i));
     }

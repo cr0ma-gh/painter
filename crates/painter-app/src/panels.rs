@@ -864,16 +864,19 @@ impl PainterApp {
             if icon_button(ui, Icon::LayerMask, 16.0, false, "Add layer mask (from the selection when there is one)").clicked() {
                 self.add_mask();
             }
+            if icon_button(ui, Icon::Duplicate, 16.0, false, "Duplicate the selected layers (Ctrl+J)").clicked() {
+                self.duplicate_selected_layers();
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
-                if icon_button(ui, Icon::Delete, 16.0, false, "Delete layer").clicked() {
-                    self.delete_active_layer();
+                if icon_button(ui, Icon::Delete, 16.0, false, "Delete the selected layers").clicked() {
+                    self.delete_selected_layers();
                 }
-                if icon_button(ui, Icon::Down, 16.0, false, "Move layer down").clicked() {
-                    self.move_active_layer(false);
+                if icon_button(ui, Icon::Down, 16.0, false, "Move the selected layers down").clicked() {
+                    self.move_selected_layers(false);
                 }
-                if icon_button(ui, Icon::Up, 16.0, false, "Move layer up").clicked() {
-                    self.move_active_layer(true);
+                if icon_button(ui, Icon::Up, 16.0, false, "Move the selected layers up").clicked() {
+                    self.move_selected_layers(true);
                 }
             });
         });
@@ -892,6 +895,11 @@ impl PainterApp {
         let mut toggle_rulers = None;
         let active = self.doc.active;
         let rows = self.doc.rows_top_down();
+        let multi = self.selected_layers();
+        let modifiers = ui.input(|i| i.modifiers);
+        let mut drop: Option<(painter_core::LayerId, painter_core::layer_ops::LayerDrop)> = None;
+        let mut eye_all: Option<bool> = None;
+        let mut menu_action: Option<(painter_core::LayerId, &str)> = None;
         egui::Frame::new().fill(theme::well()).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             for (id, depth) in rows {
@@ -899,16 +907,40 @@ impl PainterApp {
                     continue;
                 };
                 let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 30.0), Sense::click_and_drag());
-                // Dragged onto a document tab or a reference view, the layer is copied there.
+                // Dragged within the list it moves (above, below, or into a folder);
+                // onto a document tab or a reference view it's copied there.
                 if response.drag_started() {
                     egui::DragAndDrop::set_payload(ui.ctx(), crate::document_manager::LayerDrag { layer: id });
                 }
                 if response.dragged() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
                 }
-                let selected = id == active;
-                let fill = if selected {
+                let is_folder = matches!(layer.kind, LayerKind::Folder(_));
+                let zone = |y: f32| {
+                    use painter_core::layer_ops::LayerDrop;
+                    let f = (y - rect.top()) / rect.height();
+                    if is_folder && (0.25..0.75).contains(&f) {
+                        LayerDrop::Into(id)
+                    } else if f < 0.5 {
+                        LayerDrop::Above(id)
+                    } else {
+                        LayerDrop::Below(id)
+                    }
+                };
+                let dragged_here = egui::DragAndDrop::payload::<crate::document_manager::LayerDrag>(ui.ctx())
+                    .filter(|p| p.layer != id && response.contains_pointer());
+                if let Some(p) = response.dnd_release_payload::<crate::document_manager::LayerDrag>() {
+                    if p.layer != id {
+                        if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                            drop = Some((p.layer, zone(pos.y)));
+                        }
+                    }
+                }
+                let selected = multi.contains(&id);
+                let fill = if id == active {
                     theme::selected()
+                } else if selected {
+                    theme::selected().gamma_multiply(0.6)
                 } else if response.hovered() {
                     theme::hover()
                 } else {
@@ -916,15 +948,36 @@ impl PainterApp {
                 };
                 ui.painter().rect_filled(rect, 0.0, fill);
                 ui.painter().hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0_f32, theme::line()));
+                // Where a dragged layer would land.
+                if dragged_here.is_some() {
+                    if let Some(pos) = ui.input(|i| i.pointer.hover_pos()) {
+                        let accent = Stroke::new(2.0_f32, theme::accent());
+                        match zone(pos.y) {
+                            painter_core::layer_ops::LayerDrop::Into(_) => {
+                                ui.painter().rect_stroke(rect.shrink(1.0), 2.0, accent, egui::StrokeKind::Inside);
+                            }
+                            painter_core::layer_ops::LayerDrop::Above(_) => {
+                                ui.painter().hline(rect.x_range(), rect.top() + 1.0, accent);
+                            }
+                            painter_core::layer_ops::LayerDrop::Below(_) => {
+                                ui.painter().hline(rect.x_range(), rect.bottom() - 1.0, accent);
+                            }
+                        }
+                    }
+                }
 
                 // Eye toggle.
                 let eye = egui::Rect::from_min_size(rect.left_top(), Vec2::new(26.0, rect.height()));
                 let eye_response = ui.interact(eye, response.id.with("eye"), Sense::click());
                 let eye_tint = if layer.visible { theme::text() } else { theme::text_dim().gamma_multiply(0.5) };
                 Icon::Visible.paint(ui, eye, 14.0, eye_tint);
-                if eye_response.on_hover_text("Show / hide").clicked() {
-                    layer.visible = !layer.visible;
-                    changed = true;
+                if eye_response.on_hover_text("Show / hide (all the selected layers, when this one is selected)").clicked() {
+                    if selected && multi.len() > 1 {
+                        eye_all = Some(!layer.visible);
+                    } else {
+                        layer.visible = !layer.visible;
+                        changed = true;
+                    }
                 }
                 ui.painter().vline(eye.right(), rect.y_range(), Stroke::new(1.0_f32, theme::line()));
 
@@ -954,7 +1007,7 @@ impl PainterApp {
                     theme::text_dim(),
                 );
                 x += 22.0;
-                let name_color = if layer.visible { theme::strong() } else { theme::text_dim() };
+                let name_color = if !layer.visible || layer.draft { theme::text_dim() } else { theme::strong() };
                 ui.painter().text(
                     egui::pos2(x, rect.top() + 9.0),
                     Align2::LEFT_CENTER,
@@ -978,6 +1031,9 @@ impl PainterApp {
                     icon.paint(ui, r, 13.0, if on { theme::text() } else { theme::text_dim() });
                     right -= 20.0;
                 };
+                if layer.draft {
+                    badge(Icon::Pencil, true);
+                }
                 if layer.locked {
                     badge(Icon::Lock, true);
                 }
@@ -999,8 +1055,48 @@ impl PainterApp {
                 if response.clicked() {
                     select = Some(id);
                 }
+                let draft = layer.draft;
+                response.context_menu(|ui| {
+                    let mut item = |label: &str, what: &'static str| {
+                        if ui.button(label).clicked() {
+                            menu_action = Some((id, what));
+                            ui.close_menu();
+                        }
+                    };
+                    item("Duplicate (Ctrl+J)", "duplicate");
+                    item("Group into Folder (Ctrl+G)", "group");
+                    item("Delete", "delete");
+                    item(if draft { "Not a Draft" } else { "Set as Draft (left out of exports)" }, "draft");
+                    item("Show / Hide", "visible");
+                    item("Lock / Unlock", "lock");
+                    item("Reference / Not", "reference");
+                });
             }
         });
+        // Mass and structural changes, once the list is drawn.
+        if let Some(visible) = eye_all {
+            self.set_on_selected_layers(|l| l.visible = visible);
+        }
+        if let Some((dragged, to)) = drop {
+            self.drop_layers(dragged, to);
+        }
+        if let Some((id, what)) = menu_action {
+            // The menu acts on the selection when its row is selected, else on that row.
+            if !self.selected_layers().contains(&id) {
+                self.click_layer(id, egui::Modifiers::NONE);
+            }
+            let first = self.doc.find(id).map(|l| (l.draft, l.visible, l.locked, l.reference)).unwrap_or_default();
+            match what {
+                "duplicate" => self.duplicate_selected_layers(),
+                "group" => self.group_selected_layers(),
+                "delete" => self.delete_selected_layers(),
+                "draft" => self.set_on_selected_layers(|l| l.draft = !first.0),
+                "visible" => self.set_on_selected_layers(|l| l.visible = !first.1),
+                "lock" => self.set_on_selected_layers(|l| l.locked = !first.2),
+                "reference" => self.set_on_selected_layers(|l| l.reference = !first.3),
+                _ => {}
+            }
+        }
         if let Some(id) = toggle_rulers {
             let show = !ruler_layers.get(&id.0).copied().unwrap_or(true);
             for r in self.doc.rulers.rulers.iter_mut().filter(|r| r.layer == Some(id.0)) {
@@ -1008,13 +1104,52 @@ impl PainterApp {
             }
             self.dirty = true;
         } else if let Some(id) = select {
-            if id != self.doc.active {
-                self.edit_mask = false;
-            }
-            self.doc.active = id;
+            self.click_layer(id, modifiers);
         }
 
         ui.separator();
+        // Several layers: opacity and blend mode for all of them.
+        let multi = self.selected_layers();
+        if multi.len() > 1 {
+            ui.label(egui::RichText::new(format!("{} layers selected", multi.len())).strong());
+            let (mut opacity, blend) = self.doc.find(self.doc.active).map_or((1.0, BlendMode::Normal), |l| (l.opacity, l.blend));
+            let mut new_blend = None;
+            egui::ComboBox::from_label("Blend (all)").selected_text(blend.name()).show_ui(ui, |ui| {
+                for mode in BlendMode::ALL {
+                    if ui.selectable_label(mode == blend, mode.name()).clicked() {
+                        new_blend = Some(mode);
+                    }
+                }
+            });
+            if let Some(mode) = new_blend {
+                self.set_on_selected_layers(|l| l.blend = mode);
+            }
+            if prop_percent(ui, "Opacity (all)", &mut opacity, 0.0..=100.0) {
+                for id in &multi {
+                    if let Some(l) = self.doc.find_mut(*id) {
+                        l.opacity = opacity;
+                    }
+                }
+                self.recomposite = true;
+                self.dirty = true;
+            }
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Duplicate").clicked() {
+                    self.duplicate_selected_layers();
+                }
+                if ui.button("Group").clicked() {
+                    self.group_selected_layers();
+                }
+                if ui.button("Draft on / off").clicked() {
+                    let on = !self.doc.find(self.doc.active).is_some_and(|l| l.draft);
+                    self.set_on_selected_layers(|l| l.draft = on);
+                }
+                if ui.button("Delete").clicked() {
+                    self.delete_selected_layers();
+                }
+            });
+            ui.separator();
+        }
         let mut add_mask = false;
         let mut delete_mask = false;
         if let Some(layer) = self.doc.find_mut(self.doc.active) {
@@ -1035,6 +1170,10 @@ impl PainterApp {
                 ui.checkbox(&mut layer.locked, "Lock");
                 changed |= ui.checkbox(&mut layer.clip, "Clip to layer below").changed();
                 changed |= ui.checkbox(&mut layer.reference, "Reference").on_hover_text("The fill bucket can read its boundaries from reference layers").changed();
+                changed |= ui
+                    .checkbox(&mut layer.draft, "Draft")
+                    .on_hover_text("Shown while you work, left out of exports and prints (sketches, notes, guides)")
+                    .changed();
                 if layer.has_pixels() && !layer.is_vector() {
                     ui.checkbox(&mut layer.alpha_locked, "Lock transparency");
                 }

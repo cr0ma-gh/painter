@@ -112,6 +112,8 @@ struct LayerFile {
     clip: bool,
     #[serde(default)]
     reference: bool,
+    #[serde(default)]
+    draft: bool,
     mask: Option<MaskFile>,
     content: ContentFile,
 }
@@ -250,6 +252,7 @@ fn layer_file<'a>(layer: &'a Layer, planes: &mut Vec<(String, &'a TileStore)>) -
         alpha_locked: layer.alpha_locked,
         clip: layer.clip,
         reference: layer.reference,
+        draft: layer.draft,
         mask,
         content,
     }
@@ -323,6 +326,7 @@ fn read_layer<R: Read + Seek>(file: LayerFile, zip: &mut ZipArchive<R>, canvas: 
         alpha_locked: file.alpha_locked,
         clip: file.clip,
         reference: file.reference,
+        draft: file.draft,
         mask,
     })
 }

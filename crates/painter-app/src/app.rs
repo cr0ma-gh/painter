@@ -101,6 +101,8 @@ pub struct PainterApp {
     pub(crate) transparent_from: Hsva,
     /// The eyedropper's settings and what it's doing.
     pub(crate) eyedropper: crate::eyedropper::Eyedropper,
+    /// Layers selected besides the active one (the Layer palette's multi-selection).
+    pub(crate) layer_selection: Vec<painter_core::LayerId>,
     pub(crate) tool: Tool,
     pub(crate) tools: ToolOptions,
     pub(crate) view: ViewTransform,
@@ -216,6 +218,7 @@ impl PainterApp {
             transparent: false,
             transparent_from: Hsva::new(0.0, 0.0, 0.0, 1.0),
             eyedropper: Default::default(),
+            layer_selection: Vec::new(),
             tool: Tool::Brush,
             tools: ToolOptions::default(),
             view: ViewTransform::default(),
@@ -1182,7 +1185,8 @@ impl PainterApp {
         let Some(path) = crate::files::FileDialog::new().add_filter("PNG image", &["png"]).set_file_name("painting.png").save_file() else {
             return;
         };
-        self.status = match io::export_png(&self.doc, &path) {
+        // Draft layers stay out of exports.
+        self.status = match io::export_png(&self.doc.without_drafts(), &path) {
             Ok(()) => {
                 crate::files::offer_export(&path);
                 format!("Exported {}", path.display())
@@ -1196,7 +1200,7 @@ impl PainterApp {
         let Some(path) = crate::files::FileDialog::new().add_filter("Photoshop", &["psd"]).set_file_name("painting.psd").save_file() else {
             return;
         };
-        self.status = match psd::save(&self.doc, &path) {
+        self.status = match psd::save(&self.doc.without_drafts(), &path) {
             Ok(()) => {
                 crate::files::offer_export(&path);
                 format!("Exported {} (procedural and vector layers rasterised)", path.display())
