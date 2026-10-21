@@ -25,7 +25,9 @@ one-year signatures and TestFlight.
 
 - **Apple Pencil draws, fingers navigate** (View → Draw With the Pen Only):
   one finger pans, two fingers pan, pinch-zoom and rotate, a two-finger tap
-  undoes and a three-finger tap redoes.
+  undoes, a three-finger tap redoes and a four-finger tap toggles zen mode
+  (canvas only). In zen mode the button in the top-right corner also brings
+  the panels back.
 - **Files**: File → Open (and every import: images, brushes, 3D models,
   themes) shows the system document picker, so files can come from Files,
   iCloud Drive or other apps. Painter keeps its own folder in the Files app

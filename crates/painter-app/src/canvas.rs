@@ -210,7 +210,7 @@ impl PainterApp {
 
     /// Two or more fingers: pan and rotate the view (pinch zoom comes through
     /// `zoom_delta`), drop a stroke a stray finger just started, and turn quick
-    /// taps into undo (two fingers) and redo (three).
+    /// taps into undo (two fingers), redo (three) and zen mode (four).
     fn touch_gestures(&mut self, multi: Option<egui::MultiTouchInfo>, rect: Rect) {
         let now = self.started.elapsed().as_secs_f64();
         match multi {
@@ -236,6 +236,7 @@ impl PainterApp {
                     match g.touches {
                         2 if tap => self.undo(),
                         3 if tap => self.redo(),
+                        4 if tap => self.toggle_zen(),
                         _ => {}
                     }
                 }

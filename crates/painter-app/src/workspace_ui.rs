@@ -163,7 +163,41 @@ impl PainterApp {
 
     pub(crate) fn toggle_zen(&mut self) {
         self.ws.chrome.toggle_zen();
-        self.status = if self.ws.chrome.zen { "Zen mode: Tab or F11 brings the panels back".into() } else { String::new() };
+        self.status = if self.ws.chrome.zen {
+            "Zen mode: the corner button, Tab, F11 or a four-finger tap brings the panels back".into()
+        } else {
+            String::new()
+        };
+    }
+
+    /// In zen mode, a faint button in the top-right corner of the canvas
+    /// brings the panels back, for touch screens without a keyboard.
+    fn zen_exit_button(&mut self, ctx: &egui::Context, canvas: Rect) {
+        let size = if cfg!(target_os = "ios") { 44.0 } else { 28.0 };
+        let rect = Rect::from_min_size(egui::pos2(canvas.right() - size - 8.0, canvas.top() + 8.0), Vec2::splat(size));
+        let response = egui::Area::new(egui::Id::new("zen_exit"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(rect.min)
+            .show(ctx, |ui| {
+                let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
+                let strong = response.hovered() || response.is_pointer_button_down_on();
+                let fill = theme::backdrop().gamma_multiply(if strong { 0.95 } else { 0.55 });
+                let ink = ui.visuals().text_color().gamma_multiply(if strong { 1.0 } else { 0.6 });
+                ui.painter().rect_filled(rect, size * 0.25, fill);
+                // Four corner brackets: "leave full screen".
+                let (c, a, b) = (rect.center(), size * 0.16, size * 0.3);
+                let stroke = egui::Stroke::new(2.0_f32, ink);
+                for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+                    let corner = c + Vec2::new(sx * a, sy * a);
+                    ui.painter().line_segment([corner, corner + Vec2::new(sx * (b - a), 0.0)], stroke);
+                    ui.painter().line_segment([corner, corner + Vec2::new(0.0, sy * (b - a))], stroke);
+                }
+                response.on_hover_text("Show the panels again (Tab, F11, four-finger tap)")
+            })
+            .inner;
+        if response.clicked() {
+            self.toggle_zen();
+        }
     }
 
     // ---- workspace tabs -----------------------------------------------------------------
@@ -279,6 +313,7 @@ impl PainterApp {
                 // Only the canvas, edge to edge.
                 let mut child = ui.new_child(UiBuilder::new().max_rect(full).id_salt("zen_canvas"));
                 self.canvas_ui(&mut child);
+                self.zen_exit_button(ui.ctx(), full);
                 return;
             }
             let (areas, borders) = tree.layout(from_egui(full));
