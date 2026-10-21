@@ -71,6 +71,10 @@ pub struct PainterApp {
     /// Bumped when the document is replaced so the GPU drops stale state.
     pub(crate) epoch: u64,
     pub(crate) brushes: Vec<BrushPreset>,
+    /// The Search Layer palette's query.
+    pub(crate) layer_search: crate::search_layer::SearchLayer,
+    /// Colour sets, history and the other colour palettes.
+    pub(crate) colors: crate::color_panels::ColorPanels,
     /// The brush list on disk, kept between launches.
     pub(crate) brush_library: crate::brush_library::BrushLibrary,
     /// iPadOS: status bar, edge gestures, safe area.
@@ -187,6 +191,8 @@ impl PainterApp {
             epoch: 1,
             brushes,
             brush_library,
+            colors: crate::color_panels::ColorPanels::load(),
+            layer_search: Default::default(),
             ios_window: Default::default(),
             modifier_keys: Default::default(),
             previews: StrokePreviews::default(),
@@ -559,6 +565,10 @@ impl PainterApp {
         let settings = self.current_brush().clone();
         let color = if matches!(plane, Plane::Mask(_)) { [1.0; 3] } else { self.main_rgb() };
         let vector_erase = is_vector && settings.mode == BrushMode::Erase && self.tools.vector_eraser_whole_strokes;
+        if settings.mode != BrushMode::Erase && matches!(plane, Plane::Color(_)) {
+            let [r, g, b, _] = self.color.to_srgba_unmultiplied();
+            self.colors.used([r, g, b]);
+        }
         // Seeded per stroke: random dynamics differ between strokes and replay exactly.
         let mut engine = StrokeEngine::with_seed(&settings, self.next_stroke_id);
         let dabs = engine.add(p);
@@ -1216,6 +1226,7 @@ impl eframe::App for PainterApp {
         }
         self.receive_picked_files(ctx);
         self.brush_library.autosave(&self.brushes, false);
+        self.colors.autosave();
         if let Some(err) = self.brush_library.error.take() {
             self.status = err;
         }
@@ -1251,6 +1262,7 @@ impl eframe::App for PainterApp {
         self.svg_export_window(ctx);
         self.comic_wizard_window(ctx);
         self.areas(ctx);
+        self.floating_panels(ctx);
         self.command_palette_window(ctx);
         self.theme_editor_window(ctx);
         self.filter_window(ctx);

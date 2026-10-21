@@ -124,6 +124,13 @@ pub fn editor_icon(editor: ui_workspace::tiles::EditorType) -> Icon {
         E::ComicPanels => Icon::Grid,
         E::Timeline => Icon::Curve,
         E::NodeGraph => Icon::Path,
+        E::ColorSlider => Icon::GradientLinear,
+        E::ColorSet => Icon::DefaultColors,
+        E::ColorHistory => Icon::Undo,
+        E::IntermediateColor => Icon::Transparency,
+        E::ApproximateColor => Icon::ColorPicker,
+        E::ColorMixing => Icon::Smudge,
+        E::SearchLayer => Icon::Zoom,
     }
 }
 
@@ -141,6 +148,8 @@ pub enum Glyph {
     FullScreen,
     /// Interface size: a small and a large square.
     Scale,
+    /// Put a floating panel back: a window with an arrow into it.
+    Dock,
 }
 
 /// Paints `glyph` centred in `rect`, `size` points across.
@@ -166,6 +175,12 @@ pub fn paint_glyph(painter: &egui::Painter, rect: egui::Rect, size: f32, glyph: 
             }
             egui::layers::ShapeIdx(0)
         }
+        Glyph::Dock => {
+            painter.rect_stroke(egui::Rect::from_min_max(p(-0.75, -0.2), p(0.75, 0.75)), 1.0, stroke, egui::StrokeKind::Middle);
+            painter.line_segment([p(0.0, -0.85), p(0.0, 0.35)], stroke);
+            painter.add(egui::Shape::line(vec![p(-0.3, 0.05), p(0.0, 0.35), p(0.3, 0.05)], stroke));
+            egui::layers::ShapeIdx(0)
+        }
         Glyph::Scale => {
             painter.rect_stroke(egui::Rect::from_min_max(p(-0.8, 0.0), p(-0.2, 0.6)), 1.0, stroke, egui::StrokeKind::Middle);
             painter.rect_stroke(egui::Rect::from_min_max(p(0.0, -0.75), p(0.8, 0.6)), 1.0, stroke, egui::StrokeKind::Middle);
@@ -174,8 +189,16 @@ pub fn paint_glyph(painter: &egui::Painter, rect: egui::Rect, size: f32, glyph: 
     };
 }
 
+/// How much bigger this part of the interface is than the rest: a panel's
+/// own scale (see `workspace_ui::scaled_style`), read off its widget height.
+pub fn panel_factor(ui: &Ui) -> f32 {
+    let base = ui.ctx().style().spacing.interact_size.y;
+    if base > 0.0 { (ui.spacing().interact_size.y / base).clamp(0.25, 4.0) } else { 1.0 }
+}
+
 /// A square button showing a [`Glyph`].
 pub fn glyph_button(ui: &mut Ui, glyph: Glyph, size: f32, hint: &str) -> Response {
+    let size = size * panel_factor(ui);
     let side = size + 6.0;
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(side), Sense::click());
     let visuals = ui.visuals();
@@ -193,6 +216,7 @@ pub fn glyph_button(ui: &mut Ui, glyph: Glyph, size: f32, hint: &str) -> Respons
 
 /// A square icon button; `selected` draws it pressed.
 pub fn icon_button(ui: &mut Ui, icon: Icon, size: f32, selected: bool, hint: &str) -> Response {
+    let size = size * panel_factor(ui);
     let side = size + 10.0;
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(side), Sense::click());
     let visuals = ui.visuals();

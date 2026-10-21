@@ -249,7 +249,7 @@ impl PainterApp {
                     for editor in ui_workspace::EditorType::ALL.into_iter().filter(|e| *e != ui_workspace::EditorType::Canvas) {
                         let mut open = self.editor_open(editor);
                         if ui.checkbox(&mut open, editor.title()).clicked() {
-                            self.toggle_editor(editor);
+                            self.toggle_editor(editor, ui.ctx());
                         }
                     }
                     ui.separator();

@@ -3,6 +3,8 @@
 mod adjust_ui;
 mod app;
 mod brush_library;
+mod color_panels;
+mod search_layer;
 mod canvas;
 mod comic_ui;
 mod curve;

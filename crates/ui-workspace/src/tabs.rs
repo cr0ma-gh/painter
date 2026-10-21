@@ -97,20 +97,87 @@ pub struct Workspace {
     pub tiles: TileTree,
     /// Tool ids shown in the toolbar; `None` = every tool.
     pub tools: Option<Vec<String>>,
+    /// Panels detached into their own floating windows.
+    #[serde(default)]
+    pub floating: Vec<FloatingPanel>,
+}
+
+/// A panel in a floating window, like Clip Studio's undocked palettes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FloatingPanel {
+    /// Stable while the panel exists (names its window).
+    pub id: u32,
+    pub editor: EditorType,
+    /// Top-left corner and size, in points.
+    pub pos: [f32; 2],
+    pub size: [f32; 2],
+    /// Its own interface scale, as for docked areas.
+    #[serde(default = "unit_scale")]
+    pub scale: f32,
 }
 
 impl Workspace {
     pub fn builtin(kind: WorkspaceKind) -> Self {
-        Self { name: kind.title().into(), kind, tiles: kind.layout(), tools: kind.tools() }
+        Self { name: kind.title().into(), kind, tiles: kind.layout(), tools: kind.tools(), floating: Vec::new() }
     }
 
     pub fn shows_tool(&self, tool: &str) -> bool {
         self.tools.as_ref().is_none_or(|t| t.iter().any(|x| x == tool))
     }
 
+    /// Detaches `editor` from `area` into a floating window at `pos`
+    /// (`size` points). The canvas stays docked; an area losing its last tab
+    /// closes. Returns the floating panel's id.
+    pub fn float(&mut self, area: crate::tiles::AreaId, editor: EditorType, pos: [f32; 2], size: [f32; 2]) -> Option<u32> {
+        if editor == EditorType::Canvas || !self.tiles.area(area)?.editors.contains(&editor) {
+            return None;
+        }
+        let scale = self.tiles.area(area)?.scale;
+        let tabs = self.tiles.area(area)?.editors.len();
+        // The last area can't close: keep the panel docked then.
+        if tabs == 1 && self.tiles.areas().len() == 1 {
+            return None;
+        }
+        self.tiles.close_tab(area, editor);
+        Some(self.add_floating(editor, pos, size, scale))
+    }
+
+    /// A new floating panel showing `editor`; returns its id.
+    pub fn add_floating(&mut self, editor: EditorType, pos: [f32; 2], size: [f32; 2], scale: f32) -> u32 {
+        let id = self.floating.iter().map(|f| f.id + 1).max().unwrap_or(1);
+        let scale = crate::tiles::clamp_panel_scale(scale);
+        self.floating.push(FloatingPanel { id, editor, pos, size: [size[0].max(120.0), size[1].max(80.0)], scale });
+        id
+    }
+
+    /// Puts floating panel `id` back into the layout: as a tab of the area
+    /// showing a panel of the same column (the first non-viewport area), or
+    /// beside the canvas when there is none.
+    pub fn dock(&mut self, id: u32) -> bool {
+        let Some(i) = self.floating.iter().position(|f| f.id == id) else { return false };
+        let panel = self.floating.remove(i);
+        let host = self.tiles.areas().into_iter().find(|a| self.tiles.area(*a).is_some_and(|a| !a.editor().is_viewport()));
+        match host {
+            Some(area) => {
+                self.tiles.add_tab(area, panel.editor);
+            }
+            None => {
+                let root = self.tiles.areas()[0];
+                self.tiles.split(root, SplitKind::SideBySide, 0.75, panel.editor, false);
+            }
+        }
+        true
+    }
+
+    /// Whether `editor` is on screen: docked (as any tab) or floating.
+    pub fn shows(&self, editor: EditorType) -> bool {
+        self.tiles.find(editor).is_some() || self.floating.iter().any(|f| f.editor == editor)
+    }
+
     pub fn reset(&mut self) {
         self.tiles = self.kind.layout();
         self.tools = self.kind.tools();
+        self.floating.clear();
     }
 }
 
@@ -268,6 +335,33 @@ impl Chrome {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn panels_float_and_dock_back() {
+        let mut w = Workspace::builtin(WorkspaceKind::Painting);
+        let layers = w.tiles.find(EditorType::Layers).unwrap();
+        w.tiles.set_scale(layers, 1.5);
+        let id = w.float(layers, EditorType::Layers, [100.0, 80.0], [260.0, 400.0]).unwrap();
+        assert!(w.tiles.find(EditorType::Layers).is_none(), "no longer docked");
+        assert!(w.shows(EditorType::Layers));
+        assert_eq!(w.floating[0].scale, 1.5, "keeps the panel's scale");
+        // The canvas never floats.
+        let canvas = w.tiles.find(EditorType::Canvas).unwrap();
+        assert!(w.float(canvas, EditorType::Canvas, [0.0; 2], [300.0; 2]).is_none());
+        // Saved and loaded with the workspace; old files load without any.
+        let json = serde_json::to_string(&w).unwrap();
+        let back: Workspace = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.floating, w.floating);
+        let old = json.replace(&format!(",\"floating\":{}", serde_json::to_string(&w.floating).unwrap()), "");
+        assert!(serde_json::from_str::<Workspace>(&old).unwrap().floating.is_empty());
+        assert!(w.dock(id));
+        assert!(w.tiles.find(EditorType::Layers).is_some() && w.floating.is_empty());
+        let second = w.add_floating(EditorType::ColorSet, [0.0; 2], [10.0; 2], 9.0);
+        assert_eq!(w.floating[0].size, [120.0, 80.0], "minimum size");
+        assert_eq!(w.floating[0].scale, crate::tiles::PANEL_SCALE.1);
+        w.reset();
+        assert!(w.floating.is_empty() && !w.dock(second));
+    }
 
     #[test]
     fn builtin_layouts_have_what_they_promise() {

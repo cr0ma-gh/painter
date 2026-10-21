@@ -37,6 +37,8 @@ pub(crate) struct WorkspaceUi {
     applied_theme: Option<u64>,
     /// The egui zoom last set from the interface scale (to notice Ctrl +/- changing it).
     applied_zoom: Option<f32>,
+    /// Where each docked area was last drawn (to place a panel that floats off it).
+    pub(crate) area_rects: Vec<(AreaId, Rect)>,
     /// Workspace tab being renamed, with the text so far.
     renaming: Option<(usize, String)>,
     /// Where settings live when eframe has no storage (iPadOS), and what
@@ -62,6 +64,7 @@ impl WorkspaceUi {
             theme_editor: false,
             applied_theme: None,
             applied_zoom: None,
+            area_rects: Vec::new(),
             renaming: None,
             settings_file,
             written,
@@ -119,6 +122,48 @@ enum AreaAction {
     Close,
     /// Fold (true) or unfold the area.
     Fold(bool),
+    /// Detach this editor into a floating window.
+    Float(EditorType),
+    /// The area's own scale.
+    Scale(f32),
+}
+
+/// `style` with text, spacing and widget sizes multiplied by `scale`: one
+/// panel's own zoom (icons follow through [`crate::icons::panel_factor`]).
+pub(crate) fn scaled_style(style: &egui::Style, scale: f32) -> egui::Style {
+    let mut s = style.clone();
+    for font in s.text_styles.values_mut() {
+        font.size *= scale;
+    }
+    let sp = &mut s.spacing;
+    sp.item_spacing *= scale;
+    sp.button_padding *= scale;
+    sp.interact_size *= scale;
+    sp.indent *= scale;
+    sp.slider_width *= scale;
+    sp.slider_rail_height *= scale;
+    sp.combo_width *= scale;
+    sp.text_edit_width *= scale;
+    sp.icon_width *= scale;
+    sp.icon_width_inner *= scale;
+    sp.icon_spacing *= scale;
+    sp.combo_height *= scale;
+    sp.scroll.bar_width *= scale;
+    s
+}
+
+/// Ctrl + Alt + wheel over `body`: the panel's new scale, if it changed.
+fn panel_scale_wheel(ui: &egui::Ui, body: Rect, scale: f32) -> Option<f32> {
+    if !ui.rect_contains_pointer(body) {
+        return None;
+    }
+    let (wheel, held) = ui.input(|i| (i.raw_scroll_delta.y, i.modifiers.ctrl && i.modifiers.alt));
+    if !held || wheel.abs() < 0.5 {
+        return None;
+    }
+    let step = if wheel > 0.0 { 1.1 } else { 1.0 / 1.1 };
+    let next = tiles::clamp_panel_scale((scale * step * 20.0).round() / 20.0);
+    (next != scale).then_some(next)
 }
 
 /// A folded area: a header strip (icon, name) or, beside a side-by-side
@@ -414,6 +459,7 @@ impl PainterApp {
                 return;
             }
             let (areas, borders) = tree.layout_with(from_egui(full), HEADER);
+            self.ws.area_rects = areas.iter().map(|a| (a.id, to_egui(a.rect))).collect();
             let mut canvas_shown = false;
             let mut actions = Vec::new();
             for a in &areas {
@@ -536,6 +582,24 @@ impl PainterApp {
                         }
                     }
                 });
+                let float = ui.add_enabled(editor != EditorType::Canvas, egui::Button::new("Float"));
+                if float.on_hover_text("Detach this panel into its own window").clicked() {
+                    action = Some(AreaAction::Float(editor));
+                    ui.close_menu();
+                }
+                if !editor.is_viewport() {
+                    ui.separator();
+                    let mut percent = area.scale * 100.0;
+                    let (lo, hi) = tiles::PANEL_SCALE;
+                    let r = ui.add(egui::Slider::new(&mut percent, lo * 100.0..=hi * 100.0).step_by(5.0).suffix("%").text("Panel scale"));
+                    if r.drag_stopped() || (r.changed() && !r.dragged()) {
+                        action = Some(AreaAction::Scale(percent / 100.0));
+                    }
+                    if ui.button("Panel Scale 100%").on_hover_text("Ctrl + Alt + wheel over a panel changes its scale").clicked() {
+                        action = Some(AreaAction::Scale(1.0));
+                        ui.close_menu();
+                    }
+                }
                 ui.separator();
                 let holds_canvas = area.editors.contains(&EditorType::Canvas);
                 if ui.add_enabled(area.editors.len() > 1 && editor != EditorType::Canvas, egui::Button::new("Close Tab")).clicked() {
@@ -557,6 +621,15 @@ impl PainterApp {
         let mut content =
             ui.new_child(UiBuilder::new().max_rect(body).layout(Layout::top_down(Align::Min)).id_salt(("area_body", id.0)));
         content.set_clip_rect(body.intersect(ui.clip_rect()));
+        if !editor.is_viewport() {
+            // The panel's own scale, and Ctrl + Alt + wheel to change it (Blender zooms a region with Ctrl + middle drag).
+            if (area.scale - 1.0).abs() > 1e-3 {
+                content.set_style(scaled_style(content.style(), area.scale));
+            }
+            if let Some(scale) = panel_scale_wheel(ui, body, area.scale) {
+                action = Some(AreaAction::Scale(scale));
+            }
+        }
         if editor == EditorType::Reference {
             self.reference_view_ui(&mut content);
             return action;
@@ -576,6 +649,102 @@ impl PainterApp {
             .auto_shrink([false, false])
             .show(&mut inner, |ui| self.editor_ui(ui, editor));
         action
+    }
+
+    /// Panels detached into their own windows (the area menu's Float, or
+    /// Window → Panels). Each keeps its place, size and own scale; the title
+    /// bar folds it, the dock icon puts it back into the layout, × hides it.
+    pub(crate) fn floating_panels(&mut self, ctx: &egui::Context) {
+        if self.ws.chrome.zen {
+            return;
+        }
+        let panels = self.ws.set.current().floating.clone();
+        let mut dock = None;
+        let mut close = None;
+        let mut moved = Vec::new();
+        for panel in &panels {
+            let mut open = true;
+            let shown = egui::Window::new(egui::RichText::new(panel.editor.title()).small())
+                .id(egui::Id::new(("floating_panel", self.ws.set.active, panel.id)))
+                .default_pos(egui::pos2(panel.pos[0], panel.pos[1]))
+                .default_size(Vec2::new(panel.size[0], panel.size[1]))
+                .resizable(true)
+                .collapsible(true)
+                .open(&mut open)
+                .frame(egui::Frame::window(&ctx.style()).fill(theme::panel()).inner_margin(4))
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        let (at, _) = ui.allocate_exact_size(Vec2::splat(14.0), Sense::hover());
+                        crate::icons::editor_icon(panel.editor).paint(ui, at, 14.0, theme::text_dim());
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if crate::icons::glyph_button(ui, crate::icons::Glyph::Dock, 12.0, "Dock: put the panel back into the layout").clicked() {
+                                dock = Some(panel.id);
+                            }
+                            let mut percent = panel.scale * 100.0;
+                            let (lo, hi) = tiles::PANEL_SCALE;
+                            let r = ui.add(egui::DragValue::new(&mut percent).range(lo * 100.0..=hi * 100.0).speed(1.0).suffix("%"));
+                            if r.on_hover_text("Panel scale (Ctrl + Alt + wheel over the panel)").changed() {
+                                moved.push((panel.id, None, Some(percent / 100.0)));
+                            }
+                        });
+                    });
+                    let body = ui.available_rect_before_wrap();
+                    if let Some(scale) = panel_scale_wheel(ui, body, panel.scale) {
+                        moved.push((panel.id, None, Some(scale)));
+                    }
+                    if (panel.scale - 1.0).abs() > 1e-3 {
+                        ui.set_style(scaled_style(ui.style(), panel.scale));
+                    }
+                    if panel.editor == EditorType::Reference {
+                        ui.set_min_size(Vec2::new(200.0, 160.0));
+                        self.reference_view_ui(ui);
+                    } else {
+                        egui::ScrollArea::vertical().id_salt(("floating_scroll", panel.id)).auto_shrink([false, false]).show(ui, |ui| {
+                            self.editor_ui(ui, panel.editor);
+                        });
+                    }
+                });
+            if let Some(shown) = shown {
+                let r = shown.response.rect;
+                if (r.min.x - panel.pos[0]).abs() > 0.5 || (r.min.y - panel.pos[1]).abs() > 0.5 || (r.width() - panel.size[0]).abs() > 0.5 {
+                    moved.push((panel.id, Some(r), None));
+                }
+            }
+            if !open {
+                close = Some(panel.id);
+            }
+        }
+        let workspace = self.ws.set.current_mut();
+        for (id, rect, scale) in moved {
+            if let Some(p) = workspace.floating.iter_mut().find(|p| p.id == id) {
+                if let Some(r) = rect {
+                    p.pos = [r.min.x, r.min.y];
+                    p.size = [r.width(), r.height()];
+                }
+                if let Some(s) = scale {
+                    p.scale = tiles::clamp_panel_scale(s);
+                }
+            }
+        }
+        if let Some(id) = dock {
+            workspace.dock(id);
+        }
+        if let Some(id) = close {
+            workspace.floating.retain(|p| p.id != id);
+        }
+    }
+
+    /// Shows `editor`: brings its docked tab forward, or opens it floating.
+    pub(crate) fn show_panel(&mut self, editor: EditorType, ctx: &egui::Context) {
+        let workspace = self.ws.set.current_mut();
+        if let Some(area) = workspace.tiles.find(editor) {
+            workspace.tiles.add_tab(area, editor);
+            workspace.tiles.set_collapsed(area, false);
+        } else if !workspace.floating.iter().any(|p| p.editor == editor) {
+            let c = ctx.screen_rect().center();
+            let k = (workspace.floating.len() % 8) as f32 * 32.0;
+            workspace.add_floating(editor, [c.x - 260.0 + k, c.y - 260.0 + k], [280.0, 360.0], 1.0);
+        }
     }
 
     /// An editor's contents.
@@ -610,6 +779,13 @@ impl PainterApp {
                     ui.small("Or draw frames with the Frame tool (U).");
                 }
             }
+            EditorType::ColorSlider => self.color_slider_panel(ui),
+            EditorType::ColorSet => self.color_set_panel(ui),
+            EditorType::ColorHistory => self.color_history_panel(ui),
+            EditorType::IntermediateColor => self.intermediate_color_panel(ui),
+            EditorType::ApproximateColor => self.approximate_color_panel(ui),
+            EditorType::ColorMixing => self.color_mixing_panel(ui),
+            EditorType::SearchLayer => self.search_layer_panel(ui),
             EditorType::Timeline | EditorType::NodeGraph => {
                 ui.label(format!("{}: not available yet.", editor.title()));
                 ui.small("The area is kept in the layout; switch it to another editor from the menu at its top left.");
@@ -641,6 +817,18 @@ impl PainterApp {
             AreaAction::Fold(fold) => {
                 tiles.set_collapsed(id, fold);
             }
+            AreaAction::Scale(scale) => {
+                tiles.set_scale(id, scale);
+            }
+            AreaAction::Float(editor) => {
+                let at = self.ws.area_rects.iter().find(|(a, _)| *a == id).map(|(_, r)| *r);
+                let (pos, size) = at.map_or(([200.0, 150.0], [280.0, 360.0]), |r| ([r.min.x + 24.0, r.min.y + 24.0], [r.width().max(220.0), r.height().max(240.0)]));
+                let workspace = self.ws.set.current_mut();
+                if workspace.float(id, editor, pos, size).is_none() {
+                    self.status = "The last panel stays docked".into();
+                }
+                return;
+            }
         }
         // The canvas can't go missing: if a retype removed it, it comes back as a tab.
         if tiles.find(EditorType::Canvas).is_none() {
@@ -669,18 +857,25 @@ impl PainterApp {
         }
     }
 
+    /// Docked (as any tab) or floating.
     pub(crate) fn editor_open(&self, editor: EditorType) -> bool {
-        self.ws.set.current().tiles.find(editor).is_some()
+        self.ws.set.current().shows(editor)
     }
 
-    pub(crate) fn toggle_editor(&mut self, editor: EditorType) {
-        let tiles = &mut self.ws.set.current_mut().tiles;
-        match tiles.find(editor) {
+    /// Window menu: hides a shown panel; a hidden one opens in a floating
+    /// window (Float / Dock in its menus move it in and out of the layout).
+    pub(crate) fn toggle_editor(&mut self, editor: EditorType, ctx: &egui::Context) {
+        let workspace = self.ws.set.current_mut();
+        if workspace.floating.iter().any(|p| p.editor == editor) {
+            workspace.floating.retain(|p| p.editor != editor);
+            return;
+        }
+        match workspace.tiles.find(editor) {
             Some(area) if editor != EditorType::Canvas => {
-                tiles.close_tab(area, editor);
+                workspace.tiles.close_tab(area, editor);
             }
             Some(_) => {}
-            None => self.show_editor(editor),
+            None => self.show_panel(editor, ctx),
         }
     }
 

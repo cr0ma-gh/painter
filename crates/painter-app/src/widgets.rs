@@ -225,3 +225,16 @@ pub fn group_header(ui: &mut Ui, icon: crate::icons::Icon, text: &str) {
         Color32::WHITE,
     );
 }
+
+/// A grey checkerboard (transparency) filling `rect`, `cell` points per square.
+pub fn checkerboard(painter: &egui::Painter, rect: egui::Rect, cell: f32) {
+    let painter = painter.with_clip_rect(rect.intersect(painter.clip_rect()));
+    painter.rect_filled(rect, 0.0, Color32::from_gray(200));
+    let (cols, rows) = ((rect.width() / cell).ceil() as usize, (rect.height() / cell).ceil() as usize);
+    for j in 0..rows {
+        for i in (j % 2..cols).step_by(2) {
+            let min = rect.min + Vec2::new(i as f32 * cell, j as f32 * cell);
+            painter.rect_filled(egui::Rect::from_min_size(min, Vec2::splat(cell)), 0.0, Color32::from_gray(150));
+        }
+    }
+}

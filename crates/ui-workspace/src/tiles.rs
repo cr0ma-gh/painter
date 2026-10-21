@@ -27,10 +27,17 @@ pub enum EditorType {
     ComicPanels,
     Timeline,
     NodeGraph,
+    ColorSlider,
+    ColorSet,
+    ColorHistory,
+    IntermediateColor,
+    ApproximateColor,
+    ColorMixing,
+    SearchLayer,
 }
 
 impl EditorType {
-    pub const ALL: [EditorType; 12] = [
+    pub const ALL: [EditorType; 19] = [
         EditorType::Canvas,
         EditorType::Reference,
         EditorType::Viewport3D,
@@ -43,6 +50,13 @@ impl EditorType {
         EditorType::ComicPanels,
         EditorType::Timeline,
         EditorType::NodeGraph,
+        EditorType::ColorSlider,
+        EditorType::ColorSet,
+        EditorType::ColorHistory,
+        EditorType::IntermediateColor,
+        EditorType::ApproximateColor,
+        EditorType::ColorMixing,
+        EditorType::SearchLayer,
     ];
 
     pub fn title(self) -> &'static str {
@@ -59,6 +73,13 @@ impl EditorType {
             EditorType::ComicPanels => "Comic Panels",
             EditorType::Timeline => "Timeline",
             EditorType::NodeGraph => "Node Graph",
+            EditorType::ColorSlider => "Color Slider",
+            EditorType::ColorSet => "Color Set",
+            EditorType::ColorHistory => "Color History",
+            EditorType::IntermediateColor => "Intermediate Color",
+            EditorType::ApproximateColor => "Approximate Color",
+            EditorType::ColorMixing => "Color Mixing",
+            EditorType::SearchLayer => "Search Layer",
         }
     }
 
@@ -90,6 +111,14 @@ pub struct Area {
     /// side-by-side neighbour), like a collapsed Clip Studio palette.
     #[serde(default)]
     pub collapsed: bool,
+    /// This area's own interface scale (1 = the window's), like zooming a
+    /// Blender region.
+    #[serde(default = "unit")]
+    pub scale: f32,
+}
+
+fn unit() -> f32 {
+    1.0
 }
 
 impl Area {
@@ -155,6 +184,14 @@ pub struct Border {
 pub const MIN_AREA: f32 = 60.0;
 /// Width of the gap (and the grab zone) between areas.
 pub const BORDER: f32 = 4.0;
+/// Smallest and largest scale of a single panel.
+pub const PANEL_SCALE: (f32, f32) = (0.5, 3.0);
+
+/// `scale` kept within [`PANEL_SCALE`] (1 when it isn't a number).
+pub fn clamp_panel_scale(scale: f32) -> f32 {
+    if scale.is_finite() { scale.clamp(PANEL_SCALE.0, PANEL_SCALE.1) } else { 1.0 }
+}
+
 /// Thickness of a collapsed area (its header) unless the caller says otherwise.
 pub const COLLAPSED: f32 = 22.0;
 
@@ -169,7 +206,7 @@ impl TileTree {
     /// One area showing `editor`.
     pub fn new(editor: EditorType) -> Self {
         let mut nodes = BTreeMap::new();
-        nodes.insert(AreaId(0), Node::Area(Area { editors: vec![editor], active: 0, collapsed: false }));
+        nodes.insert(AreaId(0), Node::Area(Area { editors: vec![editor], active: 0, collapsed: false, scale: 1.0 }));
         Self { nodes, root: AreaId(0), next: 1 }
     }
 
@@ -239,7 +276,7 @@ impl TileTree {
         let split = self.alloc();
         let added = self.alloc();
         self.relink(area, split);
-        self.nodes.insert(added, Node::Area(Area { editors: vec![editor], active: 0, collapsed: false }));
+        self.nodes.insert(added, Node::Area(Area { editors: vec![editor], active: 0, collapsed: false, scale: 1.0 }));
         let (first, second) = if new_first { (added, area) } else { (area, added) };
         self.nodes.insert(split, Node::Split(Split { kind, ratio: ratio.clamp(0.05, 0.95), first, second }));
         Some(added)
@@ -351,6 +388,13 @@ impl TileTree {
         let min = (MIN_AREA / len).min(0.5);
         let ratio = ((at - start) / len).clamp(min, 1.0 - min);
         self.set_ratio(border.split, ratio)
+    }
+
+    /// Sets an area's own interface scale, within [`PANEL_SCALE`].
+    pub fn set_scale(&mut self, area: AreaId, scale: f32) -> bool {
+        let Some(a) = self.area_mut(area) else { return false };
+        a.scale = clamp_panel_scale(scale);
+        true
     }
 
     /// Folds `area` down to a strip, or opens it again. The last area, and
