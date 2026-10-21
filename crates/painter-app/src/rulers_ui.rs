@@ -197,6 +197,50 @@ impl PainterApp {
                         line(*center, [center[0] + c * reach, center[1] + s * reach], color.gamma_multiply(0.6), 1.0);
                     }
                 }
+                RulerKind::Curvilinear { center, radius_x, radius_y, angle, fifth } => {
+                    let (s, c) = angle.to_radians().sin_cos();
+                    let (u, v) = ([c, s], [-s, c]);
+                    let at = |a: f32, b: f32| [center[0] + u[0] * a + v[0] * b, center[1] + u[1] * a + v[1] * b];
+                    // An arc family: circles through the pair of points on `axis`,
+                    // crossing the other axis at evenly spaced places.
+                    let family = |axis: P, reach: f32, spread: f32, horizontal: bool| {
+                        for k in -7..=7 {
+                            let through = if horizontal { at(0.0, spread * k as f32 / 7.0) } else { at(spread * k as f32 / 7.0, 0.0) };
+                            let (width, tint) = if k == 0 { (1.5, color) } else { (1.0, color.gamma_multiply(0.55)) };
+                            match painter_core::rulers::arc_through(*center, axis, reach, through) {
+                                painter_core::rulers::Guide::Ellipse { center: cc, radius, .. } => {
+                                    // Enough segments to stay smooth on screen.
+                                    let n = ((radius * self.view.zoom) / 6.0).clamp(96.0, 4000.0) as usize;
+                                    let points: Vec<Pos2> = (0..=n)
+                                        .map(|j| {
+                                            let t = j as f32 / n as f32 * std::f32::consts::TAU;
+                                            to_screen([cc[0] + t.cos() * radius, cc[1] + t.sin() * radius])
+                                        })
+                                        .collect();
+                                    painter.add(egui::Shape::line(points, Stroke::new(width, tint)));
+                                }
+                                painter_core::rulers::Guide::Line { origin, dir } => line(
+                                    [origin[0] - dir[0] * reach * 3.0, origin[1] - dir[1] * reach * 3.0],
+                                    [origin[0] + dir[0] * reach * 3.0, origin[1] + dir[1] * reach * 3.0],
+                                    tint,
+                                    width,
+                                ),
+                            }
+                        }
+                    };
+                    family(u, *radius_x, *radius_y * 1.4, true);
+                    family(v, *radius_y, *radius_x * 1.4, false);
+                    if *fifth {
+                        for k in 0..24 {
+                            let (ks, kc) = (k as f32 / 24.0 * std::f32::consts::TAU).sin_cos();
+                            line(*center, [center[0] + kc * reach, center[1] + ks * reach], color.gamma_multiply(0.45), 1.0);
+                        }
+                    }
+                    // The four vanishing points.
+                    for p in painter_core::rulers::curvilinear_points(*center, *radius_x, *radius_y, *angle) {
+                        painter.circle_stroke(to_screen(p), 5.0, Stroke::new(1.5_f32, color));
+                    }
+                }
                 RulerKind::Line { a, b } => line(*a, *b, color, 2.0),
                 RulerKind::Guide { vertical, position } => {
                     if *vertical {
@@ -308,6 +352,16 @@ impl PainterApp {
                 for (n, label) in [(1, "1-point"), (2, "2-point"), (3, "3-point")] {
                     if ui.button(label).clicked() {
                         add = Some(RulerSet::perspective(n, w, h).kind);
+                        ui.close_menu();
+                    }
+                }
+                ui.separator();
+                for (n, label, tip) in [
+                    (4, "4-point (curvilinear)", "Lines bend into arcs through left / right and top / bottom vanishing points"),
+                    (5, "5-point (fisheye)", "Four points on a circle plus straight lines out of the centre"),
+                ] {
+                    if ui.button(label).on_hover_text(tip).clicked() {
+                        add = Some(RulerSet::curvilinear(n, w, h).kind);
                         ui.close_menu();
                     }
                 }
@@ -442,6 +496,15 @@ impl PainterApp {
                 }
                 RulerKind::Guide { position, .. } => {
                     changed |= ui.add(egui::DragValue::new(position).speed(1.0).suffix(" px").prefix("Position ")).changed();
+                }
+                RulerKind::Curvilinear { radius_x, radius_y, angle, fifth, .. } => {
+                    changed |= ui.checkbox(fifth, "Fifth point (fisheye)").on_hover_text("Lines also run straight out of the centre").changed();
+                    ui.horizontal(|ui| {
+                        changed |= ui.add(egui::DragValue::new(radius_x).speed(2.0).range(1.0..=1e6).prefix("Left / right ").suffix(" px")).changed();
+                        changed |= ui.add(egui::DragValue::new(radius_y).speed(2.0).range(1.0..=1e6).prefix("Up / down ").suffix(" px")).changed();
+                    });
+                    changed |= ui.add(egui::DragValue::new(angle).speed(0.5).suffix("°").prefix("Horizon angle ")).changed();
+                    ui.small("Drag the centre, the right point (turns the horizon) and the lower point. Strokes bend into arcs through the pair of points they head for.");
                 }
                 RulerKind::RadialLines { .. } | RulerKind::Line { .. } => {
                     ui.small("Drag its handles on the canvas.");

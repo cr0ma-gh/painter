@@ -53,7 +53,10 @@ cargo run --release -p painter-app -- drawing.painter
   selection, with a live preview computed off the UI thread and one undo step.
 - **Rulers and guides** (Ruler tool; geometry in `painter_core::rulers`):
   1-, 2- and 3-point perspective (strokes follow the line towards the
-  vanishing point they head for, plus verticals / horizontals), mirror,
+  vanishing point they head for, plus verticals / horizontals), 4-point
+  curvilinear perspective (strokes bend into arcs through the left / right or
+  top / bottom vanishing points) and 5-point fisheye (plus lines out of the
+  centre), mirror,
   rotational and kaleidoscope symmetry (every dab repeated, vector strokes
   copied), parallel lines, concentric circles and ellipses, radial lines,
   straight rulers, horizontal and vertical guides, and a grid. Ctrl+1

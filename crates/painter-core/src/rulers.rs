@@ -58,6 +58,17 @@ pub enum RulerKind {
         vertical: bool,
         position: f32,
     },
+    /// Curvilinear perspective: vanishing points left / right of `center`
+    /// at `radius_x` along `angle` (the horizon) and above / below at
+    /// `radius_y`; lines heading for a pair are arcs through both. With
+    /// `fifth`, lines also run straight out of the centre (fisheye, 5 points).
+    Curvilinear {
+        center: P,
+        radius_x: f32,
+        radius_y: f32,
+        angle: f32,
+        fifth: bool,
+    },
 }
 
 /// Where a layer's ruler applies (Clip Studio's "show in" setting).
@@ -124,6 +135,13 @@ impl Ruler {
             RulerKind::RadialLines { center } => RulerKind::RadialLines { center: s(*center) },
             RulerKind::Line { a, b } => RulerKind::Line { a: s(*a), b: s(*b) },
             RulerKind::Guide { vertical, position } => RulerKind::Guide { vertical: *vertical, position: position * f },
+            RulerKind::Curvilinear { center, radius_x, radius_y, angle, fifth } => RulerKind::Curvilinear {
+                center: s(*center),
+                radius_x: radius_x * f,
+                radius_y: radius_y * f,
+                angle: *angle,
+                fifth: *fifth,
+            },
         };
         Ruler { kind, ..self.clone() }
     }
@@ -144,6 +162,8 @@ impl Ruler {
             RulerKind::Line { .. } => "Straight ruler",
             RulerKind::Guide { vertical: true, .. } => "Vertical guide",
             RulerKind::Guide { vertical: false, .. } => "Horizontal guide",
+            RulerKind::Curvilinear { fifth: false, .. } => "4-point curvilinear perspective",
+            RulerKind::Curvilinear { fifth: true, .. } => "5-point curvilinear perspective",
         }
     }
 
@@ -156,6 +176,10 @@ impl Ruler {
             RulerKind::Concentric { center, .. } | RulerKind::RadialLines { center } => vec![*center],
             RulerKind::Line { a, b } => vec![*a, *b],
             RulerKind::Guide { .. } => Vec::new(),
+            RulerKind::Curvilinear { center, radius_x, radius_y, angle, .. } => {
+                let [_, right, _, bottom] = curvilinear_points(*center, *radius_x, *radius_y, *angle);
+                vec![*center, right, bottom]
+            }
         }
     }
 
@@ -179,9 +203,48 @@ impl Ruler {
                     *b = p;
                 }
             }
+            RulerKind::Curvilinear { center, radius_x, radius_y, angle, .. } => match index {
+                0 => *center = p,
+                // The right-hand point turns the horizon and sets its reach.
+                1 => {
+                    let d = sub(p, *center);
+                    *radius_x = len(d).max(1.0);
+                    *angle = d[1].atan2(d[0]).to_degrees();
+                }
+                // The lower point sets the vertical reach.
+                _ => {
+                    let (s, c) = angle.to_radians().sin_cos();
+                    *radius_y = dot(sub(p, *center), [-s, c]).abs().max(1.0);
+                }
+            },
             RulerKind::ParallelLines { .. } | RulerKind::Guide { .. } => {}
         }
     }
+}
+
+/// A curvilinear ruler's four vanishing points: left, right, top, bottom
+/// (canvas y runs down, so "bottom" is `center` + `radius_y` across the horizon).
+pub fn curvilinear_points(center: P, radius_x: f32, radius_y: f32, angle: f32) -> [P; 4] {
+    let (s, c) = angle.to_radians().sin_cos();
+    let (u, v) = ([c, s], [-s, c]);
+    let at = |a: f32, b: f32| [center[0] + u[0] * a + v[0] * b, center[1] + u[1] * a + v[1] * b];
+    [at(-radius_x, 0.0), at(radius_x, 0.0), at(0.0, -radius_y), at(0.0, radius_y)]
+}
+
+/// The circle through `p` and the two points `center ± reach · axis` (unit
+/// `axis`), as a guide; a straight line when `p` is on their line, or so
+/// close to it that the circle is too large to tell apart.
+pub fn arc_through(center: P, axis: P, reach: f32, p: P) -> Guide {
+    let across = [-axis[1], axis[0]];
+    let d = sub(p, center);
+    let (pa, pc) = (dot(d, axis), dot(d, across));
+    // The circle's centre is on the perpendicular bisector: center + t · across.
+    let t = (pa * pa + pc * pc - reach * reach) / (2.0 * pc);
+    let radius = (t * t + reach * reach).sqrt();
+    if pc.abs() < 1e-3 || !radius.is_finite() || radius > 1e6 {
+        return Guide::Line { origin: p, dir: axis };
+    }
+    Guide::Ellipse { center: [center[0] + across[0] * t, center[1] + across[1] * t], radius, ratio: 1.0, angle: 0.0 }
 }
 
 /// Distance of the symmetry ruler's angle handle from its origin.
@@ -266,6 +329,15 @@ impl RulerSet {
             _ => vec![[-w * 0.35, horizon], [w * 1.35, horizon], [w * 0.5, h * 2.6]],
         };
         Ruler::new(RulerKind::Perspective { vanishing })
+    }
+
+    /// A 4- or 5-point curvilinear ruler centred on a `w` × `h` canvas: the
+    /// side points just outside the canvas for four; all four on one circle
+    /// inside it for the fisheye five.
+    pub fn curvilinear(points: usize, w: f32, h: f32) -> Ruler {
+        let center = [w * 0.5, h * 0.5];
+        let (radius_x, radius_y) = if points >= 5 { (w.min(h) * 0.48, w.min(h) * 0.48) } else { (w * 0.6, h * 0.6) };
+        Ruler::new(RulerKind::Curvilinear { center, radius_x, radius_y, angle: 0.0, fifth: points >= 5 })
     }
 }
 
@@ -362,6 +434,15 @@ pub fn candidate_guides(set: &RulerSet, start: P, near: f32) -> Vec<Guide> {
                 };
                 if len(sub(g.project(start), start)) <= near {
                     out.push(g);
+                }
+            }
+            RulerKind::Curvilinear { center, radius_x, radius_y, angle, fifth } => {
+                let (s, c) = angle.to_radians().sin_cos();
+                // Towards left / right: arcs through those two points; up / down likewise.
+                out.push(arc_through(*center, [c, s], *radius_x, start));
+                out.push(arc_through(*center, [-s, c], *radius_y, start));
+                if *fifth {
+                    out.extend(line(sub(start, *center)));
                 }
             }
             RulerKind::Symmetry { .. } => {}
@@ -517,6 +598,52 @@ mod tests {
         let mut v = StrokeSnap::new(&set, [500.0, 300.0], 10.0).unwrap();
         let p = v.apply([505.0, 400.0], 8.0).unwrap();
         assert!(close(p, [500.0, 400.0]));
+    }
+
+    #[test]
+    fn curvilinear_strokes_bend_through_the_vanishing_points() {
+        let (center, rx, ry) = ([500.0, 400.0], 600.0, 450.0);
+        let [left, right, top, bottom] = curvilinear_points(center, rx, ry, 0.0);
+        assert!(close(left, [-100.0, 400.0]) && close(right, [1100.0, 400.0]));
+        assert!(close(top, [500.0, -50.0]) && close(bottom, [500.0, 850.0]));
+        let on_circle = |g: Guide, p: P| match g {
+            Guide::Ellipse { center, radius, .. } => (len(sub(p, center)) - radius).abs() < 0.05,
+            Guide::Line { .. } => false,
+        };
+        // The arc through a start point passes through both side points (and the start).
+        let start = [700.0, 250.0];
+        let g = arc_through(center, [1.0, 0.0], rx, start);
+        assert!(on_circle(g, left) && on_circle(g, right) && on_circle(g, start), "{g:?}");
+        // On the horizon itself it's the straight horizon.
+        assert!(matches!(arc_through(center, [1.0, 0.0], rx, [800.0, 400.0]), Guide::Line { dir: [1.0, 0.0], .. }));
+
+        let mut set = RulerSet::default();
+        let kind = RulerKind::Curvilinear { center, radius_x: rx, radius_y: ry, angle: 0.0, fifth: false };
+        set.rulers.push(Ruler::new(kind));
+        // A mostly horizontal stroke bends along the left / right arc.
+        let mut s = StrokeSnap::new(&set, start, 10.0).unwrap();
+        let p = s.apply([760.0, 252.0], 8.0).unwrap();
+        assert!(on_circle(arc_through(center, [1.0, 0.0], rx, start), p), "{p:?}");
+        // A mostly vertical one along the top / bottom arc.
+        let mut s = StrokeSnap::new(&set, start, 10.0).unwrap();
+        let p = s.apply([702.0, 320.0], 8.0).unwrap();
+        let vertical = arc_through(center, [0.0, 1.0], ry, start);
+        assert!(on_circle(vertical, p) && on_circle(vertical, top) && on_circle(vertical, bottom), "{p:?}");
+        // Five points: straight out of the centre too.
+        let RulerKind::Curvilinear { fifth, .. } = &mut set.rulers[0].kind else { unreachable!() };
+        *fifth = true;
+        let mut s = StrokeSnap::new(&set, start, 10.0).unwrap();
+        let p = s.apply([800.0, 175.0], 8.0).unwrap();
+        let (d, q) = (sub(start, center), sub(p, center));
+        assert!((d[0] * q[1] - d[1] * q[0]).abs() < 1e-1, "along the line from the centre: {p:?}");
+        // Handles: centre, right point (turns the horizon), lower point.
+        let mut r = set.rulers[0].clone();
+        assert_eq!(r.handles().len(), 3);
+        r.drag_handle(1, [500.0, 1000.0]);
+        let RulerKind::Curvilinear { radius_x, angle, .. } = r.kind else { unreachable!() };
+        assert!((radius_x - 600.0).abs() < 1e-3 && (angle - 90.0).abs() < 1e-3);
+        let scaled = set.rulers[0].scaled(0.5);
+        assert!(matches!(scaled.kind, RulerKind::Curvilinear { radius_x: 300.0, center: [250.0, 200.0], .. }));
     }
 
     #[test]
