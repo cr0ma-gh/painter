@@ -574,7 +574,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 37] = [
+        let fixed: [FixedCommand; 38] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
             ("file.open", "Open...", C::File, "Ctrl+O", &["load"], true),
@@ -609,6 +609,7 @@ impl PainterApp {
             ("view.grid", "Show Grid", C::View, "Ctrl+'", &["guides"], true),
             ("rulers.snap", "Snap to Rulers", C::View, "Ctrl+1", &["perspective", "symmetry", "ruler"], true),
             ("view.zen", "Toggle Zen Mode", C::View, "Tab / F11", &["fullscreen", "hide panels", "distraction free"], true),
+            ("view.modifier_keys", "On-Screen Modifier Keys", C::View, "", &["ctrl", "shift", "alt", "touch", "keyboard"], true),
             ("view.theme_editor", "Theme Editor...", C::View, "", &["colors", "colours", "dark", "light"], true),
             ("workspace.reset", "Reset Workspace Layout", C::Workspace, "", &["default layout"], true),
             ("workspace.duplicate", "New Workspace (copy of this one)", C::Workspace, "", &["custom layout"], true),
@@ -700,6 +701,12 @@ impl PainterApp {
             "view.grid" => self.doc.rulers.grid.visible = !self.doc.rulers.grid.visible,
             "rulers.snap" => self.toggle_ruler_snapping(),
             "view.zen" => self.toggle_zen(),
+            "view.modifier_keys" => {
+                self.modifier_keys.shown = !self.modifier_keys.shown;
+                if !self.modifier_keys.shown {
+                    self.modifier_keys.release();
+                }
+            }
             "view.theme_editor" => self.ws.theme_editor = true,
             "workspace.reset" => self.ws.set.current_mut().reset(),
             "workspace.duplicate" => {

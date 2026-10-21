@@ -45,6 +45,10 @@ one-year signatures and TestFlight.
     (`%APPDATA%\CELSYSUserData\CELSYS\CLIPStudioCommon\Material`, or just the
     `PaintNNN` folders inside `Install`) into **Painter → Materials** in the
     Files app, then import the `.sut` again.
+- **On-screen Ctrl, Shift and Alt** (bottom left; View → On-Screen Modifier
+  Keys): tap a key to hold it, tap again to release it. Every shortcut and
+  tool sees them like real keys (Ctrl latched + the Z of a keyboard = undo,
+  Shift for straight lines, …). Drag the strip by its dots to move it.
 - **Your brushes** (imported ones, edits, order) are kept between launches,
   textures included. Right-click the import button in the brush list to add
   back default brushes you deleted.

@@ -11,6 +11,7 @@ mod document_manager;
 mod files;
 mod icons;
 mod ios_ui;
+mod modifier_keys;
 mod panels;
 mod previews;
 mod rulers_ui;

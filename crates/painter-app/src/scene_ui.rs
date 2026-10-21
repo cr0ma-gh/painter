@@ -17,10 +17,11 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Color32, Key, Modifiers, Pos2, Rect, Stroke, Vec2};
+use painter_core::rulers::{Ruler, RulerKind, RulerScope};
 use painter_core::{project, Layer, LayerId, LayerKind, SelectionOp, TileStore};
 use painter_render::{Plane, SceneDraw, SceneLight, ScenePreview, SceneRenderer, MAX_LIGHTS};
-use scene_3d::blend_loader::{load_objects, BlendFile};
-use scene_3d::camera::{OrbitStyle, Projection, ViewPreset};
+use scene_3d::blend_loader::{load_camera, load_objects, BlendCamera, BlendFile};
+use scene_3d::camera::{OrbitStyle, Projection, ViewCamera, ViewPreset};
 use scene_3d::gizmo::{Constraint, Gizmo, GizmoMode, AXIS_COLORS};
 use scene_3d::math::{vec3, Vec3};
 use scene_3d::mesh::load_obj;
@@ -38,6 +39,8 @@ pub(crate) struct SceneLayer {
     revision: u64,
     /// When to copy the render into the layer's pixels.
     commit_at: Option<Instant>,
+    /// The camera of the .blend file the layer came from (not saved in projects).
+    blend_camera: Option<BlendCamera>,
 }
 
 /// What a canvas drag on a 3D layer does.
@@ -57,14 +60,14 @@ pub(crate) fn scene_entry(id: LayerId) -> String {
     format!("{SCENE_PREFIX}{}{SCENE_SUFFIX}", id.0)
 }
 
-/// Loads a model file as a scene.
-pub(crate) fn load_model(path: &std::path::Path) -> Result<Scene3D, String> {
+/// Loads a model file as a scene, with the .blend file's camera if it has one.
+pub(crate) fn load_model(path: &std::path::Path) -> Result<(Scene3D, Option<BlendCamera>), String> {
     let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
     match ext.as_str() {
         "obj" => {
             let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
             let name = path.file_stem().map_or("model".into(), |s| s.to_string_lossy().into_owned());
-            Ok(Scene3D::from_mesh(load_obj(&text, &name)?))
+            Ok((Scene3D::from_mesh(load_obj(&text, &name)?), None))
         }
         "blend" => {
             let file = BlendFile::open(path).map_err(|e| e.to_string())?;
@@ -72,7 +75,7 @@ pub(crate) fn load_model(path: &std::path::Path) -> Result<Scene3D, String> {
             if scene.objects.is_empty() {
                 return Err("no mesh objects in the file".into());
             }
-            Ok(scene)
+            Ok((scene, load_camera(&file)))
         }
         "gltf" | "glb" | "fbx" => {
             Err(format!(".{ext} isn't supported yet; export the model as .obj or open it in Blender and save a .blend"))
@@ -122,22 +125,68 @@ impl PainterApp {
     /// New 3D layer from a model file.
     pub(crate) fn new_scene_layer_from(&mut self, path: std::path::PathBuf) {
         match load_model(&path) {
-            Ok(scene) => {
+            Ok((mut scene, blend_camera)) => {
                 self.checkpoint();
                 let id = self.doc.alloc_id();
                 let name = path.file_stem().map_or("3D".into(), |s| format!("3D {}", s.to_string_lossy()));
                 self.doc.add_layer(Layer::raster(id, name));
                 self.doc.active = id;
                 let objects = scene.objects.len();
-                self.scenes.insert(id, SceneLayer { scene, revision: 0, commit_at: None });
+                // Seen through the file's camera, like Blender's camera view.
+                if let Some(cam) = &blend_camera {
+                    scene.camera = self.blend_view(&scene, cam);
+                }
+                self.scenes.insert(id, SceneLayer { scene, revision: 0, commit_at: None, blend_camera: blend_camera.clone() });
                 self.scene_changed(id);
                 self.tool = Tool::Scene3D;
                 self.recomposite = true;
-                self.status =
-                    format!("3D layer from {} ({objects} objects). Middle drag orbits, Shift pans, wheel zooms", path.display());
+                let mut note = String::new();
+                if let Some(cam) = &blend_camera {
+                    note = format!(", through camera {}", cam.name);
+                    note += &match self.set_view_ruler(id) {
+                        Some(n) => format!(" with a {n}-point perspective ruler"),
+                        None => " (orthographic: no perspective ruler)".into(),
+                    };
+                }
+                self.status = format!(
+                    "3D layer from {} ({objects} objects{note}). Middle drag orbits, Shift pans, wheel zooms",
+                    path.display()
+                );
             }
             Err(err) => self.status = format!("Couldn't load {}: {err}", path.display()),
         }
+    }
+
+    /// The view through a Blender camera on this document's canvas, orbiting the scene's centre.
+    fn blend_view(&self, scene: &Scene3D, cam: &BlendCamera) -> ViewCamera {
+        let (w, h) = self.doc.canvas();
+        ViewCamera::from_blend(cam, w as f32, h as f32, scene.bounds().map(|b| b.center()))
+    }
+
+    /// Gives 3D layer `id` a perspective ruler matching its current view: the
+    /// vanishing points of the scene's X, Y and Z axes (those that converge),
+    /// for drawing on any layer. Replaces the layer's previous perspective
+    /// ruler. Returns how many vanishing points it has (`None`: no ruler,
+    /// e.g. an orthographic view).
+    pub(crate) fn set_view_ruler(&mut self, id: LayerId) -> Option<usize> {
+        let (w, h) = self.doc.canvas();
+        let vanishing = self.scenes.get(&id)?.scene.camera.axis_vanishing_points(w as f32, h as f32);
+        let rulers = &mut self.doc.rulers.rulers;
+        let existing = rulers.iter().position(|r| r.layer == Some(id.0) && matches!(r.kind, RulerKind::Perspective { .. }));
+        if vanishing.is_empty() {
+            if let Some(i) = existing {
+                rulers.remove(i);
+            }
+            return None;
+        }
+        let count = vanishing.len();
+        let kind = RulerKind::Perspective { vanishing };
+        match existing {
+            Some(i) => rulers[i].kind = kind,
+            None => rulers.push(Ruler { scope: RulerScope::AllLayers, ..Ruler::on_layer(kind, id.0) }),
+        }
+        self.dirty = true;
+        Some(count)
     }
 
     /// Adds a model's objects to the active 3D layer.
@@ -160,7 +209,7 @@ impl PainterApp {
             return;
         }
         match load_model(path) {
-            Ok(added) => {
+            Ok((added, _)) => {
                 self.checkpoint();
                 if let Some(layer) = self.scenes.get_mut(&id) {
                     layer.scene.objects.extend(added.objects);
@@ -223,7 +272,7 @@ impl PainterApp {
             match Scene3D::from_bytes(bytes) {
                 Ok(scene) => {
                     self.scene_revision += 1;
-                    self.scenes.insert(id, SceneLayer { scene, revision: self.scene_revision, commit_at: None });
+                    self.scenes.insert(id, SceneLayer { scene, revision: self.scene_revision, commit_at: None, blend_camera: None });
                 }
                 Err(err) => failed.push(format!("layer {}: {err}", id.0)),
             }
@@ -503,6 +552,9 @@ impl PainterApp {
         let mut checkpoint = false;
         let mut add_model = false;
         let mut flatten = false;
+        let mut blend_view = false;
+        let mut view_ruler = false;
+        let blend_camera_name = self.scenes.get(&id).and_then(|l| l.blend_camera.as_ref()).map(|c| c.name.clone());
         // Records an edit; a drag counts once for undo.
         let edit = |r: &egui::Response, changed: &mut bool, checkpoint: &mut bool| {
             if r.changed() {
@@ -637,6 +689,15 @@ impl PainterApp {
                 ui.selectable_value(&mut cam.orbit_style, OrbitStyle::Turntable, "Turntable");
                 ui.selectable_value(&mut cam.orbit_style, OrbitStyle::Trackball, "Trackball");
             });
+            ui.horizontal_wrapped(|ui| {
+                if let Some(name) = &blend_camera_name {
+                    blend_view = ui.button("Blender Camera").on_hover_text(format!("Back to the view through camera {name}")).clicked();
+                }
+                view_ruler = ui
+                    .button("Perspective Ruler from View")
+                    .on_hover_text("Set this layer's perspective ruler to the vanishing points of the scene's axes in this view")
+                    .clicked();
+            });
             ui.small("Middle drag orbits · Shift pans · Ctrl or wheel zooms");
         });
 
@@ -727,6 +788,25 @@ impl PainterApp {
         if add_model {
             self.add_model_dialog();
         }
+        if blend_view {
+            if let Some(layer) = self.scenes.get(&id) {
+                if let Some(cam) = layer.blend_camera.clone() {
+                    let view = self.blend_view(&layer.scene, &cam);
+                    self.checkpoint();
+                    if let Some(layer) = self.scenes.get_mut(&id) {
+                        layer.scene.camera = view;
+                    }
+                    self.scene_changed(id);
+                }
+            }
+        }
+        if view_ruler {
+            self.checkpoint();
+            self.status = match self.set_view_ruler(id) {
+                Some(n) => format!("Perspective ruler with {n} vanishing points from this view"),
+                None => "No perspective ruler: the axes stay parallel in this view (orthographic?)".into(),
+            };
+        }
         if flatten {
             self.commit_scenes(true);
             self.scenes.remove(&id);
@@ -781,6 +861,6 @@ pub(crate) fn snapshot(scenes: &HashMap<LayerId, SceneLayer>) -> SceneSnapshot {
 pub(crate) fn restore(scenes: &mut HashMap<LayerId, SceneLayer>, snapshot: SceneSnapshot) {
     scenes.clear();
     for (id, scene) in snapshot {
-        scenes.insert(id, SceneLayer { scene, revision: 0, commit_at: None });
+        scenes.insert(id, SceneLayer { scene, revision: 0, commit_at: None, blend_camera: None });
     }
 }

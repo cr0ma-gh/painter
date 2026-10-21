@@ -71,6 +71,10 @@ pub struct ViewCamera {
     pub far: f32,
     /// Radians of orbit per pixel dragged.
     pub orbit_speed: f32,
+    /// Lens shift: where the view's centre sits, in normalised device
+    /// coordinates (x right, y up); the image moves the other way. Zero for
+    /// a plain viewport; Blender cameras use it for architectural framing.
+    pub shift: [f32; 2],
 }
 
 impl Default for ViewCamera {
@@ -85,6 +89,7 @@ impl Default for ViewCamera {
             near: 0.01,
             far: 1000.0,
             orbit_speed: 0.008,
+            shift: [0.0, 0.0],
         };
         cam.set_view(ViewPreset::Front);
         // Front-right and from above, like Blender's startup view.
@@ -123,10 +128,22 @@ impl ViewCamera {
     }
 
     pub fn projection_matrix(&self, aspect: f32) -> Mat4 {
+        let [sx, sy] = self.shift;
         match self.projection {
-            Projection::Perspective { fov_y } => Mat4::perspective(fov_y, aspect, self.near, self.far),
+            Projection::Perspective { fov_y } => {
+                let mut m = Mat4::perspective(fov_y, aspect, self.near, self.far);
+                // x_ndc gains −m[2][0] (w = −z), so the image moves by −shift.
+                m.0[2][0] = sx;
+                m.0[2][1] = sy;
+                m
+            }
             // Ortho needs the camera back far enough not to clip what's in front of the pivot.
-            Projection::Orthographic => Mat4::orthographic(self.half_height(), aspect, -self.far, self.far),
+            Projection::Orthographic => {
+                let mut m = Mat4::orthographic(self.half_height(), aspect, -self.far, self.far);
+                m.0[3][0] = -sx;
+                m.0[3][1] = -sy;
+                m
+            }
         }
     }
 
@@ -228,8 +245,79 @@ impl ViewCamera {
     }
 }
 
+impl ViewCamera {
+    /// The view through a Blender camera on a `width` × `height` canvas: same
+    /// position, orientation, focal length, sensor fit, lens shift and clipping.
+    /// When the canvas's shape differs from the render's, the whole camera
+    /// frame fits inside it, centred (like Blender's camera view). `focus` is
+    /// the point to orbit afterwards (e.g. the scene's centre).
+    pub fn from_blend(cam: &crate::blend_loader::BlendCamera, width: f32, height: f32, focus: Option<Vec3>) -> ViewCamera {
+        use crate::blend_loader::SensorFit;
+        let (hw, hh) = cam.frame_half_size();
+        // Lens shift is measured in the fitted side of the frame.
+        let horizontal = match cam.sensor_fit {
+            SensorFit::Auto => hw >= hh,
+            SensorFit::Horizontal => true,
+            SensorFit::Vertical => false,
+        };
+        let unit = 2.0 * if horizontal { hw } else { hh };
+        let offset = [cam.shift[0] * unit, cam.shift[1] * unit];
+        // The canvas around the frame.
+        let aspect = width / height.max(1.0);
+        let canvas_hh = hh.max(hw / aspect);
+        let canvas_hw = canvas_hh * aspect;
+        let mut view = ViewCamera {
+            rotation: cam.rotation.normalize(),
+            near: cam.clip_start.max(1e-4),
+            far: cam.clip_end.max(cam.clip_start * 2.0),
+            shift: [offset[0] / canvas_hw, offset[1] / canvas_hh],
+            ..ViewCamera::default()
+        };
+        let forward = view.forward();
+        let depth = focus.map_or(0.0, |p| (p - cam.location).dot(forward));
+        if cam.orthographic {
+            view.projection = Projection::Orthographic;
+            // `half_height` is distance · tan 25° for orthographic views.
+            view.distance = canvas_hh / 25f32.to_radians().tan();
+        } else {
+            view.projection = Projection::Perspective { fov_y: 2.0 * canvas_hh.atan() };
+            view.distance = if depth > view.near { depth } else { 10.0 };
+        }
+        // The eye stays on the camera.
+        view.pivot = cam.location + forward * view.distance;
+        view
+    }
+
+    /// Where lines along world direction `dir` meet on a `width` × `height`
+    /// canvas: their vanishing point, or `None` when they stay parallel on
+    /// screen (orthographic views, or `dir` across the line of sight).
+    pub fn vanishing_point(&self, dir: Vec3, width: f32, height: f32) -> Option<[f32; 2]> {
+        let Projection::Perspective { fov_y } = self.projection else { return None };
+        let dir = dir.normalize();
+        let depth = dir.dot(self.forward());
+        if depth.abs() < 1e-6 {
+            return None;
+        }
+        let f = 1.0 / (fov_y * 0.5).tan();
+        let aspect = width / height.max(1.0);
+        let x = f / aspect * dir.dot(self.right()) / depth - self.shift[0];
+        let y = f * dir.dot(self.up()) / depth - self.shift[1];
+        let p = [(x + 1.0) * 0.5 * width, (1.0 - y) * 0.5 * height];
+        // Too far to be told apart from parallel lines (and to stay precise in f32).
+        let reach = 50.0 * (width * width + height * height).sqrt();
+        let (cx, cy) = (p[0] - width * 0.5, p[1] - height * 0.5);
+        (cx * cx + cy * cy).sqrt().le(&reach).then_some(p)
+    }
+
+    /// Vanishing points of the world X, Y and Z axes (those that converge on
+    /// the canvas), for a perspective ruler matching the view.
+    pub fn axis_vanishing_points(&self, width: f32, height: f32) -> Vec<[f32; 2]> {
+        [Vec3::X, Vec3::Y, Vec3::Z].into_iter().filter_map(|d| self.vanishing_point(d, width, height)).collect()
+    }
+}
+
 /// The rotation taking camera axes X, Y, Z onto `right`, `up`, `back`.
-fn quat_from_axes(right: Vec3, up: Vec3, back: Vec3) -> Quat {
+pub fn quat_from_axes(right: Vec3, up: Vec3, back: Vec3) -> Quat {
     let m = [[right.x, right.y, right.z], [up.x, up.y, up.z], [back.x, back.y, back.z]];
     // Columns are the axes; m[c][r].
     let trace = m[0][0] + m[1][1] + m[2][2];
@@ -307,6 +395,24 @@ mod tests {
         let ray = cam.ray(sx, sy, w, h);
         let off = (p - ray.origin) - ray.dir * (p - ray.origin).dot(ray.dir);
         assert!(off.length() < 1e-3, "ortho: {off:?}");
+    }
+
+    #[test]
+    fn vanishing_points_are_where_far_points_land() {
+        let mut cam = ViewCamera { shift: [0.12, -0.07], ..ViewCamera::default() };
+        let (w, h) = (1200.0, 900.0);
+        for d in [Vec3::X, Vec3::Y, Vec3::Z, vec3(0.3, -0.8, 0.2)] {
+            // Towards whichever end of the line is in front.
+            let d = if d.dot(cam.forward()) < 0.0 { -d } else { d };
+            let far = cam.to_screen(cam.eye() + d * 1e4, w, h).unwrap();
+            let vp = cam.vanishing_point(d, w, h).unwrap();
+            assert!((far[0] - vp[0]).abs() < 1.0 && (far[1] - vp[1]).abs() < 1.0, "{d:?}: {far:?} vs {vp:?}");
+            assert_eq!(cam.vanishing_point(-d, w, h), Some(vp), "both ends of a line share it");
+        }
+        // Across the line of sight: parallel on screen.
+        assert_eq!(cam.vanishing_point(cam.right(), w, h), None);
+        cam.toggle_projection();
+        assert!(cam.axis_vanishing_points(w, h).is_empty(), "orthographic views have none");
     }
 
     #[test]

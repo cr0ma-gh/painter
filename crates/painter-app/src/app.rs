@@ -75,6 +75,8 @@ pub struct PainterApp {
     pub(crate) brush_library: crate::brush_library::BrushLibrary,
     /// iPadOS: status bar, edge gestures, safe area.
     pub(crate) ios_window: crate::ios_ui::IosWindow,
+    /// On-screen Ctrl / Shift / Alt.
+    pub(crate) modifier_keys: crate::modifier_keys::ModifierKeys,
     /// Stroke thumbnails for the Tool Group panel.
     pub(crate) previews: StrokePreviews,
     /// The toolbar's brush group, and the brush last used in each group.
@@ -186,6 +188,7 @@ impl PainterApp {
             brushes,
             brush_library,
             ios_window: Default::default(),
+            modifier_keys: Default::default(),
             previews: StrokePreviews::default(),
             brush_group: BrushGroup::Pen,
             group_brush: HashMap::new(),
@@ -1252,6 +1255,7 @@ impl eframe::App for PainterApp {
         self.theme_editor_window(ctx);
         self.filter_window(ctx);
         self.update_title(ctx);
+        self.modifier_keys.overlay(ctx, crate::theme::panel(), crate::theme::selected());
         self.close_prompts(ctx);
         if self.doc.selection.is_some() {
             // Marching ants.
@@ -1260,6 +1264,8 @@ impl eframe::App for PainterApp {
     }
 
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        // On-screen modifier keys first, so they count for every shortcut.
+        self.modifier_keys.inject(raw_input);
         self.intercept_document_keys(raw_input);
     }
 

@@ -233,6 +233,8 @@ impl PainterApp {
                     }
                     ui.checkbox(&mut self.tools.pencil_only, "Draw With the Pen Only")
                         .on_hover_text("Fingers move the view instead of painting (iPad: Apple Pencil draws, fingers navigate)");
+                    ui.checkbox(&mut self.modifier_keys.shown, "On-Screen Modifier Keys")
+                        .on_hover_text("Ctrl, Shift and Alt buttons for touch screens: tap to hold a key, tap again to release it");
                     ui.separator();
                     let mut grid = self.doc.rulers.grid.visible;
                     if ui.add(egui::Checkbox::new(&mut grid, "Grid")).on_hover_text("Ctrl+'").clicked() {

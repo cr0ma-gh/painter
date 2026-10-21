@@ -1,3 +1,6 @@
+
+Without a keyboard, View → On-Screen Modifier Keys shows Ctrl, Shift and Alt
+buttons that latch (on by default on iPad).
 # Painter
 
 A GPU-accelerated desktop painting app written in Rust (wgpu + egui), inspired
@@ -128,7 +131,12 @@ cargo run --release -p painter-app -- drawing.painter
   and `painter-render`'s depth-buffered scene pass): import `.blend` / `.obj`,
   Blender-style navigation (middle drag orbit, Shift pan, wheel / Ctrl zoom,
   1 / 3 / 7 views, 5 perspective, Home frame), click to pick, G / R / S gizmo,
-  and a panel for transforms, colour, FOV, views and up to four lights. The
+  and a panel for transforms, colour, FOV, views and up to four lights. A
+  `.blend` with a scene camera opens through that camera (position, rotation,
+  focal length, sensor fit, lens shift, clipping; the render frame fitted to
+  the canvas) and gets a perspective ruler on the vanishing points of the
+  scene's X, Y and Z axes, usable from any layer; the 3D panel can go back to
+  the Blender camera or rebuild the ruler from the current view. The
   render is copied into the layer's pixels, so it saves and exports; the scene
   itself isn't saved in `.painter` files yet. The engine: `.blend`
   reading (Blender 3.4 – 5.x, plain or zstd-compressed: blocks, the SDNA

@@ -21,6 +21,8 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use crate::camera::quat_from_axes;
+use crate::math::{vec3, Mat4, Quat, Vec3};
 use crate::mesh::{Mesh, Vertex};
 
 #[derive(Debug)]
@@ -382,22 +384,208 @@ pub fn load_objects(file: &BlendFile) -> Result<Vec<BlendObject>, BlendError> {
     let mut out = Vec::new();
     for block in file.blocks_of("Object") {
         let ob = file.view("Object", file.data(block));
-        let name = ob.nested("id").and_then(|id| id.string("name")).unwrap_or_default();
-        let name = name.get(2..).unwrap_or(&name).to_string(); // drop the "OB" prefix
         let mesh = ob.pointer("data").and_then(|p| file.block_at(p)).filter(|b| file.sdna.struct_name(b.sdna) == Some("Mesh"));
         let mesh = match mesh {
             Some(block) => Some(read_mesh(file, block)?),
             None => continue, // cameras, lights, empties, …
         };
+        // Where the object really is (parents included), as location / rotation / scale.
+        let (location, rotation, scale) = decompose(&world_matrix(file, block, 0));
         out.push(BlendObject {
-            name,
-            location: ob.f32s::<3>("loc").unwrap_or([0.0; 3]),
-            rotation: ob.f32s::<3>("rot").unwrap_or([0.0; 3]),
-            scale: ob.f32s::<3>("scale").unwrap_or([1.0; 3]),
+            name: object_name(&ob),
+            location: location.to_array(),
+            rotation: rotation.to_euler_xyz(),
+            scale: scale.to_array(),
             mesh,
         });
     }
     Ok(out)
+}
+
+fn object_name(ob: &StructView<'_>) -> String {
+    let name = ob.nested("id").and_then(|id| id.string("name")).unwrap_or_default();
+    name.get(2..).unwrap_or(&name).to_string() // drop the "OB" prefix
+}
+
+/// A `float [4][4]` field (column-major, like [`Mat4`]).
+fn matrix_field(view: &StructView<'_>, name: &str) -> Option<Mat4> {
+    let m = view.f32s::<16>(name)?;
+    let m = Mat4(std::array::from_fn(|c| std::array::from_fn(|r| m[c * 4 + r])));
+    m.0.iter().flatten().all(|v| v.is_finite()).then_some(m)
+}
+
+/// An object's own rotation, by its rotation mode: quaternion (0), Euler
+/// angles in one of six orders (1 = XYZ … 6 = ZYX), or axis-angle (−1).
+fn object_rotation(ob: &StructView<'_>) -> Quat {
+    let mode = ob.bytes("rotmode").and_then(|b| b.get(..2)).map_or(1, |b| i16::from_le_bytes([b[0], b[1]]));
+    match mode {
+        0 => {
+            let q = ob.f32s::<4>("quat").unwrap_or([1.0, 0.0, 0.0, 0.0]);
+            Quat { w: q[0], x: q[1], y: q[2], z: q[3] }.normalize()
+        }
+        -1 => {
+            let axis = Vec3::from_array(ob.f32s::<3>("rotAxis").unwrap_or([0.0, 1.0, 0.0]));
+            let angle = ob.f32s::<1>("rotAngle").map_or(0.0, |a| a[0]);
+            if axis.length() < 1e-9 { Quat::IDENTITY } else { Quat::from_axis_angle(axis, angle) }
+        }
+        _ => {
+            let e = ob.f32s::<3>("rot").unwrap_or([0.0; 3]);
+            let q = |axis: usize| Quat::from_axis_angle([Vec3::X, Vec3::Y, Vec3::Z][axis], e[axis]);
+            // The order the axes apply in (the first is applied first).
+            let [a, b, c] = match mode {
+                2 => [0, 2, 1], // XZY
+                3 => [1, 0, 2], // YXZ
+                4 => [1, 2, 0], // YZX
+                5 => [2, 0, 1], // ZXY
+                6 => [2, 1, 0], // ZYX
+                _ => [0, 1, 2], // XYZ
+            };
+            (q(c) * q(b) * q(a)).normalize()
+        }
+    }
+}
+
+/// An object's world matrix: the one Blender saved (`object_to_world`, or
+/// `obmat` before 4.0), else rebuilt from location, rotation and scale
+/// through its parents (Blender 4.1+ no longer saves it).
+pub fn world_matrix(file: &BlendFile, block: &Block, depth: usize) -> Mat4 {
+    let ob = file.view("Object", file.data(block));
+    if let Some(m) = ob.first_of(&["object_to_world", "obmat"]).and_then(|f| matrix_field(&ob, f)) {
+        return m;
+    }
+    let local = Mat4::from_trs(
+        Vec3::from_array(ob.f32s::<3>("loc").unwrap_or([0.0; 3])),
+        object_rotation(&ob),
+        // Saved DNA keeps the old name `size`.
+        Vec3::from_array(ob.first_of(&["scale", "size"]).and_then(|n| ob.f32s::<3>(n)).unwrap_or([1.0; 3])),
+    );
+    match ob.pointer("parent").filter(|&p| p != 0 && depth < 32).and_then(|p| file.block_at(p)) {
+        Some(parent) => {
+            let inverse = matrix_field(&ob, "parentinv").unwrap_or(Mat4::IDENTITY);
+            world_matrix(file, parent, depth + 1) * inverse * local
+        }
+        None => local,
+    }
+}
+
+/// Location, rotation and scale of a matrix without shear.
+pub fn decompose(m: &Mat4) -> (Vec3, Quat, Vec3) {
+    let axis = |c: usize| vec3(m.0[c][0], m.0[c][1], m.0[c][2]);
+    let mut scale = vec3(axis(0).length(), axis(1).length(), axis(2).length());
+    let unit = |v: Vec3, s: f32| if s > 1e-12 { v * (1.0 / s) } else { v };
+    let (x, y, mut z) = (unit(axis(0), scale.x), unit(axis(1), scale.y), unit(axis(2), scale.z));
+    // A mirrored matrix: put the flip in the scale.
+    if x.cross(y).dot(z) < 0.0 {
+        z = -z;
+        scale.z = -scale.z;
+    }
+    (vec3(m.0[3][0], m.0[3][1], m.0[3][2]), quat_from_axes(x, y, z), scale)
+}
+
+/// The scene camera of a `.blend` file and what it sees.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlendCamera {
+    pub name: String,
+    /// The camera's world location.
+    pub location: Vec3,
+    /// Camera axes (−Z forward, +Y up) to world, like [`crate::camera::ViewCamera::rotation`].
+    pub rotation: Quat,
+    pub orthographic: bool,
+    /// Focal length and sensor size in millimetres.
+    pub lens: f32,
+    pub sensor_width: f32,
+    pub sensor_height: f32,
+    /// Which sensor size spans the frame: automatic (the larger side), horizontal or vertical.
+    pub sensor_fit: SensorFit,
+    /// Orthographic: the frame's larger side in world units.
+    pub ortho_scale: f32,
+    /// Lens shift, in units of the frame's larger side.
+    pub shift: [f32; 2],
+    pub clip_start: f32,
+    pub clip_end: f32,
+    /// The render size in pixels (resolution percentage applied) and pixel aspect.
+    pub resolution: [u32; 2],
+    pub pixel_aspect: [f32; 2],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SensorFit {
+    Auto,
+    Horizontal,
+    Vertical,
+}
+
+impl BlendCamera {
+    /// The render frame's width / height.
+    pub fn frame_aspect(&self) -> f32 {
+        let w = self.resolution[0].max(1) as f32 * self.pixel_aspect[0].max(1e-3);
+        let h = self.resolution[1].max(1) as f32 * self.pixel_aspect[1].max(1e-3);
+        w / h
+    }
+
+    /// Half the frame's width and height: at unit distance for a
+    /// perspective camera, in world units for an orthographic one.
+    pub fn frame_half_size(&self) -> (f32, f32) {
+        let aspect = self.frame_aspect();
+        let horizontal = match self.sensor_fit {
+            SensorFit::Auto => aspect >= 1.0,
+            SensorFit::Horizontal => true,
+            SensorFit::Vertical => false,
+        };
+        // Auto uses the sensor width for whichever side is larger.
+        let sensor = if self.sensor_fit == SensorFit::Vertical { self.sensor_height } else { self.sensor_width };
+        let half = if self.orthographic { self.ortho_scale * 0.5 } else { sensor * 0.5 / self.lens.max(1e-3) };
+        if horizontal { (half, half / aspect) } else { (half * aspect, half) }
+    }
+}
+
+/// The camera the file renders with: the first scene's camera, else the first camera object.
+pub fn load_camera(file: &BlendFile) -> Option<BlendCamera> {
+    let is_camera = |b: &&Block| {
+        let ob = file.view("Object", file.data(b));
+        ob.pointer("data").and_then(|p| file.block_at(p)).is_some_and(|d| file.sdna.struct_name(d.sdna) == Some("Camera"))
+    };
+    let scenes: Vec<&Block> = file.blocks_of("Scene").collect();
+    let from_scene = scenes.iter().find_map(|s| {
+        let scene = file.view("Scene", file.data(s));
+        let block = scene.pointer("camera").filter(|&p| p != 0).and_then(|p| file.block_at(p)).filter(is_camera)?;
+        Some((block, Some(scene)))
+    });
+    let (block, scene) = from_scene.or_else(|| file.blocks_of("Object").find(is_camera).map(|b| (b, scenes.first().map(|s| file.view("Scene", file.data(s))))))?;
+    let ob = file.view("Object", file.data(block));
+    let cam = file.view("Camera", file.block_at(ob.pointer("data")?).map(|b| file.data(b))?);
+    // Positive sizes; a missing or nonsensical value falls back to Blender's default.
+    let f = |name: &str, default: f32| cam.f32s::<1>(name).map(|v| v[0]).filter(|v| v.is_finite() && *v > 0.0).unwrap_or(default);
+    let float = |name: &str, default: f32| cam.f32s::<1>(name).map_or(default, |v| v[0]);
+    let (location, rotation, _) = decompose(&world_matrix(file, block, 0));
+    // Render size: RenderData's resolution, scaled by its percentage.
+    let render = scene.as_ref().and_then(|s| s.nested("r"));
+    let int = |name: &str| render.as_ref().and_then(|r| r.i32(name));
+    let short = |name: &str| render.as_ref().and_then(|r| r.bytes(name)).and_then(|b| b.get(..2)).map(|b| i16::from_le_bytes([b[0], b[1]]));
+    let percent = short("size").filter(|&p| p > 0).unwrap_or(100) as f32 / 100.0;
+    let res = |name: &str, default: i32| ((int(name).filter(|&v| v > 0).unwrap_or(default)) as f32 * percent).round().max(1.0) as u32;
+    let aspect = |name: &str| render.as_ref().and_then(|r| r.f32s::<1>(name)).map_or(1.0, |v| v[0]).max(1e-3);
+    Some(BlendCamera {
+        name: object_name(&ob),
+        location,
+        rotation,
+        // Camera::type: 0 perspective, 1 orthographic, 2 panoramic (drawn as perspective).
+        orthographic: cam.i8("type") == Some(1),
+        lens: f("lens", 50.0),
+        sensor_width: f("sensor_x", 36.0),
+        sensor_height: f("sensor_y", 24.0),
+        sensor_fit: match cam.i8("sensor_fit") {
+            Some(1) => SensorFit::Horizontal,
+            Some(2) => SensorFit::Vertical,
+            _ => SensorFit::Auto,
+        },
+        ortho_scale: f("ortho_scale", 6.0),
+        shift: [float("shiftx", 0.0), float("shifty", 0.0)],
+        clip_start: cam.first_of(&["clip_start", "clipsta"]).map_or(0.1, |n| f(n, 0.1)),
+        clip_end: cam.first_of(&["clip_end", "clipend"]).map_or(100.0, |n| f(n, 100.0)),
+        resolution: [res("xsch", 1920), res("ysch", 1080)],
+        pixel_aspect: [aspect("xasp"), aspect("yasp")],
+    })
 }
 
 /// A named attribute array of one mesh domain.

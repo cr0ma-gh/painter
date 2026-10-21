@@ -38,6 +38,9 @@ struct CameraFile {
     trackball: bool,
     near: f32,
     far: f32,
+    /// Lens shift (NDC); files from before it existed have none.
+    #[serde(default)]
+    shift: [f32; 2],
 }
 
 #[derive(Serialize, Deserialize)]
@@ -98,6 +101,7 @@ impl Scene3D {
                 trackball: cam.orbit_style == OrbitStyle::Trackball,
                 near: cam.near,
                 far: cam.far,
+                shift: cam.shift,
             },
             lights: self
                 .lights
@@ -198,6 +202,7 @@ impl Scene3D {
             orbit_style: if c.trackball { OrbitStyle::Trackball } else { OrbitStyle::Turntable },
             near: c.near,
             far: c.far,
+            shift: c.shift,
             ..ViewCamera::default()
         };
         let mut objects = Vec::with_capacity(header.objects.len());
