@@ -21,6 +21,7 @@ mod print_ui;
 mod scene_ui;
 mod tablet;
 mod theme;
+mod toolbar;
 mod tools;
 mod transform_ui;
 mod view;

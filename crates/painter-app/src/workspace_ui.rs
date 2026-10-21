@@ -21,6 +21,7 @@ use crate::tools::{BrushGroup, Tool};
 const WORKSPACES_KEY: &str = "workspaces_v1";
 const CHROME_KEY: &str = "chrome_v1";
 const THEMES_KEY: &str = "themes_v1";
+const TOOLBAR_KEY: &str = "toolbar_v1";
 /// Height of an area's header strip.
 const HEADER: f32 = 22.0;
 /// Rows shown in the command palette.
@@ -39,6 +40,11 @@ pub(crate) struct WorkspaceUi {
     applied_zoom: Option<f32>,
     /// Where each docked area was last drawn (to place a panel that floats off it).
     pub(crate) area_rects: Vec<(AreaId, Rect)>,
+    /// The tool strip's buttons, in order (see `toolbar.rs`).
+    pub(crate) toolbar: Vec<crate::toolbar::Item>,
+    /// Customize Toolbar is open, and its command search.
+    pub(crate) toolbar_editing: bool,
+    pub(crate) toolbar_search: String,
     /// Workspace tab being renamed, with the text so far.
     renaming: Option<(usize, String)>,
     /// Where settings live when eframe has no storage (iPadOS), and what
@@ -65,6 +71,11 @@ impl WorkspaceUi {
             applied_theme: None,
             applied_zoom: None,
             area_rects: Vec::new(),
+            toolbar: get(TOOLBAR_KEY)
+                .and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok())
+                .map_or_else(crate::toolbar::default_items, |keys| crate::toolbar::from_keys(&keys)),
+            toolbar_editing: false,
+            toolbar_search: String::new(),
             renaming: None,
             settings_file,
             written,
@@ -72,11 +83,12 @@ impl WorkspaceUi {
         }
     }
 
-    fn entries(&self) -> [(&'static str, String); 3] {
+    fn entries(&self) -> [(&'static str, String); 4] {
         [
             (WORKSPACES_KEY, self.set.to_json()),
             (CHROME_KEY, serde_json::to_string(&self.chrome).unwrap_or_default()),
             (THEMES_KEY, self.themes.to_json()),
+            (TOOLBAR_KEY, serde_json::to_string(&self.toolbar.iter().map(crate::toolbar::Item::key).collect::<Vec<_>>()).unwrap_or_default()),
         ]
     }
 
@@ -888,7 +900,7 @@ impl PainterApp {
 
     /// Rebuilds the command list from the app's current state (brushes,
     /// workspaces, themes and what's enabled change as it runs).
-    fn refresh_commands(&mut self) {
+    pub(crate) fn refresh_commands(&mut self) {
         use CommandCategory as C;
         let r = &mut self.ws.commands;
         r.unregister_prefix("");

@@ -13,7 +13,7 @@ use crate::app::PainterApp;
 use crate::curve::curve_editor;
 use crate::icons::{icon_button, Icon};
 use crate::theme;
-use crate::tools::{BrushGroup, SelectShape, Tool};
+use crate::tools::Tool;
 use crate::view::{MAX_ZOOM, MIN_ZOOM};
 use crate::widgets::{self, color_chips, color_wheel, prop_percent, prop_slider, segmented};
 
@@ -371,38 +371,6 @@ impl PainterApp {
                     if icon_button(ui, Icon::Brushes, 16.0, false, "Import brushes (.sut, .abr, .rustbrush)").clicked() {
                         self.import_brushes_dialog();
                     }
-                });
-            });
-    }
-
-    /// The vertical toolbar on the left: brush groups, then the other tools,
-    /// then the main / sub colour chips.
-    pub(crate) fn tool_strip(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::left("tools")
-            .resizable(false)
-            .exact_width(42.0)
-            .frame(egui::Frame::new().fill(theme::panel()).inner_margin(egui::Margin::symmetric(3, 6)))
-            .show(ctx, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.spacing_mut().item_spacing.y = 2.0;
-                    for group in BrushGroup::ALL.into_iter().filter(|g| self.group_in_workspace(*g)).collect::<Vec<_>>() {
-                        let selected = self.tool == Tool::Brush && self.brush_group == group;
-                        if icon_button(ui, group.icon(), 20.0, selected, group.label()).clicked() {
-                            self.select_group(group);
-                        }
-                    }
-                    ui.separator();
-                    for tool in Tool::ALL.into_iter().filter(|t| *t != Tool::Brush && self.tool_in_workspace(*t)).collect::<Vec<_>>() {
-                        if matches!(tool, Tool::Select(SelectShape::Rect) | Tool::Transform | Tool::Hand) {
-                            ui.separator();
-                        }
-                        if icon_button(ui, tool.icon(), 20.0, self.tool == tool, tool.hint()).clicked() {
-                            self.tool = tool;
-                        }
-                    }
-                    ui.separator();
-                    ui.add_space(4.0);
-                    color_chips(ui, &mut self.color, &mut self.sub_color, 24.0);
                 });
             });
     }
