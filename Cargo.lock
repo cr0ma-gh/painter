@@ -2349,6 +2349,7 @@ dependencies = [
  "cc",
  "eframe",
  "egui_extras",
+ "image",
  "libloading",
  "painter-brush-io",
  "painter-comic-layout",

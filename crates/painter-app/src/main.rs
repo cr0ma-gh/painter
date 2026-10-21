@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod adjust_ui;
+mod advanced_tool;
 mod app;
 mod brush_library;
 mod color_panels;

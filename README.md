@@ -38,7 +38,28 @@ cargo run --release -p painter-app -- drawing.painter
 - **Brushes:** pressure curves for size and density (with an editor),
   per-stroke opacity, per-dab density, spacing, hardness, anti-aliasing,
   stabilisation (weighted average or pulled string), erasers. On vector layers
-  the eraser removes whole strokes.
+  the eraser removes whole strokes. One engine covers what Clip Studio and
+  Photoshop brushes do: image tips with thickness, angle and rotation
+  dynamics, paper textures, a second tip (2-brush shape / dual brush),
+  speed / tilt / random dynamics, spraying (scattering), per-stroke colour
+  jitter and a starting taper. **Advanced Tool Settings** (Tool Settings, or
+  the command palette) shows every setting by category, like Clip Studio's
+  window, and exports the brush as `.rustbrush`, as a Photoshop `.abr` (tips,
+  textures, dual brush, main dynamics) or as a Clip Studio `.sut` written into
+  a sub tool you exported from Clip Studio once (used as a template: its tip
+  images stay, since Clip Studio's material files are encrypted).
+- **Colour:** colour wheel; Color Slider (RGB, HSV and CMYK device values);
+  Color Set (named sets, GIMP `.gpl` import / export); Color History;
+  Intermediate Color (four blended corners); Approximate Color (value /
+  saturation around the current colour); Color Mixing (paint, blend, erase
+  and pick on a small mixing canvas). Sets and history are kept between
+  launches.
+- **Panels** float in their own windows (area menu → Float, or Window →
+  the panel's name), fold to their header, and each has its own scale
+  (area menu, or Ctrl + Alt + wheel over it). Search Layer finds layers by
+  name and kind. The tool strip is customisable: right-click it → Customize
+  Toolbar to reorder buttons, remove them, or add any command as a quick
+  button.
 - **Tools:** rectangle, ellipse and lasso selections (new, add, subtract,
   intersect); fill bucket (tolerance, contiguous, gap closing up to 40 px, reads the edited layer, all layers or
   layers marked as reference, anti-halo expansion under the lines or inset; ~0.2 s on a 600 dpi A4 page);

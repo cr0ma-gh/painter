@@ -27,7 +27,7 @@ pub mod vector;
 
 pub use adjust::{AdjustOp, Adjustment};
 pub use blend::BlendMode;
-pub use brush::{AntiAlias, BrushMode, BrushSettings, Dab, PressureCurve, SmoothingMethod};
+pub use brush::{AntiAlias, BrushMode, BrushSettings, ColorJitter, Dab, PressureCurve, Scatter, SmoothingMethod};
 pub use document::{Document, DEFAULT_DPI, MAX_CANVAS_SIZE};
 pub use history::History;
 pub use layer::{clip_targets, ClipTo, Folder, Layer, LayerId, LayerKind, Mask, VectorLayer, VectorStroke};

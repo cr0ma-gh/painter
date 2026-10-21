@@ -24,6 +24,7 @@ painter-comic-layout.workspace = true
 painter-scene-3d.workspace = true
 painter-ui-workspace.workspace = true
 serde_json.workspace = true
+image.workspace = true
 eframe.workspace = true
 egui_extras.workspace = true
 serde.workspace = true

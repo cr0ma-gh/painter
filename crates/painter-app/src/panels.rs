@@ -711,6 +711,11 @@ impl PainterApp {
         painter.galley(tag.min + Vec2::new(4.0, 1.0), galley, Color32::WHITE);
         ui.add_space(4.0);
 
+        ui.horizontal(|ui| {
+            if ui.button("Advanced Tool Settings...").on_hover_text("Every setting by category; export for Photoshop or Clip Studio").clicked() {
+                self.open_advanced_tool_settings();
+            }
+        });
         let missing = self.brushes[self.brush].unsupported_features();
         if !missing.is_empty() {
             ui.colored_label(Color32::from_rgb(240, 190, 90), format!("Imported features not painted yet: {}", missing.join(", ")));
@@ -1099,7 +1104,7 @@ impl PainterApp {
 }
 
 /// Slider showing a 0..1 value as a percentage. Returns whether it changed.
-fn percent_slider(ui: &mut egui::Ui, value: &mut f32, label: &str, range: RangeInclusive<f32>) -> bool {
+pub(crate) fn percent_slider(ui: &mut egui::Ui, value: &mut f32, label: &str, range: RangeInclusive<f32>) -> bool {
     let mut pct = *value * 100.0;
     let changed = ui.add(egui::Slider::new(&mut pct, range).text(label).suffix("%")).changed();
     if changed {
@@ -1118,12 +1123,12 @@ fn response_presets() -> [(&'static str, Option<PressureCurve>); 3] {
 }
 
 /// Rotation responses: none, up to a quarter turn, up to a full turn.
-fn rotation_presets() -> [(&'static str, Option<PressureCurve>); 3] {
+pub(crate) fn rotation_presets() -> [(&'static str, Option<PressureCurve>); 3] {
     [("Off", None), ("90°", Some(PressureCurve::from_points(vec![[0.0, 0.0], [1.0, 0.25]]))), ("360°", Some(PressureCurve::linear()))]
 }
 
 /// A labelled row of curve presets; marks a curve that matches none (e.g. imported).
-fn preset_buttons(ui: &mut egui::Ui, label: &str, curve: &mut Option<PressureCurve>, presets: &[(&str, Option<PressureCurve>)]) {
+pub(crate) fn preset_buttons(ui: &mut egui::Ui, label: &str, curve: &mut Option<PressureCurve>, presets: &[(&str, Option<PressureCurve>)]) {
     ui.horizontal(|ui| {
         ui.label(label);
         for (name, preset) in presets {
@@ -1138,7 +1143,7 @@ fn preset_buttons(ui: &mut egui::Ui, label: &str, curve: &mut Option<PressureCur
 }
 
 /// One row of pressure / speed / tilt / jitter controls for a brush parameter.
-fn dynamics_row(ui: &mut egui::Ui, label: &str, dynamics: &mut painter_core::brush::InputDynamics, with_pressure: bool) {
+pub(crate) fn dynamics_row(ui: &mut egui::Ui, label: &str, dynamics: &mut painter_core::brush::InputDynamics, with_pressure: bool) {
     ui.label(label);
     ui.indent(label, |ui| {
         let presets = response_presets();

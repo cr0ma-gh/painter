@@ -154,6 +154,30 @@ Krita's loaders.
 The tests use ABR files built to the documented layout. No real `.abr` was
 available on this machine to check against.
 
+## Exporting for Photoshop and Clip Studio
+
+- **`.abr` (`abr_write`)**: version 6.2, the layout the reader above takes:
+  tips in `samp` (8-bit raw), textures in `patt` (8-bit grayscale pattern),
+  and a `desc` with a `brushPreset` per brush (computed or sampled tip,
+  shape dynamics with the minimum diameter, angle / roundness dynamics,
+  flips, transfer, texture, dual brush). Values come from the engine
+  settings, so edits made in Painter are exported. The round-trip test reads
+  the result back with `abr::read_report`. Not carried (Photoshop has no
+  matching setting, or its descriptor keys aren't confirmed): stabilisation,
+  scatter, colour jitter, the starting taper and the exact shape of pressure
+  curves. Opening the file in Photoshop itself hasn't been verified here.
+- **`.sut` (`sut::write_with_template`)**: Clip Studio's schema isn't
+  published and its materials are encrypted, so the export starts from a
+  sub tool the user exported from Clip Studio (any brush). The copy keeps
+  every table and setting of that template and replaces, on its first brush,
+  the name and the columns the reader maps: size, opacity, flow, hardness,
+  spacing (manual interval), anti-aliasing, stabilisation, erase mode,
+  thickness, angle, rotation-follows-direction / random bits, random flips
+  and the size / flow / opacity pressure curves (the minimum size folded
+  into the size curve; the effector header words of the template are
+  kept). Columns the template's Clip Studio version lacks are reported.
+  Tip, texture and second-tip images stay the template's.
+
 ## `.rustbrush`
 
 ```json

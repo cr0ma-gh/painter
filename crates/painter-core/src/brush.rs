@@ -259,6 +259,107 @@ pub struct BrushSettings {
     pub thickness_dynamics: InputDynamics,
     #[serde(default, skip_serializing_if = "RotationDynamics::is_default")]
     pub rotation: RotationDynamics,
+    /// Dabs sprayed around the stroke (Clip Studio's spraying effect,
+    /// Photoshop's scattering).
+    #[serde(default, skip_serializing_if = "Scatter::is_default")]
+    pub scatter: Scatter,
+    /// Colour varied per stroke (Clip Studio's color jitter, Photoshop's
+    /// color dynamics "apply per tip" off).
+    #[serde(default, skip_serializing_if = "ColorJitter::is_default")]
+    pub color_jitter: ColorJitter,
+    /// Starting: size and density grow over this many canvas pixels at the
+    /// start of a stroke (0 = off).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub taper_start: f32,
+}
+
+fn is_zero(v: &f32) -> bool {
+    *v == 0.0
+}
+
+/// Dabs scattered around each point of the stroke.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Scatter {
+    /// How far dabs land from the stroke, in brush diameters (0 = off).
+    pub amount: f32,
+    /// Dabs per stroke point, 1..=16.
+    pub count: u32,
+    /// Random reduction of the count, 0..=1.
+    pub count_jitter: f32,
+    /// Scatter along the stroke as well as across it.
+    pub both_axes: bool,
+}
+
+impl Scatter {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    pub fn is_on(&self) -> bool {
+        self.amount > 0.0 || self.count > 1
+    }
+}
+
+/// Random change of the main colour, per stroke.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ColorJitter {
+    /// Hue shift either way, 0..=1 of a half turn.
+    pub hue: f32,
+    /// Saturation and value change either way, 0..=1.
+    pub saturation: f32,
+    pub value: f32,
+}
+
+impl ColorJitter {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// `rgb` (0..1) varied with three uniform random numbers in 0..1.
+    pub fn apply(&self, rgb: [f32; 3], r: [f32; 3]) -> [f32; 3] {
+        if self.is_default() {
+            return rgb;
+        }
+        let [h, s, v] = rgb_to_hsv(rgb);
+        let h = (h + (r[0] * 2.0 - 1.0) * self.hue.clamp(0.0, 1.0) * 0.5).rem_euclid(1.0);
+        let s = (s + (r[1] * 2.0 - 1.0) * self.saturation.clamp(0.0, 1.0)).clamp(0.0, 1.0);
+        let v = (v + (r[2] * 2.0 - 1.0) * self.value.clamp(0.0, 1.0)).clamp(0.0, 1.0);
+        hsv_to_rgb([h, s, v])
+    }
+}
+
+/// HSV (0..1 each) from RGB (0..1 each).
+pub fn rgb_to_hsv([r, g, b]: [f32; 3]) -> [f32; 3] {
+    let max = r.max(g).max(b);
+    let d = max - r.min(g).min(b);
+    let h = if d <= 0.0 {
+        0.0
+    } else if max == r {
+        ((g - b) / d).rem_euclid(6.0) / 6.0
+    } else if max == g {
+        ((b - r) / d + 2.0) / 6.0
+    } else {
+        ((r - g) / d + 4.0) / 6.0
+    };
+    [h, if max > 0.0 { d / max } else { 0.0 }, max]
+}
+
+pub fn hsv_to_rgb([h, s, v]: [f32; 3]) -> [f32; 3] {
+    let h6 = h.rem_euclid(1.0) * 6.0;
+    let c = v * s;
+    let x = c * (1.0 - (h6 % 2.0 - 1.0).abs());
+    let (r, g, b) = match h6 as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let m = v - c;
+    [r + m, g + m, b + m]
 }
 
 impl Default for BrushSettings {
@@ -293,6 +394,9 @@ impl BrushSettings {
             opacity_dynamics: InputDynamics::default(),
             thickness_dynamics: InputDynamics::default(),
             rotation: RotationDynamics::default(),
+            scatter: Scatter::default(),
+            color_jitter: ColorJitter::default(),
+            taper_start: 0.0,
         }
     }
 

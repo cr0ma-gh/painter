@@ -202,9 +202,9 @@ fn read_value(c: &mut Cursor<'_>) -> Result<Value, BrushIoError> {
     })
 }
 
-#[cfg(test)]
+// Writers for descriptor bytes (the ABR exporter and tests).
 pub(crate) mod build {
-    //! Writers used by tests to build descriptor bytes.
+    //! Writers for descriptor bytes, as in the Photoshop File Formats spec.
 
     pub fn unicode(out: &mut Vec<u8>, s: &str) {
         let units: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();

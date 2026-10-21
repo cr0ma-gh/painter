@@ -279,6 +279,170 @@ pub fn read_db(db: &Connection) -> Result<Vec<BrushPreset>, BrushIoError> {
     read_db_with(db, &MaterialLibrary::default()).map(|r| r.presets)
 }
 
+/// An effector BLOB for a pressure curve: the template's header words kept
+/// (their meaning isn't all known), the pressure bit and first curve replaced.
+fn effector_blob(template: Option<&[u8]>, curve: Option<&[[f32; 2]]>) -> Vec<u8> {
+    let old = template.and_then(parse_effector);
+    let mut header = old.as_ref().map_or([48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], |e| e.header);
+    let mask = header[2] as u32;
+    let mut block = Vec::new();
+    match curve {
+        Some(points) => {
+            header[2] = (mask | EFFECT_PRESSURE) as i32;
+            for v in [12u32, points.len() as u32, 16] {
+                block.extend(v.to_be_bytes());
+            }
+            for p in points {
+                block.extend((p[0] as f64).to_be_bytes());
+                block.extend((p[1] as f64).to_be_bytes());
+            }
+        }
+        None => header[2] = (mask & !EFFECT_PRESSURE) as i32,
+    }
+    // The second curve block, as the template had it.
+    let second: Vec<u8> = match (template, old.as_ref()) {
+        (Some(blob), Some(e)) if e.header[9] > 0 => {
+            let start = 48 + e.header[8].max(0) as usize;
+            blob.get(start..start + e.header[9] as usize).map(<[u8]>::to_vec).unwrap_or_default()
+        }
+        _ => Vec::new(),
+    };
+    header[0] = 48;
+    header[8] = block.len() as i32;
+    header[9] = second.len() as i32;
+    let mut out: Vec<u8> = header.iter().flat_map(|w| w.to_be_bytes()).collect();
+    out.extend(block);
+    out.extend(second);
+    out
+}
+
+/// A pressure curve with its minimum folded in: output `min + (1 − min) · curve`.
+fn curve_points(curve: &PressureCurve, minimum: f32) -> Vec<[f32; 2]> {
+    let min = minimum.clamp(0.0, 1.0);
+    curve.points().iter().map(|p| [p[0], min + (1.0 - min) * p[1]]).collect()
+}
+
+/// Writes `preset` as a Clip Studio sub tool, using `template` (a `.sut`
+/// Clip Studio exported) for everything Painter doesn't know: its tables,
+/// tool type and settings are kept, and the first brush's name and brush
+/// parameters are replaced. Returns notes about what couldn't be carried.
+///
+/// Tip and texture images can't be written: Clip Studio keeps them as
+/// materials in an encrypted container, so the sub tool keeps the
+/// template's tip and texture.
+pub fn write_with_template(template: &Path, preset: &BrushPreset, out: &Path) -> Result<Vec<String>, BrushIoError> {
+    if template == out {
+        return Err(BrushIoError::Unsupported("the template and the new file must differ".into()));
+    }
+    std::fs::copy(template, out)?;
+    let result = (|| {
+        let db = Connection::open(out)?;
+        let variant_columns = table_columns(&db, "Variant")?;
+        if !table_columns(&db, "Node")?.contains("NodeName") || !variant_columns.contains("BrushSize") {
+            return Err(BrushIoError::Corrupt("the template isn't a Clip Studio sub tool (no Node / Variant tables)".into()));
+        }
+        let (node, variant): (i64, i64) = db
+            .query_row(
+                "SELECT n.rowid, v.rowid FROM Node n JOIN Variant v ON v.VariantID = n.NodeVariantID \
+                 WHERE v.BrushSize IS NOT NULL ORDER BY n.rowid LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|_| BrushIoError::Corrupt("the template has no brush sub tool".into()))?;
+        let brushes: i64 = db.query_row(
+            "SELECT COUNT(*) FROM Node n JOIN Variant v ON v.VariantID = n.NodeVariantID WHERE v.BrushSize IS NOT NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        let mut notes = Vec::new();
+        if brushes > 1 {
+            notes.push(format!("the template has {brushes} brushes; only the first was replaced"));
+        }
+        db.execute("UPDATE Node SET NodeName = ?1 WHERE rowid = ?2", rusqlite::params![preset.settings.name, node])?;
+
+        let s = &preset.settings;
+        let r = &s.rotation;
+        let percent = |v: f32| (v.clamp(0.0, 1.0) * 100.0).round() as i64;
+        let antialias = match s.antialias {
+            AntiAlias::None => 0,
+            AntiAlias::Weak => 1,
+            AntiAlias::Medium => 2,
+            AntiAlias::Strong => 3,
+        };
+        let template_mode: Option<i64> = db.query_row("SELECT CompositeMode FROM Variant WHERE rowid = ?1", [variant], |r| r.get(0)).ok().flatten();
+        let mode = match s.mode {
+            BrushMode::Erase => COMPOSITE_ERASE,
+            _ if template_mode == Some(COMPOSITE_ERASE) => 0,
+            _ => template_mode.unwrap_or(0),
+        };
+        let mut rotation_mask: i64 = db.query_row("SELECT BrushRotationEffector FROM Variant WHERE rowid = ?1", [variant], |r| r.get(0)).ok().flatten().unwrap_or(0);
+        rotation_mask &= !0xA0;
+        if r.follow_direction {
+            rotation_mask |= 0x20;
+        }
+        if r.jitter > 0.0 {
+            rotation_mask |= 0x80;
+        }
+        let values: Vec<(&str, Value)> = vec![
+            ("BrushSize", Value::Real(s.size as f64)),
+            ("Opacity", Value::Integer(percent(s.opacity))),
+            ("BrushFlow", Value::Integer(percent(s.density))),
+            ("BrushHardness", Value::Integer(percent(s.hardness))),
+            ("BrushAutoIntervalType", Value::Integer(0)),
+            ("BrushInterval", Value::Real((s.spacing * 100.0) as f64)),
+            ("AntiAlias", Value::Integer(antialias)),
+            ("FlickerReduction", Value::Integer(s.stabilization.min(100) as i64)),
+            ("CompositeMode", Value::Integer(mode)),
+            ("BrushThickness", Value::Integer(percent(preset.thickness))),
+            ("BrushRotation", Value::Real(preset.angle as f64)),
+            ("BrushRotationEffector", Value::Integer(rotation_mask)),
+            ("BrushRotationRandomScale", Value::Integer(percent(r.jitter))),
+            ("BrushPatternReverseHorizontal", Value::Integer(if r.random_flip_x { 2 } else { 0 })),
+            ("BrushPatternReverseVertical", Value::Integer(if r.random_flip_y { 2 } else { 0 })),
+        ];
+        let mut skipped = Vec::new();
+        for (column, value) in values {
+            if variant_columns.contains(column) {
+                db.execute(&format!("UPDATE Variant SET \"{column}\" = ?1 WHERE rowid = ?2"), rusqlite::params![value, variant])?;
+            } else {
+                skipped.push(column);
+            }
+        }
+        // Pressure curves: size (with its minimum), flow, opacity.
+        let size_curve = s.pressure_size.then(|| curve_points(&s.size_curve, s.min_size_ratio));
+        let flow_curve = s.pressure_density.then(|| curve_points(&s.density_curve, 0.0));
+        let opacity_curve = s.opacity_dynamics.pressure.as_ref().map(|c| curve_points(c, 0.0));
+        for (column, curve) in [("BrushSizeEffector", size_curve), ("BrushFlowEffector", flow_curve), ("BrushOpacityEffector", opacity_curve)] {
+            if !variant_columns.contains(column) {
+                if curve.is_some() {
+                    skipped.push(column);
+                }
+                continue;
+            }
+            let old: Option<Vec<u8>> = db.query_row(&format!("SELECT \"{column}\" FROM Variant WHERE rowid = ?1"), [variant], |r| r.get(0)).ok().flatten();
+            if old.is_none() && curve.is_none() {
+                continue;
+            }
+            let blob = effector_blob(old.as_deref(), curve.as_deref());
+            db.execute(&format!("UPDATE Variant SET \"{column}\" = ?1 WHERE rowid = ?2"), rusqlite::params![blob, variant])?;
+        }
+        if !skipped.is_empty() {
+            notes.push(format!("the template's Clip Studio version has no {}", skipped.join(", ")));
+        }
+        if preset.tip.is_some() || preset.texture.is_some() || preset.dual.is_some() {
+            notes.push("tip, texture and second brush images stay the template's (Clip Studio materials can't be written)".into());
+        }
+        if s.scatter.is_on() || !s.color_jitter.is_default() || s.taper_start > 0.0 {
+            notes.push("spray, colour jitter and starting taper aren't carried (their Clip Studio settings aren't mapped)".into());
+        }
+        Ok(notes)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(out);
+    }
+    result
+}
+
 pub fn read_db_with(db: &Connection, library: &MaterialLibrary) -> Result<ImportReport, BrushIoError> {
     let node_columns = table_columns(db, "Node")?;
     let variant_columns = table_columns(db, "Variant")?;
@@ -766,6 +930,64 @@ mod tests {
         assert!(rotation.follow_direction && rotation.jitter == 0.0);
         assert!(!rotation.random_flip_x && !rotation.random_flip_y);
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn writes_into_a_template_and_reads_back() {
+        let dir = std::env::temp_dir().join(format!("painter-sut-write-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let template = dir.join("template.sut");
+        let out = dir.join("out.sut");
+        let _ = std::fs::remove_file(&template);
+        fixture().execute("VACUUM INTO ?1", [template.to_string_lossy()]).unwrap();
+
+        let mut preset = BrushPreset::new(BrushSettings {
+            name: "Painter Ink".into(),
+            size: 33.0,
+            opacity: 0.8,
+            density: 0.6,
+            hardness: 0.5,
+            spacing: 0.2,
+            antialias: AntiAlias::Strong,
+            stabilization: 12,
+            min_size_ratio: 0.25,
+            pressure_size: true,
+            pressure_density: true,
+            ..BrushSettings::g_pen()
+        });
+        preset.thickness = 0.4;
+        preset.angle = 45.0;
+        preset.dynamics.rotation_follows_direction = true;
+        preset.dynamics.random_flip_x = true;
+        let notes = write_with_template(&template, &preset, &out).unwrap();
+        assert!(notes.iter().any(|n| n.contains("3 brushes")), "{notes:?}");
+
+        let back = read_report(&out, &MaterialLibrary::default()).unwrap();
+        let p = &back.presets[0];
+        assert_eq!(p.settings.name, "Painter Ink");
+        assert_eq!(p.settings.size, 33.0);
+        assert!((p.settings.opacity - 0.8).abs() < 1e-4 && (p.settings.density - 0.6).abs() < 1e-4);
+        assert!((p.settings.hardness - 0.5).abs() < 1e-4 && (p.settings.spacing - 0.2).abs() < 1e-4);
+        assert_eq!((p.settings.antialias, p.settings.stabilization), (AntiAlias::Strong, 12));
+        assert!((p.thickness - 0.4).abs() < 1e-4 && (p.angle - 45.0).abs() < 1e-4);
+        // Pressure → size starts at the minimum; pressure → flow is on.
+        assert!(p.settings.pressure_size && (p.settings.size_curve.eval(0.0) - 0.25).abs() < 1e-4);
+        // The template has no flow effector column: noted, not carried.
+        assert!(!p.settings.pressure_density && notes.iter().any(|n| n.contains("BrushFlowEffector")), "{notes:?}");
+        assert!(notes.iter().any(|n| n.contains("BrushPatternReverseHorizontal")), "flips need columns this template lacks");
+        // The other sub tools of the template are untouched; the template too.
+        assert_eq!(back.presets[1].settings.name, "Hard Eraser");
+        assert_eq!(read_report(&template, &MaterialLibrary::default()).unwrap().presets[0].settings.name, "G-pen");
+
+        // Not a sub tool: refused, and no half-written file is left.
+        let other = dir.join("other.sut");
+        let db = Connection::open(&other).unwrap();
+        db.execute_batch("CREATE TABLE Other (x INTEGER);").unwrap();
+        drop(db);
+        let bad = dir.join("bad.sut");
+        assert!(write_with_template(&other, &preset, &bad).is_err());
+        assert!(!bad.exists());
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

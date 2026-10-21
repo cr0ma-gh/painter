@@ -22,6 +22,11 @@ pub struct StrokeEngine {
     /// Direction of the current segment, degrees (counter-clockwise on screen).
     direction: f32,
     rng: u64,
+    /// Distance along the stroke so far (for the starting taper).
+    travelled: f32,
+    /// A second generator for scattering, so brushes without it draw the same
+    /// random numbers as before it existed.
+    scatter_rng: u64,
 }
 
 impl StrokeEngine {
@@ -45,6 +50,8 @@ impl StrokeEngine {
                 z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
                 (z ^ (z >> 31)) | 1
             },
+            travelled: 0.0,
+            scatter_rng: (seed.rotate_left(17) ^ 0xD1B5_4A32_D192_ED03) | 1,
         }
     }
 
@@ -72,10 +79,44 @@ impl StrokeEngine {
         (self.rng.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 40) as f32 / (1u64 << 24) as f32
     }
 
+    /// Uniform in 0..1 from the scattering generator.
+    fn scatter_random(&mut self) -> f32 {
+        self.scatter_rng ^= self.scatter_rng >> 12;
+        self.scatter_rng ^= self.scatter_rng << 25;
+        self.scatter_rng ^= self.scatter_rng >> 27;
+        (self.scatter_rng.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 40) as f32 / (1u64 << 24) as f32
+    }
+
+    /// Adds `dab` with the starting taper and scattering applied.
+    fn emit(&mut self, mut dab: Dab, out: &mut Vec<Dab>) {
+        let taper = self.settings.taper_start;
+        if taper > 0.0 {
+            let t = (self.travelled / taper).clamp(0.0, 1.0).max(0.05);
+            dab.radius = (dab.radius * t).max(0.05);
+            dab.alpha *= t;
+        }
+        let scatter = self.settings.scatter;
+        if !scatter.is_on() {
+            out.push(dab);
+            return;
+        }
+        let count = scatter.count.clamp(1, 16);
+        let fewer = (count as f32 * scatter.count_jitter.clamp(0.0, 1.0) * self.scatter_random()).floor() as u32;
+        let reach = scatter.amount.max(0.0) * dab.radius * 2.0;
+        // Across the stroke (and along it with `both_axes`); y points down on screen.
+        let (sin, cos) = self.direction.to_radians().sin_cos();
+        let (along, across) = ([cos, -sin], [sin, cos]);
+        for _ in 0..(count - fewer).max(1) {
+            let a = (self.scatter_random() * 2.0 - 1.0) * reach;
+            let b = if scatter.both_axes { (self.scatter_random() * 2.0 - 1.0) * reach } else { 0.0 };
+            out.push(Dab { x: dab.x + across[0] * a + along[0] * b, y: dab.y + across[1] * a + along[1] * b, ..dab });
+        }
+    }
+
     fn walk_to(&mut self, to: StrokePoint, out: &mut Vec<Dab>) {
         let Some(from) = self.last else {
             let dab = self.dab_at(to);
-            out.push(dab);
+            self.emit(dab, out);
             self.last = Some(to);
             return;
         };
@@ -101,8 +142,9 @@ impl StrokeEngine {
             }
             pos += need;
             self.carry = 0.0;
+            self.travelled += need;
             let dab = self.dab_at(from.lerp(to, pos / len));
-            out.push(dab);
+            self.emit(dab, out);
         }
         self.last = Some(to);
     }
@@ -139,6 +181,39 @@ impl StrokeEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scatter_and_starting_taper() {
+        let base = BrushSettings { size: 10.0, spacing: 0.5, pressure_size: false, stabilization: 0, ..BrushSettings::g_pen() };
+        let run = |settings: &BrushSettings| {
+            let mut e = StrokeEngine::with_seed(settings, 3);
+            let mut dabs = e.add(StrokePoint::new(0.0, 100.0, 1.0));
+            dabs.extend(e.add(StrokePoint::new(200.0, 100.0, 1.0)));
+            dabs.extend(e.finish());
+            dabs
+        };
+        let plain = run(&base);
+        // Scattered across a horizontal stroke: y spreads, x stays on the dab, count multiplies.
+        let sprayed = run(&BrushSettings { scatter: crate::Scatter { amount: 2.0, count: 3, ..Default::default() }, ..base.clone() });
+        assert_eq!(sprayed.len(), plain.len() * 3);
+        assert!(sprayed.iter().all(|d| (d.y - 100.0).abs() <= 20.0 + 1e-3));
+        assert!(sprayed.iter().any(|d| (d.y - 100.0).abs() > 2.0), "some land off the line");
+        assert!(sprayed.chunks(3).zip(&plain).all(|(c, p)| c.iter().all(|d| (d.x - p.x).abs() < 1e-3)));
+        // The ordinary dabs don't change when scattering is off (own random numbers).
+        assert_eq!(run(&base), plain);
+        // Starting taper: small and light at first, full size after the distance.
+        let tapered = run(&BrushSettings { taper_start: 50.0, ..base.clone() });
+        assert!(tapered[0].radius < plain[0].radius * 0.2 && tapered[0].alpha < plain[0].alpha * 0.2);
+        let late = tapered.iter().zip(&plain).find(|(d, _)| d.x > 60.0).unwrap();
+        assert_eq!(late.0.radius, late.1.radius);
+        // Colour jitter keeps colours valid and does nothing at zero.
+        let j = crate::ColorJitter { hue: 0.5, saturation: 0.3, value: 0.3 };
+        let c = j.apply([0.8, 0.2, 0.1], [0.9, 0.1, 0.5]);
+        assert!(c.iter().all(|v| (0.0..=1.0).contains(v)) && c != [0.8, 0.2, 0.1]);
+        assert_eq!(crate::ColorJitter::default().apply([0.8, 0.2, 0.1], [0.9, 0.1, 0.5]), [0.8, 0.2, 0.1]);
+        let back = crate::brush::hsv_to_rgb(crate::brush::rgb_to_hsv([0.3, 0.6, 0.9]));
+        assert!((back[0] - 0.3).abs() < 1e-5 && (back[2] - 0.9).abs() < 1e-5);
+    }
 
     #[test]
     fn dabs_follow_spacing() {

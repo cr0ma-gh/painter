@@ -73,6 +73,8 @@ pub struct PainterApp {
     pub(crate) brushes: Vec<BrushPreset>,
     /// The Search Layer palette's query.
     pub(crate) layer_search: crate::search_layer::SearchLayer,
+    /// Advanced Tool Settings is open, on this category.
+    pub(crate) advanced_tool: Option<crate::advanced_tool::Section>,
     /// Colour sets, history and the other colour palettes.
     pub(crate) colors: crate::color_panels::ColorPanels,
     /// The brush list on disk, kept between launches.
@@ -193,6 +195,7 @@ impl PainterApp {
             brush_library,
             colors: crate::color_panels::ColorPanels::load(),
             layer_search: Default::default(),
+            advanced_tool: None,
             ios_window: Default::default(),
             modifier_keys: Default::default(),
             previews: StrokePreviews::default(),
@@ -563,7 +566,14 @@ impl PainterApp {
         let before = self.plane_tiles(plane).cloned().unwrap_or_default();
         self.checkpoint();
         let settings = self.current_brush().clone();
-        let color = if matches!(plane, Plane::Mask(_)) { [1.0; 3] } else { self.main_rgb() };
+        let color = if matches!(plane, Plane::Mask(_)) {
+            [1.0; 3]
+        } else {
+            // Colour jitter: one variation per stroke, reproducible from its id.
+            let seed = self.next_stroke_id.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            let r = [0u32, 21, 42].map(|s| ((seed >> s) & 0xF_FFFF) as f32 / 0xF_FFFF as f32);
+            settings.color_jitter.apply(self.main_rgb(), r)
+        };
         let vector_erase = is_vector && settings.mode == BrushMode::Erase && self.tools.vector_eraser_whole_strokes;
         if settings.mode != BrushMode::Erase && matches!(plane, Plane::Color(_)) {
             let [r, g, b, _] = self.color.to_srgba_unmultiplied();
@@ -1263,6 +1273,7 @@ impl eframe::App for PainterApp {
         self.comic_wizard_window(ctx);
         self.areas(ctx);
         self.floating_panels(ctx);
+        self.advanced_tool_window(ctx);
         self.command_palette_window(ctx);
         self.theme_editor_window(ctx);
         self.filter_window(ctx);
