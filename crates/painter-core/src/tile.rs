@@ -143,6 +143,44 @@ impl TileStore {
         self.tiles.is_empty()
     }
 
+    /// Deletes every pixel outside a `width` × `height` canvas: tiles wholly
+    /// outside go, tiles on the edge are cleared past it. Returns whether
+    /// anything was removed.
+    pub fn clip_to_canvas(&mut self, width: u32, height: u32) -> bool {
+        let (cols, rows) = (width.div_ceil(TILE_SIZE) as i32, height.div_ceil(TILE_SIZE) as i32);
+        let before = self.tiles.len();
+        self.tiles.retain(|c, _| c.x >= 0 && c.y >= 0 && c.x < cols && c.y < rows);
+        let mut changed = self.tiles.len() != before;
+        let edges: Vec<TileCoord> = self
+            .tiles
+            .keys()
+            .copied()
+            .filter(|c| (c.x as u32 + 1) * TILE_SIZE > width || (c.y as u32 + 1) * TILE_SIZE > height)
+            .collect();
+        for coord in edges {
+            let (ox, oy) = coord.origin();
+            let (keep_w, keep_h) = ((width as i32 - ox).min(TILE_SIZE as i32) as u32, (height as i32 - oy).min(TILE_SIZE as i32) as u32);
+            let tile = &self.tiles[&coord];
+            let dirty = (0..TILE_SIZE).any(|y| (0..TILE_SIZE).any(|x| (x >= keep_w || y >= keep_h) && tile.pixel(x, y)[3] != 0));
+            if !dirty {
+                continue;
+            }
+            changed = true;
+            let tile = self.get_or_create_mut(coord);
+            for y in 0..TILE_SIZE {
+                for x in 0..TILE_SIZE {
+                    if x >= keep_w || y >= keep_h {
+                        tile.set_pixel(x, y, [0; 4]);
+                    }
+                }
+            }
+            if tile.is_transparent() {
+                self.tiles.remove(&coord);
+            }
+        }
+        changed
+    }
+
     pub fn memory_bytes(&self) -> usize {
         self.tiles.len() * TILE_BYTES
     }
@@ -216,5 +254,21 @@ mod tests {
         let store = TileStore::from_rgba(w, h, &img);
         assert_eq!(store.len(), 1);
         assert_eq!(store.pixel(69, 2), [9, 8, 7, 255]);
+    }
+
+    #[test]
+    fn clipping_to_the_canvas_deletes_what_is_outside() {
+        // 150 × 100 of paint on a 100 × 70 canvas.
+        let rgba: Vec<u8> = [10, 20, 30, 255].repeat(150 * 100);
+        let mut store = TileStore::from_rgba(150, 100, &rgba);
+        assert!(store.clip_to_canvas(100, 70));
+        assert_eq!(store.pixel(99, 69), [10, 20, 30, 255]);
+        assert_eq!(store.pixel(100, 10)[3], 0);
+        assert_eq!(store.pixel(10, 70)[3], 0);
+        assert!(store.iter().all(|(c, _)| c.x < 2 && c.y < 2), "tiles past the canvas are gone");
+        assert!(!store.clip_to_canvas(100, 70), "nothing left to remove");
+        let mut neg = TileStore::new();
+        neg.get_or_create_mut(TileCoord::new(-1, 0)).set_pixel(0, 0, [1, 1, 1, 255]);
+        assert!(neg.clip_to_canvas(100, 70) && neg.is_empty());
     }
 }

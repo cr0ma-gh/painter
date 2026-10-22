@@ -73,6 +73,8 @@ pub struct ScannerDialog {
     paper: usize,
     /// Which page the preview shows.
     previewed: Option<usize>,
+    /// What happens to a scan bigger than the canvas.
+    oversize: Oversize,
 }
 
 impl ScannerDialog {
@@ -96,6 +98,7 @@ impl ScannerDialog {
             page: 0,
             paper: 0,
             previewed: None,
+            oversize: Oversize::default(),
         };
         dialog.refresh();
         dialog
@@ -367,7 +370,7 @@ impl PainterApp {
         }
         let imported = !import.is_empty();
         for image in &import {
-            self.import_scan(image);
+            self.import_scan(image, dialog.oversize);
         }
         if import.len() > 1 {
             self.status = format!("Imported {} pages as layers", import.len());
@@ -386,16 +389,48 @@ impl PainterApp {
     }
 
     /// A cleaned-up scan as a new raster layer at the top-left of the canvas.
-    pub(crate) fn import_scan(&mut self, image: &ScannedImage) {
-        let tiles = TileStore::from_rgba(image.width, image.height, &image.to_premultiplied());
-        let id = self.doc.alloc_id();
+    pub(crate) fn import_scan(&mut self, image: &ScannedImage, oversize: Oversize) {
+        let (cw, ch) = self.doc.canvas();
+        let (w, h) = (image.width, image.height);
+        let bigger = w > cw || h > ch;
         self.checkpoint();
         self.edit_mask = false;
-        let layer_id = self.doc.add_layer(Layer::raster_with(id, format!("Scan {} dpi", image.dpi), tiles));
+        let mut note = String::new();
+        let mut dpi = image.dpi;
+        let (pixels, w, h, x, y) = match oversize {
+            Oversize::Fit if bigger => {
+                // Scaled down to fit, centred.
+                let (pixels, fw, fh) = fit_within(&image.to_premultiplied(), w, h, cw, ch);
+                note = format!(", scaled to {}%", (fw as f32 / w as f32 * 100.0).round());
+                // Fewer pixels for the same paper: a lower resolution.
+                dpi = ((image.dpi as f32 * fw as f32 / w as f32).round() as u32).max(1);
+                (pixels, fw, fh, (cw - fw) / 2, (ch - fh) / 2)
+            }
+            Oversize::Enlarge if bigger => {
+                let size = (cw.max(w).min(painter_core::MAX_CANVAS_SIZE), ch.max(h).min(painter_core::MAX_CANVAS_SIZE));
+                transform_tools::crop::apply_crop(&mut self.doc, transform_tools::crop::CropPlan { offset: [0, 0], size });
+                self.resync_gpu();
+                self.fit_pending = true;
+                note = format!(", canvas enlarged to {}×{} px", size.0, size.1);
+                (image.to_premultiplied(), w, h, 0, 0)
+            }
+            _ => (image.to_premultiplied(), w, h, 0, 0),
+        };
+        let mut tiles = TileStore::from_rgba(w, h, &pixels);
+        if x != 0 || y != 0 {
+            tiles = transform_tools::crop::shift(&tiles, x as i32, y as i32);
+        }
+        // Nothing is kept past the canvas: what doesn't show is deleted.
+        let (cw, ch) = self.doc.canvas();
+        if tiles.clip_to_canvas(cw, ch) {
+            note = ", cut to the canvas".into();
+        }
+        let id = self.doc.alloc_id();
+        let layer_id = self.doc.add_layer(Layer::raster_with(id, format!("Scan {dpi} dpi"), tiles));
         self.upload_plane(Plane::Color(layer_id));
         self.recomposite = true;
-        let [w, h] = image.size_mm();
-        self.status = format!("Imported a {}×{} px scan ({w:.0}×{h:.0} mm)", image.width, image.height);
+        let [mw, mh] = image.size_mm();
+        self.status = format!("Imported a {}×{} px scan ({mw:.0}×{mh:.0} mm){note}", image.width, image.height);
     }
 
     pub(crate) fn svg_export_window(&mut self, ctx: &egui::Context) {
@@ -631,6 +666,11 @@ fn cleanup_controls(ui: &mut egui::Ui, dialog: &mut ScannerDialog) {
         ui.checkbox(&mut dialog.orientation.flip_vertical, "vertical");
     });
     ui.separator();
+    egui::ComboBox::from_label("If bigger than the canvas").selected_text(dialog.oversize.label()).show_ui(ui, |ui| {
+        for o in Oversize::ALL {
+            ui.selectable_value(&mut dialog.oversize, o, o.label());
+        }
+    });
     ui.checkbox(&mut dialog.auto_contrast, "Auto contrast");
     let mut extract = dialog.line_art.is_some();
     if ui.checkbox(&mut extract, "Extract line art (paper → transparent)").changed() {
@@ -683,4 +723,57 @@ fn preview_area(ui: &mut egui::Ui, dialog: &mut ScannerDialog, hint: &str) {
     let at = |f: [f32; 2]| shown.min + Vec2::new(f[0], f[1]) * shown.size();
     let crop = egui::Rect::from_two_pos(at(p), at(q));
     ui.painter().rect_stroke(crop, 0.0, Stroke::new(1.5_f32, theme::accent()), egui::StrokeKind::Middle);
+}
+
+/// What happens to a scan bigger than the canvas.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Oversize {
+    /// Scaled down to fit inside the canvas, centred.
+    #[default]
+    Fit,
+    /// The canvas grows to hold it.
+    Enlarge,
+    /// Placed at the top left; what is past the canvas is deleted.
+    Cut,
+}
+
+impl Oversize {
+    const ALL: [Oversize; 3] = [Oversize::Fit, Oversize::Enlarge, Oversize::Cut];
+
+    fn label(self) -> &'static str {
+        match self {
+            Oversize::Fit => "Fit it in the canvas",
+            Oversize::Enlarge => "Enlarge the canvas",
+            Oversize::Cut => "Cut what's outside",
+        }
+    }
+}
+
+/// Premultiplied RGBA `w` × `h` scaled down (keeping its proportions) to fit
+/// in `max_w` × `max_h`; returns the pixels and their size.
+fn fit_within(pixels: &[u8], w: u32, h: u32, max_w: u32, max_h: u32) -> (Vec<u8>, u32, u32) {
+    let scale = (max_w as f32 / w as f32).min(max_h as f32 / h as f32).min(1.0);
+    let (fw, fh) = (((w as f32 * scale).round() as u32).clamp(1, max_w), ((h as f32 * scale).round() as u32).clamp(1, max_h));
+    if (fw, fh) == (w, h) {
+        return (pixels.to_vec(), w, h);
+    }
+    let img = image::RgbaImage::from_raw(w, h, pixels.to_vec()).expect("buffer of the stated size");
+    // Premultiplied pixels resample without dark fringes along transparent edges.
+    let out = image::imageops::resize(&img, fw, fh, image::imageops::FilterType::Lanczos3);
+    (out.into_raw(), fw, fh)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fitting_keeps_proportions() {
+        let px = [255u8, 0, 0, 255].repeat(400 * 200);
+        let (out, w, h) = fit_within(&px, 400, 200, 100, 100);
+        assert_eq!((w, h, out.len()), (100, 50, 100 * 50 * 4));
+        assert!(out.as_chunks::<4>().0.iter().all(|p| p[3] > 250 && p[0] > 250));
+        let (_, w, h) = fit_within(&px, 400, 200, 1000, 1000);
+        assert_eq!((w, h), (400, 200), "smaller ones stay as they are");
+    }
 }

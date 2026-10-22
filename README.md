@@ -216,7 +216,9 @@ cargo run --release -p painter-app -- drawing.painter
   any number of pages; photos or scans as image files work everywhere. Pages
   get their resolution from the paper size picked (A4, A5, A3, B5, B4, Letter,
   postcard), share the crop and cleanup, and import one by one or all at once
-  (a layer each). `cargo run -p painter-scanner-io
+  (a layer each). A scan bigger than the canvas is fitted into it (scaled
+  down, centred), or enlarges the canvas, or is cut, as chosen; nothing is
+  ever kept past the edge of the canvas. `cargo run -p painter-scanner-io
   --example list_scanners` lists what WIA sees without scanning.
 - **SVG export** (File → Export → Layer / Canvas as SVG, crate `vector-export`):
   layers become nested Inkscape layer groups (name, visibility, opacity, blend

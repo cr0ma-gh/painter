@@ -1180,11 +1180,14 @@ impl PainterApp {
     /// A PNG as a new layer.
     pub(crate) fn import_png_layer_from(&mut self, path: &std::path::Path) {
         match io::import_png(path) {
-            Ok(image) => {
+            Ok(mut image) => {
+                // Nothing is kept past the canvas: what doesn't show is deleted.
+                let (w, h) = self.doc.canvas();
+                let cut = image.tiles.clip_to_canvas(w, h);
                 let id = self.doc.alloc_id();
                 self.insert_layer(Layer::raster_with(id, file_stem(path), image.tiles));
                 self.upload_plane(Plane::Color(id));
-                self.status = format!("Imported {}", path.display());
+                self.status = format!("Imported {}{}", path.display(), if cut { " (cut to the canvas)" } else { "" });
             }
             Err(err) => self.status = format!("Couldn't import {}: {err}", path.display()),
         }
