@@ -70,7 +70,10 @@ impl egui_wgpu::CallbackTrait for ThumbnailCallback {
 
 impl PainterApp {
     pub(crate) fn canvas_ui(&mut self, ui: &mut egui::Ui) {
-        let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
+        let (full, _) = ui.allocate_exact_size(ui.available_size(), Sense::hover());
+        // The ruler bar, when on, takes strips off the top and left.
+        let (rect, bar_top, bar_left) = self.ruler_bar_split(full);
+        let response = ui.interact(rect, ui.id().with("canvas"), Sense::click_and_drag());
         ui.painter().rect_filled(rect, 0.0, crate::theme::canvas_backdrop());
         self.canvas_rect = rect;
         // Wait for a real canvas size: the first frames of a window that opens
@@ -80,6 +83,7 @@ impl PainterApp {
             self.fit_pending = false;
         }
         self.canvas_input(ui, rect, &response);
+        self.smart_tick(ui.ctx());
 
         if !self.uploads.is_empty() {
             self.doc_touched = true;
@@ -114,9 +118,11 @@ impl PainterApp {
         self.draw_rulers_overlay(&painter, rect);
         self.draw_tool_overlay(&painter, rect);
         self.draw_line_guide(&painter, rect);
+        self.draw_smart_shape(&painter, rect);
         self.draw_brush_cursor(&painter, rect, &response);
         self.draw_eyedropper(&painter);
         self.transform_hud(ui.ctx(), rect);
+        self.ruler_bar_ui(ui, full, rect, bar_top, bar_left);
     }
 
     fn canvas_input(&mut self, ui: &egui::Ui, rect: Rect, response: &egui::Response) {
@@ -207,6 +213,7 @@ impl PainterApp {
                         self.begin_line(self.stroke_point(p));
                     } else if self.tool == Tool::Brush {
                         self.begin_stroke(self.stroke_point(p));
+                        self.smart_begin(self.stroke_point(p), *pos);
                     } else {
                         self.tool_press(p, *modifiers);
                     }
@@ -229,6 +236,7 @@ impl PainterApp {
                     if self.line.is_some() {
                         self.finish_line();
                     }
+                    self.smart_release();
                     if self.stroke.is_some() {
                         feed_packets(self, &mut packets_fed);
                         self.end_stroke();
@@ -248,6 +256,7 @@ impl PainterApp {
             if self.line.is_some() {
                 self.finish_line();
             }
+            self.smart_release();
             if self.stroke.is_some() {
                 self.end_stroke();
             }

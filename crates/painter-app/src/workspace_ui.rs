@@ -822,6 +822,7 @@ impl PainterApp {
             EditorType::ApproximateColor => self.approximate_color_panel(ui),
             EditorType::ColorMixing => self.color_mixing_panel(ui),
             EditorType::SearchLayer => self.search_layer_panel(ui),
+            EditorType::History => self.history_panel(ui),
             EditorType::Timeline | EditorType::NodeGraph => {
                 ui.label(format!("{}: not available yet.", editor.title()));
                 ui.small("The area is kept in the layout; switch it to another editor from the menu at its top left.");
@@ -930,7 +931,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 64] = [
+        let fixed: [FixedCommand; 65] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -978,6 +979,7 @@ impl PainterApp {
             ("view.grid", "Show Grid", C::View, "Ctrl+'", &["guides"], true),
             ("rulers.snap", "Snap to Rulers", C::View, "Ctrl+1", &["perspective", "symmetry", "ruler"], true),
             ("view.zen", "Toggle Zen Mode", C::View, "Tab / F11", &["fullscreen", "hide panels", "distraction free"], true),
+            ("view.ruler_bar", "Ruler Bar", C::View, "Ctrl+R", &["rulers", "measure", "guides", "units"], true),
             ("view.modifier_keys", "On-Screen Modifier Keys", C::View, "", &["ctrl", "shift", "alt", "touch", "keyboard"], true),
             ("layer.duplicate", "Duplicate Layers", C::Layer, "Ctrl+J", &["copy", "clone"], true),
             ("layer.group", "Group Layers into Folder", C::Layer, "Ctrl+G", &["folder", "group"], true),
@@ -1047,6 +1049,7 @@ impl PainterApp {
             }
         }
         self.ws.commands.note_used(id);
+        self.next_label = self.ws.commands.get(id).map(|c| c.label.trim_end_matches("...").trim_end_matches('…').to_string());
         let index = |prefix: &str| id.strip_prefix(prefix).and_then(|n| n.parse::<usize>().ok());
         match id {
             "file.new" => self.open_new_canvas(),
@@ -1096,6 +1099,7 @@ impl PainterApp {
             "view.grid" => self.doc.rulers.grid.visible = !self.doc.rulers.grid.visible,
             "rulers.snap" => self.toggle_ruler_snapping(),
             "view.zen" => self.toggle_zen(),
+            "view.ruler_bar" => self.ws.chrome.ruler_bar = !self.ws.chrome.ruler_bar,
             "view.ui_bigger" => self.step_ui_scale(1),
             "color.transparent" => self.toggle_transparent(),
             "layer.duplicate" => self.duplicate_selected_layers(),

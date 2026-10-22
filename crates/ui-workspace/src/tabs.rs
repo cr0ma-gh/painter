@@ -289,6 +289,12 @@ pub struct Chrome {
     /// The interface's size, 1 = normal (like Blender's Resolution Scale).
     #[serde(default = "unit_scale")]
     pub ui_scale: f32,
+    /// Clip Studio's ruler bar: measuring strips along the canvas's top and left.
+    #[serde(default)]
+    pub ruler_bar: bool,
+    /// The ruler bar counts millimetres instead of pixels.
+    #[serde(default)]
+    pub ruler_bar_mm: bool,
 }
 
 fn unit_scale() -> f32 {
@@ -300,7 +306,7 @@ pub const UI_SCALE_RANGE: (f32, f32) = (0.5, 3.0);
 
 impl Default for Chrome {
     fn default() -> Self {
-        Self { menu_bar: true, toolbar: true, workspace_tabs: true, status_bar: true, zen: false, ui_scale: 1.0 }
+        Self { menu_bar: true, toolbar: true, workspace_tabs: true, status_bar: true, zen: false, ui_scale: 1.0, ruler_bar: false, ruler_bar_mm: false }
     }
 }
 

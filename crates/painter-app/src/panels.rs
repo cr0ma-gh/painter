@@ -673,6 +673,33 @@ impl PainterApp {
                     }
                 });
                 ui.label("Shift: add · Alt: subtract · Shift+Alt: intersect. Click to deselect.");
+                if shape == crate::tools::SelectShape::Magic {
+                    // Auto Select reads the same boundaries as the fill bucket.
+                    let magic = &mut self.tools.magic;
+                    let mut tolerance = magic.tolerance as f32;
+                    if prop_slider(ui, "Tolerance", &mut tolerance, 0.0..=255.0, "", 0, false) {
+                        magic.tolerance = tolerance.round() as _;
+                    }
+                    let mut gap = magic.gap as f32;
+                    if prop_slider(ui, "Close gaps", &mut gap, 0.0..=40.0, " px", 0, false) {
+                        magic.gap = gap.round() as _;
+                    }
+                    let mut expand = magic.expand as f32;
+                    if prop_slider(ui, "Expand", &mut expand, -10.0..=10.0, " px", 0, false) {
+                        magic.expand = expand.round() as _;
+                    }
+                    ui.checkbox(&mut magic.contiguous, "Contiguous");
+                    let reference = &mut self.tools.fill_reference;
+                    ui.horizontal(|ui| {
+                        ui.label("Refer to");
+                        egui::ComboBox::from_id_salt("magic_reference").selected_text(reference.source.label()).show_ui(ui, |ui| {
+                            for source in ReferenceSource::ALL {
+                                ui.selectable_value(&mut reference.source, source, source.label());
+                            }
+                        });
+                    });
+                    ui.small("Shared with the fill bucket.");
+                }
                 ui.horizontal(|ui| {
                     if ui.button("All").clicked() {
                         self.select_all();
@@ -771,6 +798,9 @@ impl PainterApp {
             ui.colored_label(Color32::from_rgb(240, 190, 90), format!("Imported features not painted yet: {}", missing.join(", ")));
         }
         egui::CollapsingHeader::new("Tip preview").id_salt("tip_preview").default_open(true).show(ui, |ui| self.tip_preview(ui));
+        ui.checkbox(&mut self.tools.smart_shape, "Smart shape (hold)").on_hover_text(
+            "Draw a line, circle, rectangle or triangle and keep the pen still at the end: it becomes the clean shape, drawn with this brush",
+        );
         let vector_eraser = &mut self.tools.vector_eraser_whole_strokes;
         let brush = &mut self.brushes[self.brush].settings;
         prop_slider(ui, "Brush Size", &mut brush.size, 0.5..=2000.0, "", 1, true);

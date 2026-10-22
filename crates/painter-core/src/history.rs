@@ -2,7 +2,8 @@
 //!
 //! A snapshot clones the layer tree. Tiles are `Arc`-shared, so a snapshot
 //! costs one pointer per tile plus layer metadata, not pixel data. The canvas
-//! size is part of it, so cropping undoes too.
+//! size is part of it, so cropping undoes too. Each step carries the name of
+//! the action it undoes, for a History panel.
 
 use crate::document::Document;
 use crate::layer::{Layer, LayerId};
@@ -14,11 +15,15 @@ struct Snapshot {
     layers: Vec<Layer>,
     active: LayerId,
     selection: Option<TileStore>,
+    /// The action between this state and the next one.
+    label: String,
+    /// `label` is only what was in hand: name the step from what it changed.
+    hint: bool,
 }
 
 impl Snapshot {
-    fn of(doc: &Document) -> Self {
-        Self { size: doc.canvas(), layers: doc.layers.clone(), active: doc.active, selection: doc.selection.clone() }
+    fn of(doc: &Document, label: String, hint: bool) -> Self {
+        Self { size: doc.canvas(), layers: doc.layers.clone(), active: doc.active, selection: doc.selection.clone(), label, hint }
     }
 
     fn restore(self, doc: &mut Document) {
@@ -29,6 +34,98 @@ impl Snapshot {
     }
 }
 
+
+/// Every layer in the tree, folders and their contents, top-level order first.
+fn flat(layers: &[Layer]) -> Vec<&Layer> {
+    let mut out = Vec::new();
+    for l in layers {
+        out.push(l);
+        if let crate::layer::LayerKind::Folder(f) = &l.kind {
+            out.extend(flat(&f.children));
+        }
+    }
+    out
+}
+
+/// Whether the layer's own content changed (pixels, mask, or a procedural layer's settings).
+fn content_changed(a: &Layer, b: &Layer) -> bool {
+    let tiles = match (a.tiles(), b.tiles()) {
+        (Some(x), Some(y)) => !x.same_tiles(y),
+        (None, None) => match (&a.kind, &b.kind) {
+            (crate::layer::LayerKind::Folder(_), crate::layer::LayerKind::Folder(_)) => false,
+            _ => format!("{:?}", a.kind) != format!("{:?}", b.kind),
+        },
+        _ => true,
+    };
+    let mask = match (&a.mask, &b.mask) {
+        (Some(x), Some(y)) => !x.tiles.same_tiles(&y.tiles),
+        (None, None) => false,
+        _ => true,
+    };
+    tiles || mask
+}
+
+fn properties_changed(a: &Layer, b: &Layer) -> bool {
+    a.name != b.name
+        || a.blend != b.blend
+        || a.opacity != b.opacity
+        || a.visible != b.visible
+        || a.locked != b.locked
+        || a.alpha_locked != b.alpha_locked
+        || a.clip != b.clip
+        || a.reference != b.reference
+        || a.draft != b.draft
+        || a.layer_color != b.layer_color
+        || a.mask.as_ref().map(|m| m.enabled) != b.mask.as_ref().map(|m| m.enabled)
+}
+
+/// Names a step from what changed between `before` and `after`; `hint`
+/// says what was in hand (the tool or brush).
+fn describe(before: &Snapshot, after: &Document, hint: &str) -> String {
+    if before.size != after.canvas() {
+        return "Canvas Size".into();
+    }
+    let (old, new) = (flat(&before.layers), flat(&after.layers));
+    fn find<'a>(list: &[&'a Layer], id: LayerId) -> Option<&'a Layer> {
+        list.iter().find(|l| l.id == id).copied()
+    }
+    let added: Vec<&Layer> = new.iter().copied().filter(|l| find(&old, l.id).is_none()).collect();
+    let removed: Vec<&Layer> = old.iter().copied().filter(|l| find(&new, l.id).is_none()).collect();
+    let quoted = |l: &Layer| format!("“{}”", l.name);
+    match (added.len(), removed.len()) {
+        (0, 0) => {}
+        (1, 0) => return format!("New Layer {}", quoted(added[0])),
+        (n, 0) => return format!("{n} New Layers"),
+        (0, 1) => return format!("Delete Layer {}", quoted(removed[0])),
+        (0, n) => return format!("Delete {n} Layers"),
+        _ => return "Merge Layers".into(),
+    }
+    let pairs: Vec<(&Layer, &Layer)> = old.iter().filter_map(|a| find(&new, a.id).map(|b| (*a, b))).collect();
+    let painted: Vec<&Layer> = pairs.iter().filter(|(a, b)| content_changed(a, b)).map(|(_, b)| *b).collect();
+    match painted.len() {
+        0 => {}
+        1 => return format!("{hint} · {}", quoted(painted[0])),
+        n => return format!("{hint} · {n} layers"),
+    }
+    let props: Vec<&Layer> = pairs.iter().filter(|(a, b)| properties_changed(a, b)).map(|(_, b)| *b).collect();
+    match props.len() {
+        0 => {}
+        1 => return format!("Layer Properties {}", quoted(props[0])),
+        n => return format!("Layer Properties · {n} layers"),
+    }
+    if old.iter().map(|l| l.id).ne(new.iter().map(|l| l.id)) {
+        return "Move Layers".into();
+    }
+    let selection_changed = match (&before.selection, &after.selection) {
+        (Some(a), Some(b)) => !a.same_tiles(b),
+        (None, None) => false,
+        _ => true,
+    };
+    if selection_changed {
+        return if after.selection.is_some() { "Selection".into() } else { "Deselect".into() };
+    }
+    hint.to_string()
+}
 pub struct History {
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
@@ -42,7 +139,31 @@ impl History {
 
     /// Records the state *before* an edit.
     pub fn push(&mut self, doc: &Document) {
-        self.undo.push(Snapshot::of(doc));
+        self.push_hinted(doc, "Edit");
+    }
+
+    /// Records the state before an edit called `label` ("Duplicate Layer"…).
+    pub fn push_labelled(&mut self, doc: &Document, label: &str) {
+        self.record(doc, label, false);
+    }
+
+    /// Records the state before an edit made with `hint` in hand (a tool or
+    /// brush); the step is named from what it changes ("G-Pen · “Inks”").
+    pub fn push_hinted(&mut self, doc: &Document, hint: &str) {
+        self.record(doc, hint, true);
+    }
+
+    /// Names the last step from the document it led to (when only hinted).
+    pub fn name_last(&mut self, doc: &Document) {
+        if let Some(top) = self.undo.last_mut().filter(|t| t.hint) {
+            top.label = describe(top, doc, &top.label);
+            top.hint = false;
+        }
+    }
+
+    fn record(&mut self, doc: &Document, label: &str, hint: bool) {
+        self.name_last(doc);
+        self.undo.push(Snapshot::of(doc, label.to_string(), hint));
         if self.undo.len() > self.limit {
             self.undo.remove(0);
         }
@@ -53,7 +174,12 @@ impl History {
         let Some(snapshot) = self.undo.pop() else {
             return false;
         };
-        self.redo.push(Snapshot::of(doc));
+        let mut snapshot = snapshot;
+        if snapshot.hint {
+            snapshot.label = describe(&snapshot, doc, &snapshot.label);
+            snapshot.hint = false;
+        }
+        self.redo.push(Snapshot::of(doc, snapshot.label.clone(), false));
         snapshot.restore(doc);
         true
     }
@@ -62,7 +188,7 @@ impl History {
         let Some(snapshot) = self.redo.pop() else {
             return false;
         };
-        self.undo.push(Snapshot::of(doc));
+        self.undo.push(Snapshot::of(doc, snapshot.label.clone(), false));
         snapshot.restore(doc);
         true
     }
@@ -73,6 +199,27 @@ impl History {
 
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
+    }
+
+    /// The steps done, oldest first (the last one is the current state's).
+    pub fn done(&self) -> impl Iterator<Item = &str> {
+        self.undo.iter().map(|s| s.label.as_str())
+    }
+
+    /// The steps undone, the next to redo first.
+    pub fn undone(&self) -> impl Iterator<Item = &str> {
+        self.redo.iter().rev().map(|s| s.label.as_str())
+    }
+
+    pub fn limit(&self) -> usize {
+        self.limit
+    }
+
+    /// Keeps at most `limit` steps (the oldest go first).
+    pub fn set_limit(&mut self, limit: usize) {
+        self.limit = limit.max(1);
+        let extra = self.undo.len().saturating_sub(self.limit);
+        self.undo.drain(..extra);
     }
 
     pub fn clear(&mut self) {
@@ -102,5 +249,51 @@ mod tests {
         doc.width = 4;
         assert!(history.undo(&mut doc));
         assert_eq!(doc.canvas(), (10, 10));
+    }
+
+    #[test]
+    fn steps_keep_their_names_through_undo_and_redo() {
+        let mut doc = Document::new(10, 10);
+        let mut history = History::new(10);
+        for name in ["Pen", "Fill", "Rename"] {
+            history.push_labelled(&doc, name);
+        }
+        assert!(history.undo(&mut doc) && history.undo(&mut doc));
+        assert_eq!(history.done().collect::<Vec<_>>(), ["Pen"]);
+        assert_eq!(history.undone().collect::<Vec<_>>(), ["Fill", "Rename"]);
+        assert!(history.redo(&mut doc));
+        assert_eq!(history.done().collect::<Vec<_>>(), ["Pen", "Fill"]);
+        assert_eq!(history.undone().collect::<Vec<_>>(), ["Rename"]);
+        history.set_limit(1);
+        assert_eq!(history.done().collect::<Vec<_>>(), ["Fill"]);
+    }
+}
+
+#[cfg(test)]
+mod naming_tests {
+    use super::*;
+    use crate::layer::Layer;
+
+    #[test]
+    fn hinted_steps_are_named_from_what_changed() {
+        let mut doc = Document::new(64, 64);
+        let mut history = History::new(10);
+        // Painting the active layer.
+        history.push_hinted(&doc, "G-Pen");
+        let rgba = vec![255u8; 64 * 64 * 4];
+        let active = doc.active;
+        doc.find_mut(active).unwrap().kind = crate::layer::LayerKind::Raster(TileStore::from_rgba(64, 64, &rgba));
+        // A new layer.
+        history.push_hinted(&doc, "G-Pen");
+        let id = doc.alloc_id();
+        doc.add_layer(Layer::raster(id, "Inks"));
+        // A property.
+        history.push_hinted(&doc, "G-Pen");
+        doc.find_mut(id).unwrap().opacity = 0.5;
+        // A named command keeps its name.
+        history.push_labelled(&doc, "Flip Horizontal");
+        history.name_last(&doc);
+        let names: Vec<&str> = history.done().collect();
+        assert_eq!(names, ["G-Pen · “Layer 1”", "New Layer “Inks”", "Layer Properties “Inks”", "Flip Horizontal"]);
     }
 }

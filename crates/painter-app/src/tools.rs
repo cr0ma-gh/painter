@@ -38,10 +38,12 @@ pub enum SelectShape {
     Rect,
     Ellipse,
     Lasso,
+    /// Clip Studio's Auto Select (a magic wand): the area a fill would cover.
+    Magic,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 13] = [
+    pub const ALL: [Tool; 14] = [
         Tool::Brush,
         Tool::Fill,
         Tool::Gradient,
@@ -49,6 +51,7 @@ impl Tool {
         Tool::Select(SelectShape::Rect),
         Tool::Select(SelectShape::Ellipse),
         Tool::Select(SelectShape::Lasso),
+        Tool::Select(SelectShape::Magic),
         Tool::Transform,
         Tool::Crop,
         Tool::Frame,
@@ -65,6 +68,7 @@ impl Tool {
             Tool::Select(SelectShape::Rect) => Icon::RectSelect,
             Tool::Select(SelectShape::Ellipse) => Icon::EllipseSelect,
             Tool::Select(SelectShape::Lasso) => Icon::FreeSelect,
+            Tool::Select(SelectShape::Magic) => Icon::MagicSelect,
             Tool::Transform => Icon::Transform,
             Tool::Crop => Icon::Crop,
             Tool::Frame => Icon::Grid,
@@ -100,6 +104,7 @@ impl Tool {
             Tool::Select(SelectShape::Rect) => "Rectangle Selection",
             Tool::Select(SelectShape::Ellipse) => "Ellipse Selection",
             Tool::Select(SelectShape::Lasso) => "Lasso Selection",
+            Tool::Select(SelectShape::Magic) => "Auto Select",
             Tool::Transform => "Transform",
             Tool::Crop => "Crop / Resize Canvas",
             Tool::Frame => "Panel Frames",
@@ -118,6 +123,7 @@ impl Tool {
             Tool::Select(SelectShape::Rect) => "M",
             Tool::Select(SelectShape::Ellipse) => "Shift+M",
             Tool::Select(SelectShape::Lasso) => "L",
+            Tool::Select(SelectShape::Magic) => "W",
             Tool::Transform => "Ctrl+T",
             Tool::Crop => "C",
             Tool::Frame => "U",
@@ -135,6 +141,7 @@ impl Tool {
             Tool::Select(SelectShape::Rect) => "Rectangle selection (M). Shift adds, Alt subtracts",
             Tool::Select(SelectShape::Ellipse) => "Ellipse selection (Shift+M)",
             Tool::Select(SelectShape::Lasso) => "Lasso selection (L)",
+            Tool::Select(SelectShape::Magic) => "Auto select (W): click an area to select what a fill would cover",
             Tool::Transform => "Transform the layer or selection (Ctrl+T). Enter applies, Esc cancels",
             Tool::Crop => "Crop / resize the canvas (C). Enter applies, Esc cancels",
             Tool::Frame => "Panel frames (U): draw rectangles or polygons, divide panels, reshape them",
@@ -204,12 +211,16 @@ pub struct ToolOptions {
     pub fill: FillOptions,
     /// Where the fill bucket reads its boundaries.
     pub fill_reference: ReferenceOptions,
+    /// Auto Select: like the fill, without expanding under the lines.
+    pub magic: FillOptions,
     pub gradient_shape: GradientShape,
     /// Gradients fade from the main colour to transparent instead of to the sub colour.
     pub gradient_to_transparent: bool,
     pub selection_op: SelectionOp,
     /// Pastes and copies between documents keep their size on paper when the resolutions differ.
     pub paste_match_dpi: bool,
+    /// Holding the pen still at the end of a stroke turns it into a clean shape.
+    pub smart_shape: bool,
     /// The eraser removes whole vector strokes it touches.
     pub vector_eraser_whole_strokes: bool,
     /// Only a pen draws; fingers move the view (the default on iPad).
@@ -221,11 +232,13 @@ impl Default for ToolOptions {
         Self {
             fill: FillOptions::default(),
             fill_reference: ReferenceOptions::default(),
+            magic: FillOptions { expand: 0, ..FillOptions::default() },
             gradient_shape: GradientShape::Linear,
             gradient_to_transparent: true,
             selection_op: SelectionOp::Replace,
             paste_match_dpi: true,
             vector_eraser_whole_strokes: true,
+            smart_shape: true,
             pencil_only: cfg!(target_os = "ios"),
         }
     }
@@ -253,6 +266,10 @@ impl PainterApp {
     pub(crate) fn tool_press(&mut self, at: Pos2, modifiers: Modifiers) {
         match self.tool {
             Tool::Fill => self.fill_at(at.x, at.y),
+            Tool::Select(SelectShape::Magic) => {
+                let op = self.selection_op_for(modifiers);
+                self.magic_select_at(at, op);
+            }
             Tool::Gradient | Tool::Select(_) => {
                 let op = self.selection_op_for(modifiers);
                 self.drag = Some(ToolDrag { start: at, current: at, points: vec![at], op });
@@ -321,6 +338,8 @@ impl PainterApp {
                 let mask = match shape {
                     SelectShape::Rect => selection::rect_mask(a, b, canvas),
                     SelectShape::Ellipse => selection::ellipse_mask(a, b, canvas),
+                    // Auto Select works on the press.
+                    SelectShape::Magic => return,
                     SelectShape::Lasso => {
                         let points: Vec<[f32; 2]> = drag.points.iter().map(|p| [p.x, p.y]).collect();
                         selection::polygon_mask(&points, canvas)
@@ -430,6 +449,10 @@ impl PainterApp {
         if duplicate {
             self.duplicate_selected_layers();
         }
+        // Ctrl+R: the ruler bar (as in Clip Studio).
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::R))) {
+            self.ws.chrome.ruler_bar = !self.ws.chrome.ruler_bar;
+        }
         if group {
             self.group_selected_layers();
         }
@@ -495,6 +518,9 @@ impl PainterApp {
         }
         if key(Key::M, true) {
             self.tool = Tool::Select(SelectShape::Ellipse);
+        }
+        if key(Key::W, false) {
+            self.tool = Tool::Select(SelectShape::Magic);
         }
         if key(Key::L, false) {
             self.tool = Tool::Select(SelectShape::Lasso);

@@ -29,6 +29,7 @@ icons! {
     RectSelect = "gimp-tool-rect-select",
     EllipseSelect = "gimp-tool-ellipse-select",
     FreeSelect = "gimp-tool-free-select",
+    MagicSelect = "painter-magic-wand",
     Navigation = "gimp-navigation",
     Move = "gimp-tool-move",
     ColorPicker = "gimp-tool-color-picker",
@@ -132,6 +133,7 @@ pub fn editor_icon(editor: ui_workspace::tiles::EditorType) -> Icon {
         E::ApproximateColor => Icon::ColorPicker,
         E::ColorMixing => Icon::Smudge,
         E::SearchLayer => Icon::Zoom,
+        E::History => Icon::Redo,
     }
 }
 

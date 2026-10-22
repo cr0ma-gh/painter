@@ -98,6 +98,13 @@ impl TileStore {
         Self::default()
     }
 
+    /// Whether both hold the very same tiles (shared, unchanged since one was
+    /// copied from the other): a cheap "nothing was painted" test.
+    pub fn same_tiles(&self, other: &TileStore) -> bool {
+        self.tiles.len() == other.tiles.len()
+            && self.tiles.iter().all(|(k, t)| other.tiles.get(k).is_some_and(|o| Arc::ptr_eq(t, o)))
+    }
+
     pub fn get(&self, coord: TileCoord) -> Option<&Arc<Tile>> {
         self.tiles.get(&coord)
     }

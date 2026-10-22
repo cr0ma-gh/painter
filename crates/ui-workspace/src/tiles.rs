@@ -34,12 +34,14 @@ pub enum EditorType {
     ApproximateColor,
     ColorMixing,
     SearchLayer,
+    /// Clip Studio's History: every undo step by name; click one to go back to it.
+    History,
     /// Krita's extended gamut selector: shapes and colour models.
     GamutSelector,
 }
 
 impl EditorType {
-    pub const ALL: [EditorType; 20] = [
+    pub const ALL: [EditorType; 21] = [
         EditorType::Canvas,
         EditorType::Reference,
         EditorType::Viewport3D,
@@ -60,6 +62,7 @@ impl EditorType {
         EditorType::ColorMixing,
         EditorType::SearchLayer,
         EditorType::GamutSelector,
+        EditorType::History,
     ];
 
     pub fn title(self) -> &'static str {
@@ -84,6 +87,7 @@ impl EditorType {
             EditorType::ColorMixing => "Color Mixing",
             EditorType::SearchLayer => "Search Layer",
             EditorType::GamutSelector => "Extended Color Selector",
+            EditorType::History => "History",
         }
     }
 

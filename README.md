@@ -49,12 +49,25 @@ cargo run --release -p painter-app -- drawing.painter
   group into a folder (Ctrl+G), delete, show / hide, lock or change opacity
   and blend mode for all of them at once (right-click menu too). Draft
   layers stay visible while you work and are left out of PNG, PSD, SVG,
-  Krita and OpenRaster exports.
+  Krita and OpenRaster exports. Layer colour (as in Clip Studio; layer
+  properties or right-click) shows a layer's lines in one colour, light blue
+  by default, on screen only.
 - **Straight lines:** with any brush (pen, pencil, eraserâ¦) hold Shift and
   click or drag: the line starts where the last stroke ended (Shift-click
   point after point to join them) or where you press, follows the pointer as
   a guide and is drawn on release with the brush's own dynamics; add Ctrl to
   snap its angle to 15Â°. Shift snaps the Gradient tool's direction too.
+- **Smart shape:** draw a line, circle, ellipse, rectangle or triangle and
+  keep the pen still for half a second: it turns into the clean shape (shown
+  as a guide) and is drawn with the brush on release. Off in Tool Settings.
+- **Shortcuts:** hold E for the eraser until you let go (a tap switches);
+  double-click the main or sub colour chip for a picker (wheel, RGB, hex).
+- **History** (Window → Panels → History, as in Clip Studio): every undo step
+  by name ("G-Pen · “Inks”", "New Layer “Colours”", "Layer Properties"…);
+  click one to go back or forward to it; how many steps are kept.
+- **Ruler bar** (View → Ruler Bar, Ctrl+R): pixel or millimetre strips along
+  the canvas with the pointer marked; drag a guide out of them, drag it back
+  to remove it.
 - **Brushes:** pressure curves for size and density (with an editor),
   per-stroke opacity, per-dab density, spacing, hardness, anti-aliasing,
   stabilisation (weighted average or pulled string), erasers. On vector layers
@@ -91,8 +104,9 @@ cargo run --release -p painter-app -- drawing.painter
   name and kind. The tool strip is customisable: right-click it â Customize
   Toolbar to reorder buttons, remove them, or add any command as a quick
   button.
-- **Tools:** rectangle, ellipse and lasso selections (new, add, subtract,
-  intersect); fill bucket (tolerance, contiguous, gap closing up to 40 px, reads the edited layer, all layers or
+- **Tools:** rectangle, ellipse and lasso selections and Auto Select (W, a
+  magic wand reading the same boundaries as the fill: tolerance, gap closing,
+  reference layers) (new, add, subtract, intersect); fill bucket (tolerance, contiguous, gap closing up to 40 px, reads the edited layer, all layers or
   layers marked as reference, anti-halo expansion under the lines or inset; ~0.2 s on a 600 dpi A4 page);
   gradient tool; clear selected area. Eyedropper (I): the colour shown on the canvas or only the current
   layer's, one pixel or averaged over 3Ã3 to 11Ã11; also while Alt is held
@@ -140,8 +154,7 @@ cargo run --release -p painter-app -- drawing.painter
   to 300% (the squares icon at the top right, Window â Interface Size, or
   Ctrl + / Ctrl â / Ctrl 0), like Blender's Resolution Scale. F3 or Ctrl+Space opens a fuzzy command
   palette (menus, tools, brushes, workspaces, themes); Tab or F11 toggles zen
-  (floating panels stay where they are)
-  mode (canvas only). Window â Theme Editor edits colours, text size and
+  mode (canvas only; floating panels stay). Window â Theme Editor edits colours, text size and
   rounding with contrast warnings; dark, light and high-contrast presets,
   themes import and export as JSON. All of it is saved between sessions.
 - **Reference board** (Reference View, like PureRef): pictures dropped on it,

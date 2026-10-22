@@ -186,6 +186,14 @@ pub struct PainterApp {
     pub(crate) chip_picker: Option<crate::chip_picker::ChipPicker>,
     /// Hold-E eraser: the tool and brush to return to, and when E went down.
     pub(crate) spring_eraser: Option<(Tool, usize, std::time::Instant)>,
+    /// The name of the command running this frame, for the undo step it makes (History panel).
+    pub(crate) next_label: Option<String>,
+    /// A guide being pulled out of the ruler bar.
+    pub(crate) guide_pull: Option<crate::ruler_bar::GuidePull>,
+    /// PAINTER_SCREENSHOT / PAINTER_COMMANDS (a developer aid).
+    pub(crate) dev_shot: Option<crate::dev_shot::DevShot>,
+    /// The stroke being followed for a smart shape.
+    pub(crate) smart: Option<crate::smart_shape::SmartShape>,
     /// The ensō for them, once loaded.
     pub(crate) logo: Option<egui::TextureHandle>,
     /// Extended Color Selector state.
@@ -311,6 +319,10 @@ impl PainterApp {
             confirm_brush_reset: false,
             chip_picker: None,
             spring_eraser: None,
+            next_label: None,
+            guide_pull: None,
+            dev_shot: crate::dev_shot::DevShot::new(),
+            smart: None,
             logo: None,
             gamut: Default::default(),
             tip_textures: Default::default(),
@@ -392,7 +404,17 @@ impl PainterApp {
     }
 
     pub(crate) fn checkpoint(&mut self) {
-        self.history.push(&self.doc);
+        // Named by the command being run, else by what the tool in hand changes.
+        match self.next_label.take() {
+            Some(label) => self.history.push_labelled(&self.doc, &label),
+            None => {
+                let hint = match self.tool {
+                    Tool::Brush => self.brushes.get(self.brush).map_or("Brush".to_string(), |b| b.settings.name.clone()),
+                    tool => tool.name().to_string(),
+                };
+                self.history.push_hinted(&self.doc, &hint);
+            }
+        }
         self.push_comic_history(self.comic.clone());
         self.dirty = true;
     }
@@ -707,6 +729,9 @@ impl PainterApp {
                 }
             }
             stroke.last = p;
+            let screen = self.view.doc_to_screen(self.canvas_rect, Vec2::new(self.doc.width as f32, self.doc.height as f32), egui::Pos2::new(p.x, p.y));
+            self.smart_move(p, screen);
+            let Some(stroke) = &mut self.stroke else { return };
             if let Some(points) = &mut stroke.vector_points {
                 points.push(p);
             }
@@ -839,29 +864,9 @@ impl PainterApp {
             self.status = "Fill works on raster layers and masks, not vector layers".into();
             return;
         }
-        let canvas = self.doc.canvas();
-        let seed = (x.floor() as i32, y.floor() as i32);
         let options = self.tools.fill;
-        let reference = self.tools.fill_reference;
         let started = std::time::Instant::now();
-        // The boundary: the edited plane itself, or merged layers.
-        let mut open = match reference.source {
-            ReferenceSource::EditedLayer => {
-                let empty = TileStore::new();
-                open_mask_from_tiles(self.plane_tiles(plane).unwrap_or(&empty), canvas, seed, options.tolerance)
-            }
-            ReferenceSource::AllLayers | ReferenceSource::ReferenceLayers => match reference_pixels(&self.doc, &reference) {
-                Some(pixels) => open_mask_from_pixels(&pixels, canvas, seed, options.tolerance),
-                None => {
-                    self.status = "No reference layer: tick Reference on the ink layers in the Layers panel".into();
-                    return;
-                }
-            },
-        };
-        if let Some(selection) = &self.doc.selection {
-            restrict_to_selection(&mut open, selection);
-        }
-        let Some(result) = fill(&open, seed, &options) else {
+        let Some(result) = self.region_at(plane, x, y, &options, true) else {
             return;
         };
         let filled = result.region.count();
@@ -878,6 +883,51 @@ impl PainterApp {
         let color = if matches!(plane, Plane::Mask(_)) { [1.0; 3] } else { self.main_rgb() };
         let stroke = region_to_stroke(&region, color);
         self.commit_region(plane, &stroke, BrushMode::Paint);
+    }
+
+    /// The area a fill with `options` would cover from a click at `(x, y)`:
+    /// bounded by `plane` itself or by the layers the fill refers to, inside
+    /// the selection when `in_selection`.
+    fn region_at(&mut self, plane: Plane, x: f32, y: f32, options: &painter_core::fill_tool::FillOptions, in_selection: bool) -> Option<painter_core::fill_tool::Fill> {
+        let canvas = self.doc.canvas();
+        let seed = (x.floor() as i32, y.floor() as i32);
+        let reference = self.tools.fill_reference;
+        // The boundary: the edited plane itself, or merged layers.
+        let mut open = match reference.source {
+            ReferenceSource::EditedLayer => {
+                let empty = TileStore::new();
+                open_mask_from_tiles(self.plane_tiles(plane).unwrap_or(&empty), canvas, seed, options.tolerance)
+            }
+            ReferenceSource::AllLayers | ReferenceSource::ReferenceLayers => match reference_pixels(&self.doc, &reference) {
+                Some(pixels) => open_mask_from_pixels(&pixels, canvas, seed, options.tolerance),
+                None => {
+                    self.status = "No reference layer: tick Reference on the ink layers in the Layers panel".into();
+                    return None;
+                }
+            },
+        };
+        if in_selection {
+            if let Some(selection) = &self.doc.selection {
+                restrict_to_selection(&mut open, selection);
+            }
+        }
+        fill(&open, seed, options)
+    }
+
+    /// Auto Select: the area a click would fill becomes (or changes) the selection.
+    pub(crate) fn magic_select_at(&mut self, at: egui::Pos2, op: SelectionOp) {
+        let plane = Plane::Color(self.doc.active);
+        let options = self.tools.magic;
+        // Adding to or subtracting from the selection looks past it.
+        let Some(result) = self.region_at(plane, at.x, at.y, &options, false) else {
+            if op == SelectionOp::Replace {
+                self.deselect();
+            }
+            return;
+        };
+        let count = result.region.count();
+        self.combine_selection(result.region.to_mask(), op);
+        self.status = format!("Selected {count} px");
     }
 
     pub(crate) fn gradient_end_color(&self) -> [u8; 4] {
@@ -1477,6 +1527,8 @@ impl PainterApp {
 
 impl eframe::App for PainterApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.next_label = None;
+        self.dev_shot_tick(ctx);
         self.tablet.poll(frame);
         if let Some(eraser) = self.tablet.take_eraser_switch() {
             // Flipping the pen to its eraser end switches tools, like a real eraser.
