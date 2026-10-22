@@ -55,6 +55,13 @@
 	<!-- File → Import → From Scanner: the document camera. -->
 	<key>NSCameraUsageDescription</key>
 	<string>Painter uses the camera to scan sketches and pages into your drawing.</string>
+	<!-- Network scanners (eSCL / AirScan): found with Bonjour on the local network. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Painter looks for scanners on your network so you can scan sketches into your drawing.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_uscan._tcp</string>
+	</array>
 	<!-- The Documents folder shows up as "Painter" in the Files app. -->
 	<key>UIFileSharingEnabled</key>
 	<true/>

@@ -2,17 +2,22 @@
 //! line art (what File → Import → From Scanner puts on a layer) as PNGs.
 //!
 //! ```text
-//! cargo run -p painter-scanner-io --example scan_once -- 150 gray raw.png lineart.png
+//! cargo run -p painter-scanner-io --example scan_once -- 150 gray raw.png lineart.png [airscan]
 //! ```
-//! Modes: `color`, `gray`, `lineart`.
+//! Modes: `color`, `gray`, `lineart`. The optional last word picks the backend
+//! (`wia`, `airscan`…); the first device found otherwise.
 
 use scanner_io::{backends, list_devices, prepare_for_import, ColorMode, ImportOptions, ScanSettings};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let [dpi, mode, raw_path, prepared_path] = &args[..] else {
-        eprintln!("usage: scan_once <dpi> <color|gray|lineart> <raw.png> <lineart.png>");
-        std::process::exit(2);
+    let (dpi, mode, raw_path, prepared_path, wanted) = match &args[..] {
+        [d, m, r, p] => (d, m, r, p, None),
+        [d, m, r, p, b] => (d, m, r, p, Some(b.to_ascii_lowercase())),
+        _ => {
+            eprintln!("usage: scan_once <dpi> <color|gray|lineart> <raw.png> <lineart.png> [backend]");
+            std::process::exit(2);
+        }
     };
     let color_mode = match mode.as_str() {
         "color" => ColorMode::Color,
@@ -21,7 +26,7 @@ fn main() {
     };
     let mut backends = backends();
     let (devices, errors) = list_devices(&mut backends);
-    let Some(device) = devices.first() else {
+    let Some(device) = devices.iter().find(|d| wanted.as_ref().is_none_or(|w| d.backend.name().to_ascii_lowercase() == *w)) else {
         eprintln!("no scanner found: {errors:?}");
         std::process::exit(1);
     };

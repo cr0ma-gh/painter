@@ -62,6 +62,14 @@ one-year signatures and TestFlight.
   time to open the Notification or Control Center.
 - **New from Clipboard** (File menu): a document the size of a picture
   copied in another app; pasting pictures on the reference board works too.
+- **Network scanners:** File → Import → From Scanner or Camera lists the
+  scanners and multifunction printers on your Wi-Fi that scan over AirScan
+  (eSCL; most made since about 2014). The first time, iPadOS asks to let
+  Painter find devices on the local network: allow it. If yours doesn't
+  show up, type its address under "Network scanner by address".
+- **Save As:** asks for the name and the format (Painter, Krita, OpenRaster)
+  and saves in the Painter folder; "Save and copy to..." then lets you put a
+  copy anywhere (iCloud Drive, another folder or app).
 - **Scanning:** File → Import → From Scanner or Camera → Scan with camera
   opens the iPad's document camera: it finds the sheet and straightens it,
   and you can take several pages. Pick the paper size (it gives the pages
@@ -73,6 +81,6 @@ one-year signatures and TestFlight.
 
 ## Not on iPad (yet)
 
-- WinTab tablets and USB / network scanners (WIA) are Windows-only; on iPad
-  the camera scans instead.
+- WinTab tablets and USB scanners are Windows-only; on iPad network scanners
+  (AirScan) and the camera scan instead.
 - Drag and drop from other apps (Split View) isn't wired up.

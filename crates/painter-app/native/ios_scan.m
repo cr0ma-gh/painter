@@ -109,3 +109,85 @@ char *painter_take_scan_error(void) {
         return s;
     }
 }
+
+// ---- network scanners (eSCL / AirScan) through Bonjour ---------------------------
+//
+// iPadOS doesn't let apps send multicast themselves; NSNetServiceBrowser asks
+// mDNSResponder for "_uscan._tcp" instead (Info.plist: NSBonjourServices and
+// NSLocalNetworkUsageDescription). Each scanner found is resolved to an IPv4
+// address and port and queued as "name\turl" for Rust.
+
+#include <arpa/inet.h>
+
+static NSMutableArray<NSString *> *network_found;
+
+@interface PainterScannerBrowser : NSObject <NSNetServiceBrowserDelegate, NSNetServiceDelegate>
+@property (strong) NSNetServiceBrowser *browser;
+@property (strong) NSMutableArray<NSNetService *> *resolving;
+@end
+
+@implementation PainterScannerBrowser
+- (void)netServiceBrowser:(NSNetServiceBrowser *)browser didFindService:(NSNetService *)service moreComing:(BOOL)more {
+    [self.resolving addObject:service];
+    service.delegate = self;
+    [service resolveWithTimeout:5];
+}
+
+- (void)netServiceDidResolveAddress:(NSNetService *)service {
+    NSString *ip = nil;
+    for (NSData *data in service.addresses) {
+        const struct sockaddr *sa = data.bytes;
+        if (data.length >= sizeof(struct sockaddr_in) && sa->sa_family == AF_INET) {
+            char buf[INET_ADDRSTRLEN];
+            const struct sockaddr_in *in = (const struct sockaddr_in *)sa;
+            if (inet_ntop(AF_INET, &in->sin_addr, buf, sizeof buf)) ip = [NSString stringWithUTF8String:buf];
+            break;
+        }
+    }
+    if (!ip) ip = service.hostName;
+    NSString *rs = @"eSCL";
+    NSString *name = service.name;
+    NSData *txt = service.TXTRecordData;
+    if (txt) {
+        NSDictionary<NSString *, NSData *> *dict = [NSNetService dictionaryFromTXTRecordData:txt];
+        NSData *r = dict[@"rs"];
+        if (r.length) rs = [[NSString alloc] initWithData:r encoding:NSUTF8StringEncoding] ?: rs;
+        NSData *ty = dict[@"ty"];
+        if (ty.length) name = [[NSString alloc] initWithData:ty encoding:NSUTF8StringEncoding] ?: name;
+    }
+    rs = [rs stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"/"]];
+    NSString *line = [NSString stringWithFormat:@"%@\thttp://%@:%ld/%@", name, ip, (long)service.port, rs];
+    @synchronized([PainterScannerBrowser class]) {
+        if (!network_found) network_found = [NSMutableArray array];
+        [network_found addObject:line];
+    }
+    [self.resolving removeObject:service];
+}
+
+- (void)netService:(NSNetService *)service didNotResolve:(NSDictionary *)errorDict {
+    [self.resolving removeObject:service];
+}
+@end
+
+static PainterScannerBrowser *scanner_browser;
+
+void painter_find_network_scanners(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (scanner_browser) [scanner_browser.browser stop];
+        scanner_browser = [PainterScannerBrowser new];
+        scanner_browser.resolving = [NSMutableArray array];
+        scanner_browser.browser = [NSNetServiceBrowser new];
+        scanner_browser.browser.delegate = scanner_browser;
+        [scanner_browser.browser searchForServicesOfType:@"_uscan._tcp." inDomain:@"local."];
+    });
+}
+
+// The oldest scanner found ("name\turl", malloc'd), or NULL.
+char *painter_take_network_scanner(void) {
+    @synchronized([PainterScannerBrowser class]) {
+        if (network_found.count == 0) return NULL;
+        NSString *line = network_found.firstObject;
+        [network_found removeObjectAtIndex:0];
+        return strdup(line.UTF8String);
+    }
+}

@@ -447,8 +447,18 @@ impl PainterApp {
         });
         for (slot, path, result) in saved {
             match result {
-                Ok(notes) if notes.is_empty() => self.status = format!("Saved {}", path.display()),
-                Ok(notes) => self.status = format!("Saved {} — {}", path.display(), summarize(&notes)),
+                Ok(notes) => {
+                    self.status = if notes.is_empty() {
+                        format!("Saved {}", path.display())
+                    } else {
+                        format!("Saved {} — {}", path.display(), summarize(&notes))
+                    };
+                    // iPad Save As → "Save and copy to...": now the file is complete.
+                    if self.export_after_save.as_ref() == Some(&path) {
+                        self.export_after_save = None;
+                        crate::files::offer_export(&path);
+                    }
+                }
                 Err((err, doc, extras)) => {
                     self.status = format!("Save failed: {err}");
                     match self.docs.index_of(slot) {

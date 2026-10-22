@@ -24,7 +24,15 @@ mod backend;
 mod decode;
 mod process;
 
-pub use backend::{backends, list_devices, sane::SaneBackend, twain::TwainBackend, wia::WiaBackend, ScannerBackend};
+pub use backend::{
+    backends,
+    escl::{add_address, add_targets, EsclBackend, Target as NetworkScanner},
+    list_devices,
+    sane::SaneBackend,
+    twain::TwainBackend,
+    wia::WiaBackend,
+    ScannerBackend,
+};
 pub use process::{auto_contrast, crop, extract_line_art, orient, prepare_for_import, ImportOptions, LineArtOptions, Orientation, Rotation};
 
 use std::fmt;
@@ -63,6 +71,8 @@ pub enum Backend {
     Twain,
     /// SANE (`libsane`) on Linux and BSD.
     Sane,
+    /// eSCL ("AirScan") over the network: every platform, iPad included.
+    Escl,
 }
 
 impl Backend {
@@ -71,6 +81,7 @@ impl Backend {
             Backend::Wia => "WIA",
             Backend::Twain => "TWAIN",
             Backend::Sane => "SANE",
+            Backend::Escl => "AirScan",
         }
     }
 }

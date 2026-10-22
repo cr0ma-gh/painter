@@ -10,6 +10,7 @@ name = "scanner_io"
 
 [dependencies]
 image = { workspace = true, features = ["bmp", "jpeg"] }
+roxmltree = "0.19"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

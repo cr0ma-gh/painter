@@ -1,5 +1,8 @@
 //! Acquisition backends. Each wraps one platform API behind [`ScannerBackend`].
 
+pub mod escl;
+mod http;
+mod mdns;
 pub mod sane;
 pub mod twain;
 pub mod wia;
@@ -27,10 +30,15 @@ pub trait ScannerBackend: Send {
 }
 
 /// Every backend for this platform, preferred first: WIA, then TWAIN on
-/// Windows; SANE elsewhere.
+/// Windows; SANE elsewhere; eSCL network scanners everywhere (iPad too).
 pub fn backends() -> Vec<Box<dyn ScannerBackend>> {
     let all: Vec<Box<dyn ScannerBackend>> =
-        vec![Box::new(wia::WiaBackend::default()), Box::new(twain::TwainBackend::default()), Box::new(sane::SaneBackend::default())];
+        vec![
+            Box::new(wia::WiaBackend::default()),
+            Box::new(twain::TwainBackend::default()),
+            Box::new(sane::SaneBackend::default()),
+            Box::new(escl::EsclBackend::default()),
+        ];
     all.into_iter().filter(|b| b.is_available()).collect()
 }
 

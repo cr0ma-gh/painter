@@ -75,6 +75,10 @@ pub struct ScannerDialog {
     previewed: Option<usize>,
     /// What happens to a scan bigger than the canvas.
     oversize: Oversize,
+    /// A network scanner's address being typed in.
+    address: String,
+    /// Network scanners were found while a job ran: look again after it.
+    refresh_pending: bool,
 }
 
 impl ScannerDialog {
@@ -99,7 +103,11 @@ impl ScannerDialog {
             paper: 0,
             previewed: None,
             oversize: Oversize::default(),
+            address: String::new(),
+            refresh_pending: false,
         };
+        // iPad: Bonjour looks for network (AirScan) scanners; they arrive in `scanner_window`.
+        crate::scan_source::find_network_scanners();
         dialog.refresh();
         dialog
     }
@@ -312,6 +320,16 @@ impl PainterApp {
         if let Some(err) = crate::scan_source::take_error() {
             dialog.message = err;
         }
+        // Network scanners Bonjour found (iPad): list them.
+        let network = crate::scan_source::take_network_scanners();
+        if !network.is_empty() {
+            scanner_io::add_targets(network);
+            dialog.refresh_pending = true;
+        }
+        if dialog.refresh_pending && dialog.job.is_none() {
+            dialog.refresh_pending = false;
+            dialog.refresh();
+        }
         if crate::scan_source::camera_active() {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
         }
@@ -519,13 +537,15 @@ fn scanner_controls(ui: &mut egui::Ui, dialog: &mut ScannerDialog, busy: bool) {
             ui.small(err.to_string());
         }
         if cfg!(target_os = "ios") {
-            ui.small("Scan the page with the camera, or pick a photo of it.");
+            ui.small("Network scanners (AirScan) on your Wi-Fi show up here; or type the scanner's address below, scan with the camera, or pick a photo of the page.");
         } else if dialog.errors.is_empty() {
             ui.small("Connect and switch on a scanner, then refresh; or pick a photo of the page.");
         }
-        if !cfg!(target_os = "ios") && ui.add_enabled(!busy, egui::Button::new("Refresh")).clicked() {
+        if ui.add_enabled(!busy, egui::Button::new("Look again")).clicked() {
+            crate::scan_source::find_network_scanners();
             dialog.refresh();
         }
+        network_row(ui, dialog, busy);
         message(ui, dialog);
         return;
     }
@@ -561,6 +581,7 @@ fn scanner_controls(ui: &mut egui::Ui, dialog: &mut ScannerDialog, busy: bool) {
             preview_area(ui, dialog, "Preview, then drag to crop");
         })
     });
+    ui.collapsing("Network scanner by address", |ui| network_row(ui, dialog, busy));
     message(ui, dialog);
     ui.separator();
     ui.add_enabled_ui(!busy, |ui| {
@@ -633,6 +654,24 @@ fn page_controls(ui: &mut egui::Ui, dialog: &mut ScannerDialog, busy: bool) {
                 }
             }
         });
+    });
+}
+
+/// A network (AirScan / eSCL) scanner by its address, for when it isn't found by itself.
+fn network_row(ui: &mut egui::Ui, dialog: &mut ScannerDialog, busy: bool) {
+    ui.horizontal(|ui| {
+        ui.label("Address");
+        let field = ui.add(egui::TextEdit::singleline(&mut dialog.address).hint_text("192.168.1.30").desired_width(150.0));
+        let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if (ui.add_enabled(!busy, egui::Button::new("Add")).on_hover_text("A scanner on your network that scans over AirScan (eSCL)").clicked() || enter) && !busy {
+            match scanner_io::add_address(&dialog.address) {
+                Ok(_) => {
+                    dialog.message.clear();
+                    dialog.refresh();
+                }
+                Err(err) => dialog.message = err,
+            }
+        }
     });
 }
 
@@ -877,6 +916,96 @@ fn filter_label(f: transform_tools::Interpolation) -> &'static str {
     }
 }
 
+/// Save As on iPad, where there's no save panel: the name and the format;
+/// the file goes into the app's own folder (Files → On My iPad → Painter),
+/// and "Save and copy to..." then hands a copy to the system picker.
+pub(crate) struct SaveAsPrompt {
+    stem: String,
+    format: usize,
+}
+
+/// Formats Save As writes: label and extension.
+const SAVE_FORMATS: [(&str, &str); 3] = [
+    ("Painter project", painter_core::project::EXTENSION),
+    ("Krita (.kra)", "kra"),
+    ("OpenRaster (.ora)", "ora"),
+];
+
+impl SaveAsPrompt {
+    pub(crate) fn new(file_name: &str) -> Self {
+        let path = std::path::Path::new(file_name);
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        let format = SAVE_FORMATS.iter().position(|(_, e)| *e == ext).unwrap_or(0);
+        let stem = path.file_stem().map_or_else(|| "painting".into(), |s| s.to_string_lossy().into_owned());
+        Self { stem, format }
+    }
+}
+
+/// Where `stem.ext` goes in `dir`: characters files can't have are replaced,
+/// and a different existing file isn't overwritten (" 2", " 3"… are added);
+/// `current` (the file being saved over) may be reused.
+pub(crate) fn save_target(dir: &std::path::Path, stem: &str, ext: &str, current: Option<&std::path::Path>) -> std::path::PathBuf {
+    let clean: String = stem.trim().chars().map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { c }).collect();
+    let clean = if clean.is_empty() { "painting".to_string() } else { clean };
+    let mut path = dir.join(format!("{clean}.{ext}"));
+    let mut n = 2;
+    while path.exists() && Some(path.as_path()) != current {
+        path = dir.join(format!("{clean} {n}.{ext}"));
+        n += 1;
+    }
+    path
+}
+
+impl PainterApp {
+    pub(crate) fn save_as_window(&mut self, ctx: &egui::Context) {
+        let Some(mut prompt) = self.save_as_prompt.take() else { return };
+        let mut open = true;
+        let mut action = None;
+        egui::Window::new("Save As").collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Name");
+                let field = ui.add(egui::TextEdit::singleline(&mut prompt.stem).desired_width(260.0));
+                if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    action = Some(false);
+                }
+            });
+            egui::ComboBox::from_label("Format").selected_text(SAVE_FORMATS[prompt.format].0).show_ui(ui, |ui| {
+                for (i, (label, _)) in SAVE_FORMATS.iter().enumerate() {
+                    ui.selectable_value(&mut prompt.format, i, *label);
+                }
+            });
+            if prompt.format != 0 {
+                ui.small("Krita and OpenRaster flatten masks and clipping into the pixels.");
+            }
+            ui.small("Saved in the Painter folder (Files app → On My iPad → Painter).");
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Save").clicked() {
+                    action = Some(false);
+                }
+                if ui.button("Save and copy to...").on_hover_text("Then choose where a copy goes: iCloud Drive, another folder or app").clicked() {
+                    action = Some(true);
+                }
+            });
+        });
+        match action {
+            Some(copy) => match crate::files::documents_dir() {
+                Some(dir) => {
+                    let ext = SAVE_FORMATS[prompt.format].1;
+                    let path = save_target(&dir, &prompt.stem, ext, self.file_path.as_deref());
+                    if copy {
+                        self.export_after_save = Some(path.clone());
+                    }
+                    self.save_to(path);
+                }
+                None => self.status = "No folder to save into".into(),
+            },
+            None if open => self.save_as_prompt = Some(prompt),
+            None => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -889,5 +1018,20 @@ mod tests {
         assert!(out.as_chunks::<4>().0.iter().all(|p| p[3] > 250 && p[0] > 250));
         let (_, w, h) = fit_within(&px, 400, 200, 1000, 1000);
         assert_eq!((w, h), (400, 200), "smaller ones stay as they are");
+    }
+
+    #[test]
+    fn save_targets_avoid_other_files() {
+        let dir = std::env::temp_dir().join(format!("painter-saveas-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(save_target(&dir, " a/b ", "kra", None), dir.join("a_b.kra"));
+        std::fs::write(dir.join("x.painter"), b"").unwrap();
+        assert_eq!(save_target(&dir, "x", "painter", None), dir.join("x 2.painter"), "a different file isn't overwritten");
+        let current = dir.join("x.painter");
+        assert_eq!(save_target(&dir, "x", "painter", Some(&current)), current, "saving over itself is fine");
+        assert_eq!(save_target(&dir, "  ", "ora", None), dir.join("painting.ora"));
+        let p = SaveAsPrompt::new("Sketch.KRA");
+        assert_eq!((p.stem.as_str(), p.format), ("Sketch", 1));
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

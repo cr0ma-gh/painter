@@ -225,7 +225,10 @@ cargo run --release -p painter-app -- drawing.painter
   `scanner-io`): device list, resolution, colour mode, preview with crop,
   auto-contrast and line-art extraction (paper → transparency) into a new
   layer. Works through WIA on Windows (enumeration, capabilities and transfer;
-  scans run on a background thread); TWAIN and SANE are still stubs. On iPad
+  scans run on a background thread) and through eSCL ("AirScan") with network
+  scanners and multifunction printers on every platform, iPad included: found
+  on the network by themselves (mDNS on computers, Bonjour on iPad) or by
+  typing their address; TWAIN and SANE are still stubs. On iPad
   the document camera (VisionKit) finds the sheet, straightens it and takes
   any number of pages; photos or scans as image files work everywhere. Pages
   get their resolution from the paper size picked (A4, A5, A3, B5, B4, Letter,

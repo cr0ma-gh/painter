@@ -133,6 +133,10 @@ pub struct PainterApp {
     pub(crate) scanner: Option<ScannerDialog>,
     /// Edit → Image Size, when open.
     pub(crate) image_size: Option<crate::dialogs::ImageSizeDialog>,
+    /// Save As on iPad: the name and format, when open.
+    pub(crate) save_as_prompt: Option<crate::dialogs::SaveAsPrompt>,
+    /// A file to offer to the system picker once its save finishes (iPad).
+    pub(crate) export_after_save: Option<PathBuf>,
     /// The resampling last used for Image Size (offered again).
     pub(crate) last_resize_filter: transform_tools::Interpolation,
     /// File → Export → SVG, when open.
@@ -283,6 +287,8 @@ impl PainterApp {
             clipboard_dpi: painter_core::DEFAULT_DPI,
             whole_pixels: true,
             image_size: None,
+            save_as_prompt: None,
+            export_after_save: None,
             last_resize_filter: transform_tools::Interpolation::Nearest,
             curve_target: CurveTarget::Size,
             selected_ruler: None,
@@ -1163,6 +1169,11 @@ impl PainterApp {
             .as_ref()
             .and_then(|p| p.file_name())
             .map_or_else(|| format!("painting.{}", project::EXTENSION), |n| n.to_string_lossy().into_owned());
+        // iPad: no save panel; ask for the name and format here (see `crate::dialogs::SaveAsPrompt`).
+        if cfg!(target_os = "ios") {
+            self.save_as_prompt = Some(crate::dialogs::SaveAsPrompt::new(&name));
+            return;
+        }
         if let Some(path) = crate::files::FileDialog::new()
             .add_filter("Painter project", &[project::EXTENSION])
             .add_filter("Krita (layers, masks and clipping flattened)", &["kra"])
@@ -1174,7 +1185,7 @@ impl PainterApp {
         }
     }
 
-    fn save_to(&mut self, path: PathBuf) {
+    pub(crate) fn save_to(&mut self, path: PathBuf) {
         // 3D layers: their latest render into the pixels first.
         self.commit_scenes(true);
         let mut extras = project::Extras::new();
@@ -1360,6 +1371,7 @@ impl eframe::App for PainterApp {
         self.new_canvas_window(ctx);
         self.scanner_window(ctx);
         self.image_size_window(ctx);
+        self.save_as_window(ctx);
         self.svg_export_window(ctx);
         self.comic_wizard_window(ctx);
         self.areas(ctx);

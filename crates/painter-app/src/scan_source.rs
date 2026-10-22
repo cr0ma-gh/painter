@@ -63,6 +63,22 @@ pub(crate) fn take_error() -> Option<String> {
     native::take_error()
 }
 
+/// Starts looking for network (eSCL / AirScan) scanners with Bonjour (iPad;
+/// elsewhere the scanner backend asks the network itself).
+pub(crate) fn find_network_scanners() {
+    native::find_network();
+}
+
+/// Network scanners Bonjour found since last asked.
+pub(crate) fn take_network_scanners() -> Vec<scanner_io::NetworkScanner> {
+    std::iter::from_fn(native::take_network)
+        .filter_map(|line| {
+            let (name, url) = line.split_once('\t')?;
+            Some(scanner_io::NetworkScanner { name: name.to_string(), url: url.to_string() })
+        })
+        .collect()
+}
+
 #[cfg(target_os = "ios")]
 mod native {
     use std::ffi::{c_char, c_int, CStr};
@@ -74,6 +90,8 @@ mod native {
         fn painter_scan_active() -> c_int;
         fn painter_take_scanned() -> *mut c_char;
         fn painter_take_scan_error() -> *mut c_char;
+        fn painter_find_network_scanners();
+        fn painter_take_network_scanner() -> *mut c_char;
         fn painter_free_string(s: *mut c_char);
     }
 
@@ -112,6 +130,16 @@ mod native {
         // SAFETY: returns NULL or a string we own.
         take(unsafe { painter_take_scan_error() })
     }
+
+    pub(super) fn find_network() {
+        // SAFETY: schedules a Bonjour search on the main queue.
+        unsafe { painter_find_network_scanners() }
+    }
+
+    pub(super) fn take_network() -> Option<String> {
+        // SAFETY: returns NULL or a string we own.
+        take(unsafe { painter_take_network_scanner() })
+    }
 }
 
 #[cfg(not(target_os = "ios"))]
@@ -129,6 +157,10 @@ mod native {
         None
     }
     pub(super) fn take_error() -> Option<String> {
+        None
+    }
+    pub(super) fn find_network() {}
+    pub(super) fn take_network() -> Option<String> {
         None
     }
 }
