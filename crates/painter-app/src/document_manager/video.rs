@@ -324,9 +324,11 @@ mod ffmpeg {
         let parts: Vec<f64> = d.split(':').filter_map(|p| p.parse().ok()).collect();
         let duration = parts.iter().fold(0.0, |acc, v| acc * 60.0 + v);
         let video = text.lines().find(|l| l.contains("Video:"))?;
-        let size = video.split([',', ' ']).find_map(|t| {
+        // "1920x1080" (not a codec tag like "0x31637661").
+        let size = video.split([',', ' ']).filter(|t| !t.starts_with("0x")).find_map(|t| {
             let (w, h) = t.split_once('x')?;
-            Some((w.parse::<u32>().ok()?, h.trim_end_matches(|c: char| !c.is_ascii_digit()).parse::<u32>().ok()?))
+            let (w, h) = (w.parse::<u32>().ok()?, h.trim_end_matches(|c: char| !c.is_ascii_digit()).parse::<u32>().ok()?);
+            (w > 0 && h > 0 && w <= 16384 && h <= 16384).then_some((w, h))
         })?;
         let fps = video.split(',').find_map(|t| t.trim().strip_suffix(" fps")?.parse::<f64>().ok()).unwrap_or(25.0);
         Some((size.0, size.1, (duration * 1000.0) as u64, fps))

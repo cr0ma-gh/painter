@@ -15,6 +15,9 @@
 //! Also here: `painter --thumbnail IN OUT SIZE`, which writes the thumbnail
 //! a Painter, Krita or OpenRaster file carries as a PNG (the Linux thumbnailer).
 
+// The registry lists are only used on Windows (their tests run everywhere).
+#![cfg_attr(not(windows), allow(dead_code))]
+
 use crate::app::PainterApp;
 
 /// `painter_shell::CLSID` (checked by a test): the thumbnail provider's class.
