@@ -156,8 +156,9 @@ cargo run --release -p painter-app -- drawing.painter
   order, tips and textures) is saved to `%APPDATA%\Painter\brushes.rustbrush`
   and comes back at the next launch; right-click the import button to add
   back deleted default brushes.
-- **Tablet:** WinTab (pressure, tilt, automatic switch on the eraser end) with
-  a fallback to Windows Ink.
+- **Tablet:** WinTab on Windows and XInput2 on Linux (pressure, tilt, every
+  packet of fast strokes, automatic switch on the eraser end), with a
+  fallback to Windows Ink; Apple Pencil on iPad, stylus pressure on Android.
 - **Files:** `.painter` projects, PSD import/export, PNG open/import/export,
   File → New from Clipboard (Ctrl+Alt+N) makes a document the size of a
   picture copied in another app (a screenshot, a browser image) or of the
@@ -313,7 +314,10 @@ artifacts):
 - **Linux**: `Painter-x86_64.AppImage` (`packaging/linux/build-appimage.sh`).
   Make it executable and run it; it uses the system's GTK 3 for file dialogs
   and its Vulkan or OpenGL drivers. Building from source needs
-  `libgtk-3-dev libxkbcommon-dev libwayland-dev libx11-dev`.
+  `libgtk-3-dev libxkbcommon-dev libwayland-dev libx11-dev`. Pen tablets give
+  pressure and tilt through XInput2: Painter starts on X11 (XWayland under
+  Wayland) for that; `PAINTER_WAYLAND=1` runs it on Wayland directly. USB
+  scanners work through SANE (install `sane` / `libsane1`).
 - **macOS**: `Painter.dmg` with a universal `Painter.app` (Apple Silicon and
   Intel, macOS 11+; `packaging/macos/build-app.sh`). It's signed ad hoc, not
   notarised: the first time, right-click the app → Open.
@@ -321,8 +325,12 @@ artifacts):
   `packaging/android/build.sh`, with cargo-apk), signed with a test key:
   allow installing unknown apps, or `adb install Painter.apk`. Documents live
   in the app's own folder (`Android/data/io.github.cr0ma_gh.painter/files`,
-  reachable over USB); File → Open lists them in the app. Pen pressure and
-  the system file picker aren't there yet.
+  reachable over USB). File → Open browses it and, once you allow access to
+  the device's files, Download, Documents, Pictures and the camera folder;
+  exports also get a copy in Documents/Painter. Stylus pressure works, the
+  soft keyboard comes up in text fields, network scanners (AirScan) are
+  found, pictures copied in other apps paste in, and "Scan with camera" opens
+  the camera, then picks the new photo.
 
 ## Licence
 

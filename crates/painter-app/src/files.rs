@@ -203,6 +203,20 @@ pub(crate) fn take_notice() -> Option<String> {
     NOTICE.lock().ok().and_then(|mut n| n.take())
 }
 
+/// A message for the status bar.
+#[allow(dead_code)]
+pub(crate) fn notice(message: impl Into<String>) {
+    if let Ok(mut n) = NOTICE.lock() {
+        *n = Some(message.into());
+    }
+}
+
+/// Android: the picker on the camera folder, newest photos first (they arrive through [`take_picked`]).
+#[cfg(target_os = "android")]
+pub(crate) fn pick_camera_photo() {
+    android::camera();
+}
+
 /// The app's own documents folder: iPadOS's Documents, Android's
 /// app-specific storage (Android/data/<app>/files, reachable over USB),
 /// `None` on the desktop (where the system dialogs reach everything).
@@ -373,6 +387,8 @@ mod android {
         chosen: Vec<PathBuf>,
         /// The folder shown.
         dir: Option<PathBuf>,
+        /// Newest files first (the camera folder).
+        newest_first: bool,
     }
 
     static PICKER: Mutex<Option<Picker>> = Mutex::new(None);
@@ -389,7 +405,17 @@ mod android {
                 extensions: extensions.iter().map(|e| e.to_ascii_lowercase()).collect(),
                 chosen: Vec::new(),
                 dir,
+                newest_first: false,
             });
+        }
+    }
+
+    /// The picker on the camera folder, newest photos first, for a page photographed just now.
+    pub(super) fn camera() {
+        let dir = crate::android::shared_root().map(|r| r.join("DCIM")).map(|d| if d.join("Camera").is_dir() { d.join("Camera") } else { d });
+        let extensions = ["jpg", "jpeg", "png", "heic"].map(String::from).to_vec();
+        if let Ok(mut p) = PICKER.lock() {
+            *p = Some(Picker { purpose: Purpose::ScanPage, multiple: true, extensions, chosen: Vec::new(), dir, newest_first: true });
         }
     }
 
@@ -423,7 +449,7 @@ mod android {
     }
 
     /// Folders (not hidden) and the files that suit, each sorted by name.
-    fn list(dir: &Path, extensions: &[String]) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    fn list(dir: &Path, extensions: &[String], newest_first: bool) -> (Vec<PathBuf>, Vec<PathBuf>) {
         let (mut dirs, mut files) = (Vec::new(), Vec::new());
         if let Ok(entries) = std::fs::read_dir(dir) {
             for p in entries.filter_map(|e| e.ok().map(|e| e.path())) {
@@ -444,6 +470,9 @@ mod android {
         let key = |p: &PathBuf| p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
         dirs.sort_by_key(key);
         files.sort_by_key(key);
+        if newest_first {
+            files.sort_by_key(|p| std::cmp::Reverse(std::fs::metadata(p).and_then(|m| m.modified()).ok()));
+        }
         (dirs, files)
     }
 
@@ -459,7 +488,7 @@ mod android {
             *guard = None;
             return;
         };
-        let (dirs, files) = list(&dir, &picker.extensions);
+        let (dirs, files) = list(&dir, &picker.extensions, picker.newest_first);
         let mut done = None;
         let mut go = None;
         let row = egui::vec2(0.0, 40.0);

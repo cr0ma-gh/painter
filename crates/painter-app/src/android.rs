@@ -545,3 +545,16 @@ pub(crate) fn end_frame(ctx: &eframe::egui::Context) {
         set_clipboard_text(&text);
     }
 }
+
+// ---- camera --------------------------------------------------------------------------
+
+/// Opens the system camera app for a photo; it lands in the camera folder,
+/// where the file picker (opened alongside) shows it first.
+pub(crate) fn open_camera() -> bool {
+    with_env(|env, activity| {
+        let action = env.string("android.media.action.STILL_IMAGE_CAMERA")?;
+        let intent = env.new_object("android/content/Intent", "(Ljava/lang/String;)V", &[obj(action)])?;
+        env.call_void(activity, "startActivity", "(Landroid/content/Intent;)V", &[obj(intent)])
+    })
+    .is_some()
+}

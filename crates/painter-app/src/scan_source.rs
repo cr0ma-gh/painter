@@ -1,7 +1,8 @@
 //! Pages for the scanner dialog that don't come from a scanner: the iPad's
 //! document camera (VisionKit, `native/ios_scan.m`: it finds the sheet,
 //! straightens its perspective and can take several pages), or a photo or
-//! scan as an image file (on every platform). They go through the same
+//! scan as an image file (on every platform); on Android the system camera,
+//! then the new photo from the camera folder. They go through the same
 //! cleanup as a scan: crop, orientation, auto contrast, line art.
 //!
 //! A photographed page has no resolution of its own; it is worked out from
@@ -145,7 +146,36 @@ mod native {
     }
 }
 
-#[cfg(not(target_os = "ios"))]
+#[cfg(target_os = "android")]
+mod native {
+    use std::path::PathBuf;
+
+    /// The system camera, then the photo picked from the camera folder.
+    pub(super) fn supported() -> bool {
+        true
+    }
+    pub(super) fn start() {
+        crate::files::pick_camera_photo();
+        if !crate::android::open_camera() {
+            crate::files::notice("No camera app answered; pick a photo instead");
+        }
+    }
+    pub(super) fn active() -> bool {
+        false
+    }
+    pub(super) fn take_page() -> Option<PathBuf> {
+        None
+    }
+    pub(super) fn take_error() -> Option<String> {
+        None
+    }
+    pub(super) fn find_network() {}
+    pub(super) fn take_network() -> Option<String> {
+        None
+    }
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 mod native {
     use std::path::PathBuf;
 
