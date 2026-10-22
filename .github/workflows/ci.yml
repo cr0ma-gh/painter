@@ -61,8 +61,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev pkg-config
+      # The GPU tests are left out: the runner only has Mesa's software renderer.
       - name: Tests
-        run: cargo test --workspace
+        run: |
+          cargo test --workspace --exclude painter-render
+          cargo test -p painter-render --lib
       - name: Build and package
         run: bash packaging/linux/build-appimage.sh
       - uses: actions/upload-artifact@v4
