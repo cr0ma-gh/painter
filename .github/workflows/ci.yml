@@ -63,13 +63,13 @@ jobs:
           sudo apt-get install -y libgtk-3-dev libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev pkg-config
           # Mesa's software OpenGL, for the GPU tests on the OpenGL path (Android's Mali GPUs use it).
           sudo apt-get install -y libegl1 libgles2 libgl1-mesa-dri
-      # The GPU tests are left out: the runner only has Mesa's software renderer.
+      # The GPU tests run in the next step, on OpenGL.
       - name: Tests
         run: |
           cargo test --workspace --exclude painter-render
           cargo test -p painter-render --lib
-      - name: GPU tests on OpenGL (Mesa, informational)
-        continue-on-error: true
+      # The GPU tests on Mesa's OpenGL: the path Android's Mali GPUs take.
+      - name: GPU tests on OpenGL (Mesa)
         env:
           WGPU_BACKEND: gl
         run: cargo test -p painter-render --tests -- --test-threads 1
