@@ -16,7 +16,7 @@ pub(crate) struct ModifierKeys {
 impl Default for ModifierKeys {
     /// Shown on iPadOS (no keyboard to count on), hidden elsewhere.
     fn default() -> Self {
-        Self { shown: cfg!(target_os = "ios"), ctrl: false, shift: false, alt: false }
+        Self { shown: crate::MOBILE, ctrl: false, shift: false, alt: false }
     }
 }
 
@@ -63,7 +63,7 @@ impl ModifierKeys {
         if !self.shown {
             return;
         }
-        let size = if cfg!(target_os = "ios") { Vec2::new(64.0, 44.0) } else { Vec2::new(52.0, 30.0) };
+        let size = if crate::MOBILE { Vec2::new(64.0, 44.0) } else { Vec2::new(52.0, 30.0) };
         let screen = ctx.screen_rect();
         egui::Area::new(egui::Id::new("modifier_keys"))
             .order(egui::Order::Foreground)

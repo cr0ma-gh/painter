@@ -264,7 +264,7 @@ impl PainterApp {
     /// together, like Blender's Resolution Scale. iPadOS starts a step
     /// larger for fingers. egui's own Ctrl + / Ctrl − / Ctrl 0 change it too.
     fn apply_ui_scale(&mut self, ctx: &egui::Context) {
-        let base = if cfg!(target_os = "ios") { 1.25 } else { 1.0 };
+        let base = if crate::MOBILE { 1.25 } else { 1.0 };
         let (lo, hi) = UI_SCALE_RANGE;
         let zoom = ctx.zoom_factor();
         if let Some(applied) = self.ws.applied_zoom {
@@ -333,7 +333,7 @@ impl PainterApp {
     /// In zen mode, a faint button in the top-right corner of the canvas
     /// brings the panels back, for touch screens without a keyboard.
     fn zen_exit_button(&mut self, ctx: &egui::Context, canvas: Rect) {
-        let size = if cfg!(target_os = "ios") { 44.0 } else { 28.0 };
+        let size = if crate::MOBILE { 44.0 } else { 28.0 };
         let rect = Rect::from_min_size(egui::pos2(canvas.right() - size - 8.0, canvas.top() + 8.0), Vec2::splat(size));
         let response = egui::Area::new(egui::Id::new("zen_exit"))
             .order(egui::Order::Foreground)

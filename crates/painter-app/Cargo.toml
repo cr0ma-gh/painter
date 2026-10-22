@@ -30,10 +30,14 @@ egui_extras.workspace = true
 serde.workspace = true
 raw-window-handle.workspace = true
 
-[target.'cfg(not(target_os = "ios"))'.dependencies]
-# Screen-reader support where accesskit has a platform adapter (not iOS).
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+# Screen-reader support and system file dialogs on the desktop.
 eframe = { workspace = true, features = ["accesskit"] }
 rfd.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# winit needs a window system; both, so the app runs under X11 and Wayland.
+eframe = { workspace = true, features = ["x11", "wayland"] }
 
 [target.'cfg(windows)'.dependencies]
 libloading.workspace = true

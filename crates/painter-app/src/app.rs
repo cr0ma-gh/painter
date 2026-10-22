@@ -1189,7 +1189,7 @@ impl PainterApp {
             .and_then(|p| p.file_name())
             .map_or_else(|| format!("painting.{}", project::EXTENSION), |n| n.to_string_lossy().into_owned());
         // iPad: no save panel; ask for the name and format here (see `crate::dialogs::SaveAsPrompt`).
-        if cfg!(target_os = "ios") {
+        if crate::MOBILE {
             self.save_as_prompt = Some(crate::dialogs::SaveAsPrompt::new(&name));
             return;
         }
@@ -1408,6 +1408,7 @@ impl eframe::App for PainterApp {
         if let Some(notice) = crate::files::take_notice() {
             self.status = notice;
         }
+        crate::files::picker_window(ctx);
         self.receive_picked_files(ctx);
         // Choosing any colour (wheel, palette, picker…) ends the transparent colour.
         if self.transparent && self.color.to_srgba_unmultiplied() != self.transparent_from.to_srgba_unmultiplied() {

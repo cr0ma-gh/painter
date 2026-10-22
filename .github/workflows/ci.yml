@@ -46,3 +46,64 @@ jobs:
         with:
           name: painter-ipad-unsigned
           path: ios/build/Painter-unsigned.ipa
+
+  linux:
+    name: Linux build, tests and AppImage
+    # The oldest supported runner: the AppImage then runs on older distributions too.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: linux
+      - name: System libraries (GTK 3 file dialogs, X11, Wayland)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev pkg-config
+      - name: Tests
+        run: cargo test --workspace
+      - name: Build and package
+        run: bash packaging/linux/build-appimage.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: painter-linux-appimage
+          path: target/appimage/Painter-x86_64.AppImage
+
+  macos:
+    name: macOS app (Apple Silicon + Intel)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos
+      - name: Build and package
+        run: bash packaging/macos/build-app.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: painter-macos
+          path: target/macos/Painter.dmg
+
+  android:
+    name: Android APK (arm64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+      - name: cargo-apk
+        run: cargo install cargo-apk --locked
+      - name: Build and package
+        run: bash packaging/android/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: painter-android
+          path: target/release/apk/Painter.apk

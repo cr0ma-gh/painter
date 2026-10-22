@@ -33,9 +33,9 @@ pub(crate) enum Purpose {
 
 /// The subset of `rfd::FileDialog` the app uses, plus the purpose.
 /// (The name, extensions and purpose matter only on iPadOS.)
-#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+#[cfg_attr(desktop, allow(dead_code))]
 pub(crate) struct FileDialog {
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(desktop)]
     inner: rfd::FileDialog,
     name: Option<String>,
     extensions: Vec<String>,
@@ -45,7 +45,7 @@ pub(crate) struct FileDialog {
 impl FileDialog {
     pub(crate) fn new() -> Self {
         Self {
-            #[cfg(not(target_os = "ios"))]
+            #[cfg(desktop)]
             inner: rfd::FileDialog::new(),
             name: None,
             extensions: Vec::new(),
@@ -55,11 +55,11 @@ impl FileDialog {
 
     pub(crate) fn add_filter(mut self, name: impl Into<String>, extensions: &[impl ToString]) -> Self {
         let extensions: Vec<String> = extensions.iter().map(|e| e.to_string()).collect();
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(desktop)]
         {
             self.inner = self.inner.add_filter(name, &extensions);
         }
-        #[cfg(target_os = "ios")]
+        #[cfg(not(desktop))]
         let _ = name.into();
         self.extensions.extend(extensions);
         self
@@ -67,7 +67,7 @@ impl FileDialog {
 
     pub(crate) fn set_file_name(mut self, name: impl Into<String>) -> Self {
         let name = name.into();
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(desktop)]
         {
             self.inner = self.inner.set_file_name(name.clone());
         }
@@ -83,30 +83,30 @@ impl FileDialog {
 
     /// The chosen file; on iPadOS `None` now and the file comes through [`take_picked`].
     pub(crate) fn pick_file(self) -> Option<PathBuf> {
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(desktop)]
         return self.inner.pick_file();
-        #[cfg(target_os = "ios")]
+        #[cfg(not(desktop))]
         {
-            start_pick(self.purpose, false);
+            start_pick(self.purpose, false, &self.extensions);
             None
         }
     }
 
     pub(crate) fn pick_files(self) -> Option<Vec<PathBuf>> {
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(desktop)]
         return self.inner.pick_files();
-        #[cfg(target_os = "ios")]
+        #[cfg(not(desktop))]
         {
-            start_pick(self.purpose, true);
+            start_pick(self.purpose, true, &self.extensions);
             None
         }
     }
 
     /// Where to save; on iPadOS a file in Documents under the suggested name.
     pub(crate) fn save_file(self) -> Option<PathBuf> {
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(desktop)]
         return self.inner.save_file();
-        #[cfg(target_os = "ios")]
+        #[cfg(not(desktop))]
         {
             let dir = documents_dir()?;
             let ext = self.extensions.first().map_or("painter", |e| e.as_str());
@@ -120,11 +120,16 @@ impl FileDialog {
 static PENDING: Mutex<Purpose> = Mutex::new(Purpose::Open);
 
 #[cfg(target_os = "ios")]
-fn start_pick(purpose: Purpose, multiple: bool) {
+fn start_pick(purpose: Purpose, multiple: bool, _extensions: &[String]) {
     if let Ok(mut p) = PENDING.lock() {
         *p = purpose;
     }
     native::pick(multiple);
+}
+
+#[cfg(target_os = "android")]
+fn start_pick(purpose: Purpose, multiple: bool, extensions: &[String]) {
+    android::open(purpose, multiple, extensions);
 }
 
 /// A file the user picked since the last call (iPadOS), with what it is for.
@@ -142,7 +147,9 @@ pub(crate) fn take_picked() -> Option<(Purpose, PathBuf)> {
         };
         Some((purpose, path))
     }
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(target_os = "android")]
+    return android::take();
+    #[cfg(desktop)]
     None
 }
 
@@ -169,7 +176,9 @@ fn adopt(path: &Path) -> Option<PathBuf> {
 pub(crate) fn picking() -> bool {
     #[cfg(target_os = "ios")]
     return native::active();
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(target_os = "android")]
+    return android::open_now();
+    #[cfg(desktop)]
     false
 }
 
@@ -179,7 +188,11 @@ pub(crate) fn picking() -> bool {
 pub(crate) fn offer_export(path: &Path) {
     #[cfg(target_os = "ios")]
     native::export(path);
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(target_os = "android")]
+    if let Ok(mut n) = NOTICE.lock() {
+        *n = Some(format!("Saved in the app's folder: {}", path.display()));
+    }
+    #[cfg(desktop)]
     let _ = path;
 }
 
@@ -190,9 +203,18 @@ pub(crate) fn take_notice() -> Option<String> {
     NOTICE.lock().ok().and_then(|mut n| n.take())
 }
 
-/// The app's own documents folder: iPadOS's Documents, `None` on the
-/// desktop (where the system dialogs reach everything).
+/// The app's own documents folder: iPadOS's Documents, Android's
+/// app-specific storage (Android/data/<app>/files, reachable over USB),
+/// `None` on the desktop (where the system dialogs reach everything).
 pub(crate) fn documents_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "android")]
+    {
+        let (internal, external) = ANDROID_FOLDERS.get()?;
+        let dir = external.clone().or_else(|| internal.as_ref().map(|d| d.join("Documents")))?;
+        std::fs::create_dir_all(&dir).ok()?;
+        return Some(dir);
+    }
+    #[allow(unreachable_code)]
     if cfg!(target_os = "ios") {
         let dir = PathBuf::from(std::env::var_os("HOME")?).join("Documents");
         std::fs::create_dir_all(&dir).ok()?;
@@ -214,7 +236,7 @@ pub(crate) fn materials_dir() -> Option<PathBuf> {
 /// Where settings are kept when eframe has no storage: iPadOS's
 /// Library/Application Support (not shown in the Files app).
 pub(crate) fn settings_file() -> Option<PathBuf> {
-    if cfg!(target_os = "ios") {
+    if cfg!(any(target_os = "ios", target_os = "android")) {
         Some(app_data_dir()?.join("settings.json"))
     } else {
         None
@@ -223,8 +245,12 @@ pub(crate) fn settings_file() -> Option<PathBuf> {
 
 /// The app's own data folder (the brush library): `%APPDATA%\Painter` on
 /// Windows, `Library/Application Support/Painter` on iPadOS and macOS,
-/// `$XDG_DATA_HOME/Painter` (or `~/.local/share/Painter`) elsewhere.
+/// `$XDG_DATA_HOME/Painter` (or `~/.local/share/Painter`) elsewhere; on
+/// Android, the app's internal storage.
 pub(crate) fn app_data_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "android")]
+    return ANDROID_FOLDERS.get().and_then(|(internal, _)| internal.clone()).map(|d| d.join("Painter"));
+    #[allow(unreachable_code)]
     let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
     let base = if cfg!(windows) {
         var("APPDATA")?
@@ -311,6 +337,121 @@ mod native {
             let path = CStr::from_ptr(p).to_string_lossy().into_owned();
             painter_free_string(p);
             Some(PathBuf::from(path))
+        }
+    }
+}
+
+/// Android: the app's internal and external (app-specific) storage, from the activity.
+#[cfg(target_os = "android")]
+static ANDROID_FOLDERS: std::sync::OnceLock<(Option<PathBuf>, Option<PathBuf>)> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "android")]
+pub(crate) fn set_android_folders(internal: Option<PathBuf>, external: Option<PathBuf>) {
+    let _ = ANDROID_FOLDERS.set((internal, external));
+}
+
+/// The in-app file picker where there's no system one to call (Android): the
+/// files of the app's folder that suit what's being opened.
+pub(crate) fn picker_window(ctx: &eframe::egui::Context) {
+    #[cfg(target_os = "android")]
+    android::window(ctx);
+    #[cfg(not(target_os = "android"))]
+    let _ = ctx;
+}
+
+#[cfg(target_os = "android")]
+mod android {
+    use super::{documents_dir, Purpose};
+    use eframe::egui;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    struct Picker {
+        purpose: Purpose,
+        multiple: bool,
+        extensions: Vec<String>,
+        chosen: Vec<PathBuf>,
+    }
+
+    static PICKER: Mutex<Option<Picker>> = Mutex::new(None);
+    static PICKED: Mutex<Vec<(Purpose, PathBuf)>> = Mutex::new(Vec::new());
+
+    pub(super) fn open(purpose: Purpose, multiple: bool, extensions: &[String]) {
+        if let Ok(mut p) = PICKER.lock() {
+            *p = Some(Picker { purpose, multiple, extensions: extensions.iter().map(|e| e.to_ascii_lowercase()).collect(), chosen: Vec::new() });
+        }
+    }
+
+    pub(super) fn open_now() -> bool {
+        PICKER.lock().is_ok_and(|p| p.is_some())
+    }
+
+    pub(super) fn take() -> Option<(Purpose, PathBuf)> {
+        let mut picked = PICKED.lock().ok()?;
+        (!picked.is_empty()).then(|| picked.remove(0))
+    }
+
+    pub(super) fn window(ctx: &egui::Context) {
+        let Ok(mut guard) = PICKER.lock() else { return };
+        let Some(picker) = guard.as_mut() else { return };
+        let Some(dir) = documents_dir() else {
+            *guard = None;
+            return;
+        };
+        let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .map(|entries| {
+                entries
+                    .filter_map(|e| e.ok().map(|e| e.path()))
+                    .filter(|p| p.is_file())
+                    .filter(|p| {
+                        let ext = p.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+                        picker.extensions.is_empty() || picker.extensions.contains(&ext)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        files.sort();
+        let mut done = None;
+        egui::Window::new("Open").collapsible(false).resizable(true).default_width(420.0).show(ctx, |ui| {
+            ui.label(format!("Files in {}", dir.display()));
+            ui.small("Copy files there over USB or with a file manager (Android/data/…/files).");
+            ui.separator();
+            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                if files.is_empty() {
+                    ui.label("Nothing here that this can open.");
+                }
+                for f in &files {
+                    let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    let on = picker.chosen.contains(f);
+                    if ui.add(egui::Button::new(name).selected(on).min_size(egui::vec2(ui.available_width(), 40.0))).clicked() {
+                        if picker.multiple {
+                            if on {
+                                picker.chosen.retain(|c| c != f);
+                            } else {
+                                picker.chosen.push(f.clone());
+                            }
+                        } else {
+                            done = Some(vec![f.clone()]);
+                        }
+                    }
+                }
+            });
+            ui.separator();
+            ui.horizontal(|ui| {
+                if picker.multiple && ui.add_enabled(!picker.chosen.is_empty(), egui::Button::new("Open")).clicked() {
+                    done = Some(picker.chosen.clone());
+                }
+                if ui.button("Cancel").clicked() {
+                    done = Some(Vec::new());
+                }
+            });
+        });
+        if let Some(chosen) = done {
+            let purpose = picker.purpose;
+            *guard = None;
+            if let Ok(mut picked) = PICKED.lock() {
+                picked.extend(chosen.into_iter().map(|p| (purpose, p)));
+            }
         }
     }
 }
