@@ -25,6 +25,7 @@ const THEMES_KEY: &str = "themes_v1";
 const TOOLBAR_KEY: &str = "toolbar_v1";
 const COMMAND_BAR_KEY: &str = "command_bar_v1";
 const BARS_KEY: &str = "bars_v1";
+const WELCOME_KEY: &str = "welcome_v1";
 /// Height of an area's header strip.
 const HEADER: f32 = 22.0;
 /// Rows shown in the command palette.
@@ -54,6 +55,8 @@ pub(crate) struct WorkspaceUi {
     pub(crate) command_bar_search: String,
     /// Which of the tool strip and the command bar are shown.
     pub(crate) bars: crate::toolbar::Bars,
+    /// Show the welcome screen at startup.
+    pub(crate) welcome: bool,
     /// Workspace tab being renamed, with the text so far.
     renaming: Option<(usize, String)>,
     /// Where settings live when eframe has no storage (iPadOS), and what
@@ -91,6 +94,7 @@ impl WorkspaceUi {
             command_bar_editing: false,
             command_bar_search: String::new(),
             bars: get(BARS_KEY).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
+            welcome: get(WELCOME_KEY).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or(true),
             renaming: None,
             settings_file,
             written,
@@ -98,7 +102,7 @@ impl WorkspaceUi {
         }
     }
 
-    fn entries(&self) -> [(&'static str, String); 6] {
+    fn entries(&self) -> [(&'static str, String); 7] {
         [
             (WORKSPACES_KEY, self.set.to_json()),
             (CHROME_KEY, serde_json::to_string(&self.chrome).unwrap_or_default()),
@@ -106,6 +110,7 @@ impl WorkspaceUi {
             (TOOLBAR_KEY, serde_json::to_string(&self.toolbar.iter().map(crate::toolbar::Item::key).collect::<Vec<_>>()).unwrap_or_default()),
             (COMMAND_BAR_KEY, serde_json::to_string(&self.command_bar.iter().map(crate::toolbar::Item::key).collect::<Vec<_>>()).unwrap_or_default()),
             (BARS_KEY, serde_json::to_string(&self.bars).unwrap_or_default()),
+            (WELCOME_KEY, serde_json::to_string(&self.welcome).unwrap_or_default()),
         ]
     }
 
@@ -924,7 +929,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 61] = [
+        let fixed: [FixedCommand; 63] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -942,6 +947,8 @@ impl PainterApp {
             ("file.export_svg", "Export SVG...", C::File, "", &["vector"], true),
             ("file.export_brushes", "Export All Brushes...", C::Brush, "", &[], true),
             ("file.quit", "Quit", C::File, "Ctrl+Q", &["exit", "close"], !cfg!(target_os = "ios")),
+            ("help.welcome", "Welcome Screen", C::View, "", &["start", "splash", "features"], true),
+            ("help.about", "About Painter", C::View, "", &["version", "about", "help"], true),
             ("edit.undo", "Undo", C::Edit, "Ctrl+Z", &[], self.history.can_undo()),
             ("edit.redo", "Redo", C::Edit, "Ctrl+Shift+Z", &[], self.history.can_redo()),
             ("edit.image_size", "Image Size...", C::Edit, "", &["resize", "scale", "resample", "pixel art", "nearest", "resolution"], true),
@@ -1079,6 +1086,8 @@ impl PainterApp {
             "view.tool_strip" => self.ws.bars.tool_strip = !self.ws.bars.tool_strip,
             "view.command_bar" => self.ws.bars.command_bar = !self.ws.bars.command_bar,
             "file.quit" => self.quit_requested = true,
+            "help.welcome" => self.welcome_open = true,
+            "help.about" => self.about_open = true,
             "view.reset_rotation" => self.view.set_rotation(0.0),
             "view.flip" => self.view.flip = !self.view.flip,
             "view.grid" => self.doc.rulers.grid.visible = !self.doc.rulers.grid.visible,

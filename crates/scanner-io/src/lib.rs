@@ -22,6 +22,7 @@
 
 mod backend;
 mod decode;
+mod panels;
 mod process;
 
 pub use backend::{
@@ -33,6 +34,7 @@ pub use backend::{
     wia::WiaBackend,
     ScannerBackend,
 };
+pub use panels::{find_panels, isolate, PanelRect};
 pub use process::{auto_contrast, crop, extract_line_art, orient, prepare_for_import, ImportOptions, LineArtOptions, Orientation, Rotation};
 
 use std::fmt;

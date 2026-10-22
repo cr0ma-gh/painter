@@ -17,6 +17,10 @@ rm -rf "$BUILD"
 mkdir -p "$APP"
 cp "target/$TARGET/release/painter" "$APP/Painter"
 cp ios/Info.plist "$APP/Info.plist"
+# Home screen icons (named in Info.plist: CFBundleIcons~ipad).
+for size in 120 152 167 180; do
+    cp "ios/AppIcon-$size.png" "$APP/AppIcon-$size.png"
+done
 plutil -lint "$APP/Info.plist"
 
 (cd "$BUILD" && zip -qry Painter-unsigned.ipa Payload)

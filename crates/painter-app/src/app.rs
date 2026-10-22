@@ -178,6 +178,11 @@ pub struct PainterApp {
     pub(crate) scene_renderer: Option<painter_render::SceneRenderer>,
     /// Ctrl + Alt resizing of the brush, while held.
     pub(crate) size_drag: Option<crate::brush_cursor::SizeDrag>,
+    /// The welcome screen and the About window are open.
+    pub(crate) welcome_open: bool,
+    pub(crate) about_open: bool,
+    /// The ensō for them, once loaded.
+    pub(crate) logo: Option<egui::TextureHandle>,
     /// Extended Color Selector state.
     pub(crate) gamut: crate::gamut_selector::GamutSelector,
     /// Image tips as textures for the brush cursor.
@@ -296,6 +301,9 @@ impl PainterApp {
             render_state: cc.wgpu_render_state.clone(),
             scene_renderer: None,
             size_drag: None,
+            welcome_open: ws.welcome,
+            about_open: false,
+            logo: None,
             gamut: Default::default(),
             tip_textures: Default::default(),
             model_paint: None,
@@ -1475,6 +1483,8 @@ impl eframe::App for PainterApp {
         self.filter_window(ctx);
         self.update_title(ctx);
         self.modifier_keys.overlay(ctx, crate::theme::panel(), crate::theme::selected());
+        self.welcome_window(ctx);
+        self.about_window(ctx);
         self.close_prompts(ctx);
         if self.doc.selection.is_some() {
             // Marching ants.

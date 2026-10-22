@@ -58,6 +58,9 @@ pub struct ScannerDialog {
     settings: ScanSettings,
     auto_contrast: bool,
     line_art: Option<LineArtOptions>,
+    /// Split the page into its drawn panels, a layer each (and their order for manga).
+    panels: bool,
+    panels_rtl: bool,
     preview: Option<(ScannedImage, egui::TextureHandle)>,
     /// Crop region on the preview, as bed fractions.
     crop: ScanArea,
@@ -92,6 +95,8 @@ impl ScannerDialog {
             settings: ScanSettings::default(),
             auto_contrast: true,
             line_art: Some(LineArtOptions::default()),
+            panels: false,
+            panels_rtl: false,
             preview: None,
             crop: ScanArea::FULL,
             drag_from: None,
@@ -388,7 +393,11 @@ impl PainterApp {
         }
         let imported = !import.is_empty();
         for image in &import {
-            self.import_scan(image, dialog.oversize);
+            if dialog.panels {
+                self.import_scan_panels(image, dialog.oversize, dialog.panels_rtl);
+            } else {
+                self.import_scan(image, dialog.oversize);
+            }
         }
         if import.len() > 1 {
             self.status = format!("Imported {} pages as layers", import.len());
@@ -404,6 +413,31 @@ impl PainterApp {
     /// dialog, opening it if needed.
     pub(crate) fn add_scan_pages(&mut self, paths: Vec<std::path::PathBuf>) {
         self.scanner.get_or_insert_with(ScannerDialog::open).add_pages(paths);
+    }
+
+    /// A scanned page split into its drawn panels: a layer each, where it is on
+    /// the page, in reading order, in a "Panels" folder. Without panels, the page.
+    pub(crate) fn import_scan_panels(&mut self, image: &ScannedImage, oversize: Oversize, right_to_left: bool) {
+        let panels = scanner_io::find_panels(image, right_to_left);
+        if panels.is_empty() {
+            self.import_scan(image, oversize);
+            self.status += " (no drawn panels found: imported the whole page)";
+            return;
+        }
+        let mut ids = Vec::new();
+        for (i, panel) in panels.iter().enumerate() {
+            self.import_scan(&scanner_io::isolate(image, panel), oversize);
+            let id = self.doc.active;
+            if let Some(layer) = self.doc.find_mut(id) {
+                layer.name = format!("Panel {}", i + 1);
+            }
+            ids.push(id);
+        }
+        if let Some(folder) = self.doc.group_layers(&ids, "Panels") {
+            self.doc.active = folder;
+        }
+        self.resync_gpu();
+        self.status = format!("Imported {} panels, a layer each, in reading order", panels.len());
     }
 
     /// A cleaned-up scan as a new raster layer at the top-left of the canvas.
@@ -719,6 +753,11 @@ fn cleanup_controls(ui: &mut egui::Ui, dialog: &mut ScannerDialog) {
         prop_percent(ui, "Paper above", &mut line_art.paper, 0.0..=100.0);
         prop_percent(ui, "Solid ink below", &mut line_art.ink, 0.0..=100.0);
         ui.checkbox(&mut line_art.keep_color, "Keep line colour");
+    }
+    ui.checkbox(&mut dialog.panels, "Extract panels")
+        .on_hover_text("Rectangles drawn as frames become a layer each, in a Panels folder");
+    if dialog.panels {
+        ui.checkbox(&mut dialog.panels_rtl, "Right to left (manga order)");
     }
 }
 

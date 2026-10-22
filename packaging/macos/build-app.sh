@@ -25,13 +25,12 @@ plutil -lint "$APP/Contents/Info.plist"
 ICONSET="$OUT/painter.iconset"
 mkdir -p "$ICONSET"
 for size in 16 32 128 256 512; do
-    sips -z "$size" "$size" packaging/painter.png --out "$ICONSET/icon_${size}x${size}.png" > /dev/null
+    sips -z "$size" "$size" packaging/painter-1024.png --out "$ICONSET/icon_${size}x${size}.png" > /dev/null
     double=$((size * 2))
-    if [ "$double" -le 512 ]; then
-        sips -z "$double" "$double" packaging/painter.png --out "$ICONSET/icon_${size}x${size}@2x.png" > /dev/null
+    if [ "$double" -le 1024 ]; then
+        sips -z "$double" "$double" packaging/painter-1024.png --out "$ICONSET/icon_${size}x${size}@2x.png" > /dev/null
     fi
 done
-cp packaging/painter.png "$ICONSET/icon_256x256@2x.png"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/painter.icns"
 rm -rf "$ICONSET"
 

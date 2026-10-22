@@ -1,5 +1,5 @@
 
-Without a keyboard, View → On-Screen Modifier Keys shows Ctrl, Shift and Alt
+Without a keyboard, View â On-Screen Modifier Keys shows Ctrl, Shift and Alt
 buttons that latch (on by default on iPad).
 # Painter
 
@@ -10,6 +10,14 @@ CELSYS code or assets are used.
 - [docs/FEATURE_MAP.md](docs/FEATURE_MAP.md): the behaviour we target and what is done
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): crates, GPU tile atlas, data flow, file formats
 - [docs/BRUSH_IO.md](docs/BRUSH_IO.md): brushes from Clip Studio `.sut`, Photoshop `.abr`, Krita `.kpp` / `.bundle`, MyPaint `.myb`, GIMP `.gbr` / `.gih` / `.vbr`, `.rustbrush`
+
+## Start
+
+A welcome screen at startup shows what Painter does and how to begin (new
+canvas, open, new comic page; it can be turned off); Help â About Painter
+has the version and links to the website and the source. The icon is an
+ensō (`packaging/painter.svg`, a trace of a brush-drawn circle; PNGs for
+every platform in `packaging/`, embedded in `painter.exe` by `build.rs`).
 
 ## Build
 
@@ -41,11 +49,11 @@ cargo run --release -p painter-app -- drawing.painter
   and blend mode for all of them at once (right-click menu too). Draft
   layers stay visible while you work and are left out of PNG, PSD, SVG,
   Krita and OpenRaster exports.
-- **Straight lines:** with any brush (pen, pencil, eraser…) hold Shift and
+- **Straight lines:** with any brush (pen, pencil, eraserâ¦) hold Shift and
   click or drag: the line starts where the last stroke ended (Shift-click
   point after point to join them) or where you press, follows the pointer as
   a guide and is drawn on release with the brush's own dynamics; add Ctrl to
-  snap its angle to 15°. Shift snaps the Gradient tool's direction too.
+  snap its angle to 15Â°. Shift snaps the Gradient tool's direction too.
 - **Brushes:** pressure curves for size and density (with an editor),
   per-stroke opacity, per-dab density, spacing, hardness, anti-aliasing,
   stabilisation (weighted average or pulled string), erasers. On vector layers
@@ -65,31 +73,31 @@ cargo run --release -p painter-app -- drawing.painter
   is the same file byte for byte; edited, it keeps the settings Painter
   doesn't have. Between different programs the engines differ, so brushes
   are mapped as closely as their settings allow (see docs/BRUSH_IO.md).
-- **Extended Color Selector** (Window → Extended Color Selector), after
+- **Extended Color Selector** (Window â Extended Color Selector), after
   Krita's: a hue ring around a triangle, square or diamond, a hue / saturation
-  wheel with a value bar, a square with a hue bar, or hue × value and hue ×
-  saturation rectangles, in HSV, HSL, HSI or HSY′ (the last two stretched to
-  the whole gamut). The ☰ menu shows every shape as a thumbnail.
+  wheel with a value bar, a square with a hue bar, or hue Ã value and hue Ã
+  saturation rectangles, in HSV, HSL, HSI or HSYâ² (the last two stretched to
+  the whole gamut). The â° menu shows every shape as a thumbnail.
 - **Colour:** colour wheel; the transparent colour (the checkered chip beside main / sub: any brush erases with its own tip and dynamics, until a colour is picked); Color Slider (RGB, HSV and CMYK device values);
   Color Set (named sets, GIMP `.gpl` import / export); Color History;
   Intermediate Color (four blended corners); Approximate Color (value /
   saturation around the current colour); Color Mixing (paint, blend, erase
   and pick on a small mixing canvas). Sets and history are kept between
   launches.
-- **Panels** float in their own windows (area menu → Float, or Window →
+- **Panels** float in their own windows (area menu â Float, or Window â
   the panel's name), fold to their header, and each has its own scale
   (area menu, or Ctrl + Alt + wheel over it). Search Layer finds layers by
-  name and kind. The tool strip is customisable: right-click it → Customize
+  name and kind. The tool strip is customisable: right-click it â Customize
   Toolbar to reorder buttons, remove them, or add any command as a quick
   button.
 - **Tools:** rectangle, ellipse and lasso selections (new, add, subtract,
   intersect); fill bucket (tolerance, contiguous, gap closing up to 40 px, reads the edited layer, all layers or
   layers marked as reference, anti-halo expansion under the lines or inset; ~0.2 s on a 600 dpi A4 page);
   gradient tool; clear selected area. Eyedropper (I): the colour shown on the canvas or only the current
-  layer's, one pixel or averaged over 3×3 to 11×11; also while Alt is held
+  layer's, one pixel or averaged over 3Ã3 to 11Ã11; also while Alt is held
   with a brush, fill or gradient, and by resting a finger on the canvas on
   iPad; a loupe shows the new colour over the old one.
-- **Correction layers** (Layer → New Correction Layer; `painter_core::adjust`):
+- **Correction layers** (Layer â New Correction Layer; `painter_core::adjust`):
   brightness / contrast, levels, tone curve, hue / saturation / lightness,
   colour balance, posterize, threshold, invert and gradient map. They recolour
   everything below them, on the GPU and in exports alike, and take masks,
@@ -106,7 +114,7 @@ cargo run --release -p painter-app -- drawing.painter
   rotational and kaleidoscope symmetry (every dab repeated, vector strokes
   copied), parallel lines, concentric circles and ellipses, radial lines,
   straight rulers, horizontal and vertical guides, and a grid. Ctrl+1
-  toggles snapping, Ctrl+' the grid; View → Flip Horizontally mirrors the
+  toggles snapping, Ctrl+' the grid; View â Flip Horizontally mirrors the
   view without touching the pixels. Saved with the project. Each ruler
   belongs to the layer it was made on and acts only while that layer is
   edited (or, if set, any layer in the same folder, or all layers); a ruler
@@ -128,33 +136,33 @@ cargo run --release -p painter-app -- drawing.painter
   header strip (or to a narrow icon column beside a side-by-side neighbour),
   like a collapsed Clip Studio palette; its neighbours take the space, and a
   click on the strip opens it again. The interface scales as a whole from 50%
-  to 300% (the squares icon at the top right, Window → Interface Size, or
-  Ctrl + / Ctrl − / Ctrl 0), like Blender's Resolution Scale. F3 or Ctrl+Space opens a fuzzy command
+  to 300% (the squares icon at the top right, Window â Interface Size, or
+  Ctrl + / Ctrl â / Ctrl 0), like Blender's Resolution Scale. F3 or Ctrl+Space opens a fuzzy command
   palette (menus, tools, brushes, workspaces, themes); Tab or F11 toggles zen
-  mode (canvas only). Window → Theme Editor edits colours, text size and
+  mode (canvas only). Window â Theme Editor edits colours, text size and
   rounding with contrast warnings; dark, light and high-contrast presets,
   themes import and export as JSON. All of it is saved between sessions.
 - **Reference board** (Reference View, like PureRef): pictures dropped on it,
   pasted (Ctrl+V), added from files, or live pictures of other open
   documents, laid out freely: move, scale from a corner, turn from the handle
-  (Shift snaps to 15°), mirror, grey, opacity, stack, lock, duplicate,
+  (Shift snaps to 15Â°), mirror, grey, opacity, stack, lock, duplicate,
   arrange in rows, fit, mirror the view. The pen draws marks over them to
   point things out (a mark drawn on a picture follows it), the eraser rubs
   them out. Own undo, pan and zoom; kept between launches, and saved to or
   opened from `.refboard` files. Layers dropped on a document's picture are
   copied into that document.
-- **Bars:** View → Tool Strip / Command Bar (or right-click a bar) hides
+- **Bars:** View â Tool Strip / Command Bar (or right-click a bar) hides
   either; the command bar under the menu is customisable like the tool strip
   (any command from the palette, drag to reorder, right-click to remove,
-  separators). File → Quit (Ctrl+Q). The reference board also takes PSD,
+  separators). File â Quit (Ctrl+Q). The reference board also takes PSD,
   Krita, OpenRaster, Clip Studio and Painter files, shown as their flattened picture.
 - **Several documents:** a tab per open document (`*` marks unsaved changes;
   Ctrl+W closes, Ctrl+Tab / Ctrl+Shift+Tab cycle), each with its own zoom,
   rotation, pan and undo history. Files open and save on worker threads.
   Layers, folders, 3D layers and selections copy into
   another document by dragging the layer onto its tab, from the tab menu or
-  Layer → Copy Layer to Document, resampled to keep their print size when the
-  resolutions differ (Ctrl+C / Ctrl+V across tabs does the same). File → Save
+  Layer â Copy Layer to Document, resampled to keep their print size when the
+  resolutions differ (Ctrl+C / Ctrl+V across tabs does the same). File â Save
   All / Close All; quitting lists every unsaved document. Only the active
   document is on the GPU.
 - **Brush library:** the brush list (built-in and imported brushes, edits,
@@ -171,10 +179,10 @@ cargo run --release -p painter-app -- drawing.painter
   image tip, pressure, tilt, lean). Ctrl + Alt and a sideways move of the pen
   or mouse resizes the brush.
 - **Files:** `.painter` projects, PSD import/export, PNG open/import/export,
-  File → New from Clipboard (Ctrl+Alt+N) makes a document the size of a
+  File â New from Clipboard (Ctrl+Alt+N) makes a document the size of a
   picture copied in another app (a screenshot, a browser image) or of the
   selection copied in Painter (at its resolution),
-  Krita `.kra` and OpenRaster `.ora` (MyPaint, GIMP, Krita…) open, Save As and
+  Krita `.kra` and OpenRaster `.ora` (MyPaint, GIMP, Kritaâ¦) open, Save As and
   Export: layers, folders (pass-through or not), opacity, blend modes,
   visibility, lock, offsets and Krita transparency masks are read; on save,
   masks and clipping are baked into the pixels and correction layers left
@@ -185,7 +193,7 @@ cargo run --release -p painter-app -- drawing.painter
   or cm come in at their pixel size). Vector, text, 3D and video layers aren't
   stored as pixels in a `.clip`, so the file's own preview comes in as a hidden
   "Clip Studio preview" layer and the status bar names what was left out.
-  File → Export → Clip Studio writes a `.clip` into a copy of any file saved by
+  File â Export â Clip Studio writes a `.clip` into a copy of any file saved by
   Clip Studio (chosen once, kept as the template): layers, folders, opacity,
   blend modes, visibility, lock and clipping; masks are applied to the pixels.
   The app asks before closing with unsaved changes.
@@ -193,28 +201,28 @@ cargo run --release -p painter-app -- drawing.painter
   `transform-tools`): the layer or selection floats under a gizmo while the
   document stays untouched, with a live GPU preview and a HUD (mode, X/Y,
   W/H %, rotation, interpolation, Apply / Cancel / Reset). With Nearest
-  neighbour, "Whole pixels" keeps pixel art crisp: scale snaps to ×2, ×3… or
-  ½, ⅓…, rotation to quarter turns and the position to the pixel grid (½ ×1
-  ×2 ×3 ×4 buttons). Edit → Image Size resizes the whole document (layers,
+  neighbour, "Whole pixels" keeps pixel art crisp: scale snaps to Ã2, Ã3â¦ or
+  Â½, ââ¦, rotation to quarter turns and the position to the pixel grid (Â½ Ã1
+  Ã2 Ã3 Ã4 buttons). Edit â Image Size resizes the whole document (layers,
   masks, selection, vector strokes) with Nearest neighbour (keeps pixels),
   bilinear, bicubic or Lanczos3, optionally keeping the size on paper. The
   engine:
   homographies (scale / rotate / skew about a pivot, 4-corner perspective and
   free distort), a Catmull-Rom mesh warp, a toolkit-independent gizmo (8 scale
-  handles, rotation handle with 15° snapping, pivot, corner nodes, mesh points,
+  handles, rotation handle with 15Â° snapping, pivot, corner nodes, mesh points,
   HUD values, Apply / Cancel / Reset), crop box (16:9, 1:1, A4, free; thirds;
   non-destructive canvas resize) and copy / cut / paste of floating
   selections. Resampling with nearest, bilinear, bicubic and Lanczos3 on the
   CPU, and the same filters on the GPU in `transform.wgsl`
   (`painter_render::TransformRenderer`) for live perspective previews; the
   `transform_parity` tests keep the two within 2/255.
-- **Comic pages** (File → New Comic Page / Storyboard, Frame tool / U, the
+- **Comic pages** (File â New Comic Page / Storyboard, Frame tool / U, the
   Panels section of the Layers panel; crate `comic-layout`): a wizard with
   format and layout previews, panel frames drawn as rectangles or polygons,
   divided with gutters, reshaped with snapping, and managed per panel (clip,
   border, order, visibility). Saved in `.painter` files (`extras/comic.json`). Print
   presets (manga B5, A4 / B5 doujinshi, webtoon strip with slice markers,
-  Franco-Belgian A4 and 24 × 32 album, US comic book, Bonelli 16 × 21, custom
+  Franco-Belgian A4 and 24 Ã 32 album, US comic book, Bonelli 16 Ã 21, custom
   with DPI, bleed, safe margin, gutters and binding side), page geometry
   (trim, bleed, inner frame, crop marks), vector panel frames with straight or
   diagonal splits and gutters, reading order for left-to-right and
@@ -225,7 +233,7 @@ cargo run --release -p painter-app -- drawing.painter
   waffle 9, Bonelli 3 tiers, manga dynamic 6, 4-koma, webtoon stack.
   `cargo run -p painter-comic-layout --example layout_preview -- "Manga B5" "Manga dynamic 6" 150 out.png`
   renders one.
-- **3D layers** (Layer → New 3D Layer from Model, 3D tool; crates `scene-3d`
+- **3D layers** (Layer â New 3D Layer from Model, 3D tool; crates `scene-3d`
   and `painter-render`'s depth-buffered scene pass): import `.blend` / `.obj`,
   Blender-style navigation (middle drag orbit, Shift pan, wheel / Ctrl zoom,
   1 / 3 / 7 views, 5 perspective, Home frame), click to pick, G / R / S gizmo,
@@ -235,10 +243,10 @@ cargo run --release -p painter-app -- drawing.painter
   the canvas) and gets a perspective ruler on the vanishing points of the
   scene's X, Y and Z axes, usable from any layer; the 3D panel can go back to
   the Blender camera or rebuild the ruler from the current view.
-  **Texture painting** (3D panel → Texture painting): each object can have a
+  **Texture painting** (3D panel â Texture painting): each object can have a
   colour texture (new, loaded from an image, or an OBJ material's `map_Kd`),
   saved with the project and exportable as PNG. *Paint on model* puts a
-  “Paint on model” layer over the 3D layer where every tool works; after each
+  âPaint on modelâ layer over the 3D layer where every tool works; after each
   stroke its paint is projected onto the texture through the camera (only
   surfaces in view, fading on those seen edge-on, no cracks at UV seams), and
   middle drag or the wheel still turn the model. *Edit texture (UV)* opens the
@@ -246,7 +254,7 @@ cargo run --release -p painter-app -- drawing.painter
   3D preview; the model follows as you paint. Undo covers both. The
   render is copied into the layer's pixels, so it saves and exports; the scene
   (textures included) is saved in `.painter` files. The engine: `.blend`
-  reading (Blender 3.4 – 5.x, plain or zstd-compressed: blocks, the SDNA
+  reading (Blender 3.4 â 5.x, plain or zstd-compressed: blocks, the SDNA
   struct catalogue, mesh objects with UVs and transforms), an OBJ reader,
   GPU-ready meshes, a viewport camera with Blender-style navigation (orbit
   turntable / trackball, pan, zoom, dolly, roll, view presets, perspective /
@@ -255,9 +263,9 @@ cargo run --release -p painter-app -- drawing.painter
   format's description and Blender's behaviour, not its GPL source.
   `cargo run -p painter-scene-3d --example preview -- model.blend out.png`
   renders a file on the CPU; `--example probe` lists its objects and structs.
-- **Scanner and camera import** (File → Import → From Scanner or Camera, crate
+- **Scanner and camera import** (File â Import â From Scanner or Camera, crate
   `scanner-io`): device list, resolution, colour mode, preview with crop,
-  auto-contrast and line-art extraction (paper → transparency) into a new
+  auto-contrast and line-art extraction (paper â transparency) into a new
   layer. Works through WIA on Windows (enumeration, capabilities and transfer;
   scans run on a background thread) and through eSCL ("AirScan") with network
   scanners and multifunction printers on every platform, iPad included: found
@@ -269,9 +277,13 @@ cargo run --release -p painter-app -- drawing.painter
   postcard), share the crop and cleanup, and import one by one or all at once
   (a layer each). A scan bigger than the canvas is fitted into it (scaled
   down, centred), or enlarges the canvas, or is cut, as chosen; nothing is
-  ever kept past the edge of the canvas. `cargo run -p painter-scanner-io
+  ever kept past the edge of the canvas. "Extract panels" finds the rectangles drawn as
+  frames on the page (closed areas of paper surrounded by a frame line, so
+  shapes inside drawings don't count) and imports each panel as its own
+  layer, where it sits on the page, in reading order (or right to left for
+  manga), in a "Panels" folder. `cargo run -p painter-scanner-io
   --example list_scanners` lists what WIA sees without scanning.
-- **SVG export** (File → Export → Layer / Canvas as SVG, crate `vector-export`):
+- **SVG export** (File â Export â Layer / Canvas as SVG, crate `vector-export`):
   layers become nested Inkscape layer groups (name, visibility, opacity, blend
   mode); vector strokes become filled outlines that keep the pressure profile,
   or centre lines; raster line art is traced into Bezier paths (threshold,
@@ -290,7 +302,7 @@ cargo run --release -p painter-app -- drawing.painter
 | M / Shift+M / L | Rectangle / ellipse / lasso selection |
 | H, Space + drag, middle drag | Pan |
 | Wheel, Ctrl + wheel | Zoom at cursor |
-| `,` / `.` | Rotate −15° / +15° |
+| `,` / `.` | Rotate â15Â° / +15Â° |
 | `0` | Fit to window |
 | `[` / `]` | Brush size |
 | X | Swap main / sub colour |
@@ -331,12 +343,12 @@ artifacts):
   scanners work through SANE (install `sane` / `libsane1`).
 - **macOS**: `Painter.dmg` with a universal `Painter.app` (Apple Silicon and
   Intel, macOS 11+; `packaging/macos/build-app.sh`). It's signed ad hoc, not
-  notarised: the first time, right-click the app → Open.
+  notarised: the first time, right-click the app â Open.
 - **Android**: `Painter.apk` for arm64 phones and tablets (Android 9+;
   `packaging/android/build.sh`, with cargo-apk), signed with a test key:
   allow installing unknown apps, or `adb install Painter.apk`. Documents live
   in the app's own folder (`Android/data/io.github.cr0ma_gh.painter/files`,
-  reachable over USB). File → Open browses it and, once you allow access to
+  reachable over USB). File â Open browses it and, once you allow access to
   the device's files, Download, Documents, Pictures and the camera folder;
   exports also get a copy in Documents/Painter. Stylus pressure works, the
   soft keyboard comes up in text fields, network scanners (AirScan) are

@@ -33,6 +33,8 @@ use crate::tile::{TileCoord, TileStore, TILE_SIZE};
 use crate::zipfile::{ZipReader, ZipWriter};
 
 pub const MIMETYPE: &str = "application/x-krita";
+/// The colour profile Painter's documents are in, as Krita names its sRGB profile.
+const PROFILE: &str = "sRGB-elle-V2-srgbtrc.icc";
 const T: usize = TILE_SIZE as usize;
 
 /// LZF decompression (liblzf's format, which Krita uses).
@@ -359,6 +361,8 @@ impl Writer<'_> {
                 let path = format!("{}/layers/{filename}", self.dir);
                 self.zip.add(&path, &write_tiles(&bgra_tiles(&tiles)), true);
                 self.zip.add(&format!("{path}.defaultpixel"), &[0; 4], false);
+                // Krita reads each paint layer's colour profile from beside it.
+                self.zip.add(&format!("{path}.icc"), &ix::srgb_icc(PROFILE), true);
                 self.xml += &format!(
                     "{pad}<layer nodetype=\"paintlayer\" {common} compositeop=\"{}\" channelflags=\"\" channellockflags=\"{}\"/>\n",
                     ix::krita_op(layer.blend),
@@ -381,7 +385,7 @@ pub fn write(doc: &Document, title: &str) -> Result<(Vec<u8>, Vec<String>), Stri
     let main = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE DOC PUBLIC '-//KDE//DTD krita 2.0//EN' 'http://www.calligra.org/DTD/krita-2.0.dtd'>\n\
 <DOC xmlns=\"http://www.calligra.org/DTD/krita\" syntaxVersion=\"2.0\" kritaVersion=\"5.2.0\" editor=\"Painter\">\n\
- <IMAGE name=\"{}\" mime=\"application/x-kra\" width=\"{}\" height=\"{}\" colorspacename=\"RGBA\" profile=\"sRGB-elle-V2-srgbtrc.icc\" x-res=\"{}\" y-res=\"{}\" description=\"\">\n\
+ <IMAGE name=\"{}\" mime=\"application/x-kra\" width=\"{}\" height=\"{}\" colorspacename=\"RGBA\" profile=\"{PROFILE}\" x-res=\"{}\" y-res=\"{}\" description=\"\">\n\
 {layers} </IMAGE>\n</DOC>\n",
         xml_escape(&dir),
         doc.width,
@@ -390,6 +394,8 @@ pub fn write(doc: &Document, title: &str) -> Result<(Vec<u8>, Vec<String>), Stri
         doc.dpi
     );
     zip.add("maindoc.xml", main.as_bytes(), true);
+    // The image's own profile, as Krita writes it.
+    zip.add(&format!("{dir}/annotations/icc"), &ix::srgb_icc(PROFILE), true);
     let info = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE document-info PUBLIC '-//KDE//DTD document-info 1.1//EN' 'http://www.calligra.org/DTD/document-info-1.1.dtd'>\n\
 <document-info xmlns=\"http://www.calligra.org/DTD/document-info\">\n <about>\n  <title>{}</title>\n  <editing-cycles>1</editing-cycles>\n </about>\n <author/>\n</document-info>\n",

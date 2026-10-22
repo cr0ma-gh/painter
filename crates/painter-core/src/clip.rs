@@ -569,7 +569,7 @@ fn block_record(index: u32, zlib: Option<&[u8]>) -> Vec<u8> {
 fn encode_blocks(p: &Picture) -> (Vec<u8>, Vec<u32>) {
     let (across, down) = (p.w.div_ceil(BLOCK), p.h.div_ceil(BLOCK));
     let n = (BLOCK * BLOCK) as usize;
-    let (mut out, mut sizes) = (Vec::new(), Vec::new());
+    let (mut out, mut sizes, mut sums) = (Vec::new(), Vec::new(), Vec::new());
     for by in 0..down {
         for bx in 0..across {
             let mut raw = vec![0u8; n * 5];
@@ -587,21 +587,57 @@ fn encode_blocks(p: &Picture) -> (Vec<u8>, Vec<u32>) {
                     any = true;
                     let i = (y * BLOCK + x) as usize;
                     raw[i] = a;
-                    raw[n + i * 4..n + i * 4 + 4].copy_from_slice(&[b, g, r, 255]);
+                    raw[n + i * 4..n + i * 4 + 4].copy_from_slice(&[b, g, r, 0]);
                 }
             }
             let record = if any {
                 let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
                 std::io::Write::write_all(&mut z, &raw).expect("in memory");
-                block_record(by * across + bx, Some(&z.finish().expect("in memory")))
+                let z = z.finish().expect("in memory");
+                // Adler-32 of what follows the block's length: the stream length (LE) and the stream.
+                let mut summed = (z.len() as u32).to_le_bytes().to_vec();
+                summed.extend(&z);
+                sums.push(adler32(&summed));
+                block_record(by * across + bx, Some(&z))
             } else {
+                sums.push(0);
                 block_record(by * across + bx, None)
             };
             sizes.push(record.len() as u32);
             out.extend(record);
         }
     }
+    // Then every block's status (1, as Clip Studio writes on saving) and checksum.
+    out.extend(block_table("BlockStatus", &vec![1; sums.len()]));
+    out.extend(block_table("BlockCheckSum", &sums));
     (out, sizes)
+}
+
+/// A per-block table after the blocks: UTF-16 name, then 12, the count, 4 and the values.
+fn block_table(name: &str, values: &[u32]) -> Vec<u8> {
+    let mut t = Vec::new();
+    t.extend((name.encode_utf16().count() as u32).to_be_bytes());
+    t.extend(utf16be(name));
+    for v in [12, values.len() as u32, 4] {
+        t.extend(v.to_be_bytes());
+    }
+    for v in values {
+        t.extend(v.to_be_bytes());
+    }
+    t
+}
+
+fn adler32(data: &[u8]) -> u32 {
+    let (mut a, mut b) = (1u32, 0u32);
+    for chunk in data.chunks(5552) {
+        for &x in chunk {
+            a += x as u32;
+            b += a;
+        }
+        a %= 65521;
+        b %= 65521;
+    }
+    (b << 16) | a
 }
 
 /// An offscreen's attribute blob for a picture: the template's parameter and
@@ -1187,6 +1223,33 @@ mod tests {
         let (bytes, notes) = write(&doc, &template()).unwrap();
         assert_eq!(notes, vec!["“Paper”: saved as pixels".to_string()]);
         assert_eq!(be64(&bytes, 8), Some(bytes.len() as u64), "file size in the header");
+        // Every buffer ends with its blocks' statuses and checksums, as Clip Studio checks them.
+        let mut checked = 0;
+        for c in chunks(&bytes).unwrap().iter().filter(|c| &c.kind == b"Exta") {
+            let (_, blocks) = exta(&bytes[c.body.clone()]).unwrap();
+            let marker = utf16be("BlockCheckSum");
+            let at = blocks.windows(marker.len()).position(|w| w == marker.as_slice()).expect("checksum table") + marker.len();
+            assert!(blocks.windows(22).any(|w| w == utf16be("BlockStatus").as_slice()), "status table");
+            let count = be32(blocks, at + 4).unwrap() as usize;
+            let begin = utf16be("BlockDataBeginChunk");
+            let mut i = 0;
+            while let Some(p) = blocks[i..].windows(begin.len()).position(|w| w == begin.as_slice()) {
+                let a = i + p + begin.len();
+                let index = be32(blocks, a).unwrap() as usize;
+                assert!(index < count);
+                let stored = be32(blocks, at + 12 + 4 * index).unwrap();
+                i = a + 20;
+                if be32(blocks, a + 16).unwrap() == 0 {
+                    assert_eq!(stored, 0);
+                    continue;
+                }
+                let len = be32(blocks, a + 20).unwrap() as usize;
+                assert_eq!(stored, adler32(&blocks[a + 24..a + 24 + len]), "block {index}");
+                checked += 1;
+                i = a + 24 + len;
+            }
+        }
+        assert!(checked > 0, "some blocks have data");
         let (back, notes) = read(&bytes).unwrap();
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!((back.width, back.height, back.dpi), (w as u32, h as u32, 350));

@@ -40,6 +40,7 @@ mod toolbar;
 mod tools;
 mod transform_ui;
 mod view;
+mod welcome;
 mod widgets;
 #[cfg(windows)]
 mod wintab;
@@ -61,6 +62,18 @@ fn install_crash_log() {
     }));
 }
 
+/// The ensō, for the window and the taskbar.
+fn app_icon() -> eframe::egui::IconData {
+    let png = include_bytes!("../../../packaging/icons/painter-256.png");
+    match image::load_from_memory(png) {
+        Ok(img) => {
+            let img = img.to_rgba8();
+            eframe::egui::IconData { width: img.width(), height: img.height(), rgba: img.into_raw() }
+        }
+        Err(_) => eframe::egui::IconData::default(),
+    }
+}
+
 /// The window and renderer every platform starts with.
 pub fn native_options() -> eframe::NativeOptions {
     eframe::NativeOptions {
@@ -70,7 +83,8 @@ pub fn native_options() -> eframe::NativeOptions {
             .with_app_id("painter")
             .with_inner_size([1400.0, 860.0])
             .with_min_inner_size([900.0, 600.0])
-            .with_maximized(true),
+            .with_maximized(true)
+            .with_icon(app_icon()),
         event_loop_builder: linux_x11(),
         wgpu_options: gpu_options(),
         ..Default::default()
@@ -165,6 +179,8 @@ pub fn run(options: eframe::NativeOptions, file: Option<std::path::PathBuf>) -> 
             gpu_started();
             if let Some(path) = file {
                 app.open_any(path);
+                // Opened with a file: straight to it.
+                app.welcome_open = false;
             }
             Ok(Box::new(app))
         }),

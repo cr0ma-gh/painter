@@ -310,6 +310,19 @@ impl PainterApp {
                         self.ui_scale_controls(ui);
                     });
                 });
+                ui.menu_button("Help", |ui| {
+                    if ui.button("Welcome Screen").clicked() {
+                        ui.close_menu();
+                        self.welcome_open = true;
+                    }
+                    if ui.button("About Painter").clicked() {
+                        ui.close_menu();
+                        self.about_open = true;
+                    }
+                    ui.separator();
+                    ui.hyperlink_to("Website", crate::welcome::WEBSITE);
+                    ui.hyperlink_to("Source on GitHub", crate::welcome::REPOSITORY);
+                });
             });
         });
     }
