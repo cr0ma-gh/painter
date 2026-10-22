@@ -38,6 +38,10 @@ rfd.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 # winit needs a window system; both, so the app runs under X11 and Wayland.
 eframe = { workspace = true, features = ["x11", "wayland"] }
+# Pen tablets through XInput2 (libX11 and libXi loaded at run time), and
+# winit itself to start on X11 (XWayland under Wayland) where XInput2 works.
+x11-dl = "2.21"
+winit = { version = "0.30", default-features = false, features = ["x11", "wayland"] }
 
 [target.'cfg(windows)'.dependencies]
 libloading.workspace = true

@@ -1,39 +1,55 @@
-//! Pen tablet input: WinTab when a tablet driver provides it, otherwise
-//! Windows Ink (winit turns `WM_POINTER` pen input into touch events with
-//! normalised force, which egui forwards as `Event::Touch`). Mouse input has
-//! no force and paints at full pressure.
+//! Pen tablet input. A pen driver, when there is one, gives packets with
+//! pressure, tilt and which end of the pen is in use, many per frame:
+//! WinTab on Windows, XInput2 on Linux (X11, and Wayland through XWayland).
+//! Otherwise the pen arrives as touch events with a normalised force
+//! (Windows Ink, Apple Pencil, Android styluses), which egui forwards as
+//! `Event::Touch`. Mouse input has no force and paints at full pressure.
 //!
-//! WinTab also reports tilt and which end of the pen is in use; flipping to
-//! the eraser end switches to the eraser sub tool and back.
+//! Flipping the pen to its eraser end switches to the eraser sub tool and back.
 
 use eframe::egui::{Event, TouchPhase};
 
-#[cfg(windows)]
-use crate::wintab::{PenSample, WinTab};
+/// One pen packet from a driver.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PenSample {
+    /// 0..=1.
+    pub pressure: f32,
+    /// Tilt away from vertical, 0 (upright) ..= 1 (flat).
+    pub tilt: f32,
+    /// Tilt direction in degrees, clockwise from north.
+    pub azimuth: f32,
+    pub eraser: bool,
+    pub touching: bool,
+    /// Where the pen is, in physical pixels (sub-pixel): on the desktop for
+    /// WinTab, in the window for XInput2 (see [`PenSource::origin`]).
+    pub screen: [f32; 2],
+    /// Driver timestamp, milliseconds.
+    pub time_ms: u32,
+}
+
+/// A pen driver polled once a frame.
+pub trait PenSource {
+    /// Every packet since the last poll, oldest first.
+    fn poll(&mut self) -> Vec<PenSample>;
+    /// Where the window's client area starts in the samples' coordinates.
+    fn origin(&self) -> Option<[f32; 2]>;
+    fn name(&self) -> &'static str;
+}
 
 #[derive(Default)]
 pub struct TabletState {
-    /// Pressure from Windows Ink touch events.
+    /// Pressure from touch events (Windows Ink, Apple Pencil, Android).
     ink_pressure: Option<f32>,
-    #[cfg(windows)]
-    wintab: Option<WinTab>,
-    /// WinTab was tried (it is opened lazily once the window handle exists).
-    #[cfg(windows)]
-    wintab_tried: bool,
-    /// The newest WinTab sample.
-    #[cfg(windows)]
+    pen: Option<Box<dyn PenSource>>,
+    /// The pen driver was tried (it opens lazily once the window exists).
+    pen_tried: bool,
+    /// The newest packet.
     sample: Option<PenSample>,
-    /// Every WinTab sample of this frame, oldest first.
-    #[cfg(windows)]
+    /// Every packet of this frame, oldest first.
     frame_samples: Vec<PenSample>,
-    /// The window, to place WinTab's desktop positions in it.
-    #[cfg(windows)]
-    hwnd: Option<isize>,
-    /// WinTab positions agree with the pointer (checked every frame); after a
+    /// Packet positions agree with the pointer (checked every frame); after a
     /// few frames of disagreement they are no longer used.
-    #[cfg(windows)]
     positions_ok: bool,
-    #[cfg(windows)]
     position_misses: u32,
     /// Pointer events this frame and the one being handled (see `begin_events`).
     events: usize,
@@ -45,27 +61,36 @@ pub struct TabletState {
     stylus: bool,
 }
 
-impl TabletState {
-    /// Polls WinTab once per frame.
-    pub fn poll(&mut self, frame: &eframe::Frame) {
+/// The pen driver for this platform and window, if one is there.
+fn open_pen(frame: &eframe::Frame) -> Option<Box<dyn PenSource>> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let handle = frame.window_handle().ok()?.as_raw();
+    match handle {
         #[cfg(windows)]
-        {
-            if !self.wintab_tried {
-                self.wintab_tried = true;
-                self.hwnd = window_handle(frame);
-                self.wintab = self.hwnd.and_then(WinTab::open);
-            }
-            self.frame_samples = self.wintab.as_mut().map(WinTab::poll).unwrap_or_default();
-            if let Some(&sample) = self.frame_samples.last() {
-                if sample.eraser != self.eraser {
-                    self.eraser = sample.eraser;
-                    self.eraser_switch = Some(sample.eraser);
-                }
-                self.sample = Some(sample);
-            }
+        RawWindowHandle::Win32(h) => crate::wintab::WinTab::open(h.hwnd.get()).map(|p| Box::new(p) as Box<dyn PenSource>),
+        #[cfg(target_os = "linux")]
+        RawWindowHandle::Xlib(h) => crate::pen_x11::XInputPen::open(h.window as u64).map(|p| Box::new(p) as Box<dyn PenSource>),
+        #[cfg(target_os = "linux")]
+        RawWindowHandle::Xcb(h) => crate::pen_x11::XInputPen::open(h.window.get() as u64).map(|p| Box::new(p) as Box<dyn PenSource>),
+        _ => None,
+    }
+}
+
+impl TabletState {
+    /// Polls the pen driver once per frame.
+    pub fn poll(&mut self, frame: &eframe::Frame) {
+        if !self.pen_tried {
+            self.pen_tried = true;
+            self.pen = open_pen(frame);
         }
-        #[cfg(not(windows))]
-        let _ = frame;
+        self.frame_samples = self.pen.as_mut().map(|p| p.poll()).unwrap_or_default();
+        if let Some(&sample) = self.frame_samples.last() {
+            if sample.eraser != self.eraser {
+                self.eraser = sample.eraser;
+                self.eraser_switch = Some(sample.eraser);
+            }
+            self.sample = Some(sample);
+        }
     }
 
     pub fn observe(&mut self, event: &Event) {
@@ -91,7 +116,7 @@ impl TabletState {
         self.touching && !self.stylus
     }
 
-    /// Starts handling this frame's `count` pointer events. WinTab delivers
+    /// Starts handling this frame's `count` pointer events. Drivers deliver
     /// several packets per frame during fast strokes; they are spread over the
     /// events in order instead of all getting the newest packet.
     pub fn begin_events(&mut self, count: usize) {
@@ -104,8 +129,7 @@ impl TabletState {
         self.event = Some(self.event.map_or(0, |e| e + 1));
     }
 
-    /// The WinTab sample for the current pointer event.
-    #[cfg(windows)]
+    /// The packet for the current pointer event.
     fn current(&self) -> Option<PenSample> {
         match self.event {
             Some(event) if !self.frame_samples.is_empty() => {
@@ -117,69 +141,55 @@ impl TabletState {
 
     /// Pen pressure for the current pointer event, or 1.0 for a mouse.
     pub fn pressure(&self) -> f32 {
-        #[cfg(windows)]
         if let Some(sample) = self.current().filter(|s| s.touching) {
             return sample.pressure;
         }
         self.ink_pressure.unwrap_or(1.0)
     }
 
-    /// Pen tilt for the current pointer event, 0 (upright) ..= 1 (flat). Only WinTab reports it.
+    /// Pen tilt for the current pointer event, 0 (upright) ..= 1 (flat). Only pen drivers report it.
     pub fn tilt(&self) -> f32 {
-        #[cfg(windows)]
-        if let Some(sample) = self.current() {
-            return sample.tilt;
-        }
-        0.0
+        self.current().map_or(0.0, |s| s.tilt)
     }
 
-    /// This frame's pen samples while touching, as window points (egui
+    /// This frame's pen packets while touching, as window points (egui
     /// coordinates) with pressure, tilt and a time on the app clock (`now`
-    /// is the app time of the newest sample). The pointer events Windows
-    /// sends for a pen are few and merged; WinTab's packets come 100–200 times
-    /// a second, so a fast stroke keeps its shape. Empty when WinTab isn't in
-    /// use or its positions don't match the pointer (`pointer`: egui's latest
+    /// is the app time of the newest packet). The pointer events the system
+    /// sends for a pen are few and merged; driver packets come 100–200 times
+    /// a second, so a fast stroke keeps its shape. Empty without a driver or
+    /// when its positions don't match the pointer (`pointer`: egui's latest
     /// pointer position, checked every frame).
     pub fn packet_points(&mut self, pixels_per_point: f32, now: f32, pointer: Option<eframe::egui::Pos2>) -> Vec<PacketPoint> {
-        #[cfg(windows)]
-        {
-            let (Some(hwnd), Some(last)) = (self.hwnd, self.frame_samples.last()) else { return Vec::new() };
-            let Some(origin) = client_origin(hwnd) else { return Vec::new() };
-            let ppp = pixels_per_point.max(0.1);
-            let to_points = |s: &PenSample| eframe::egui::pos2((s.screen[0] - origin[0]) / ppp, (s.screen[1] - origin[1]) / ppp);
-            // Does the newest packet sit where the pointer is? (Both are this frame's latest.)
-            if let Some(pointer) = pointer {
-                if (to_points(last) - pointer).length() < 24.0 {
-                    self.positions_ok = true;
-                    self.position_misses = 0;
-                } else if self.position_misses < 3 {
-                    self.position_misses += 1;
-                    if self.position_misses == 3 {
-                        self.positions_ok = false;
-                    }
+        let (Some(pen), Some(last)) = (self.pen.as_ref(), self.frame_samples.last()) else { return Vec::new() };
+        let Some(origin) = pen.origin() else { return Vec::new() };
+        let ppp = pixels_per_point.max(0.1);
+        let to_points = |s: &PenSample| eframe::egui::pos2((s.screen[0] - origin[0]) / ppp, (s.screen[1] - origin[1]) / ppp);
+        // Does the newest packet sit where the pointer is? (Both are this frame's latest.)
+        if let Some(pointer) = pointer {
+            if (to_points(last) - pointer).length() < 24.0 {
+                self.positions_ok = true;
+                self.position_misses = 0;
+            } else if self.position_misses < 3 {
+                self.position_misses += 1;
+                if self.position_misses == 3 {
+                    self.positions_ok = false;
                 }
             }
-            if !self.positions_ok || self.position_misses >= 3 {
-                return Vec::new();
-            }
-            let newest = last.time_ms;
-            self
-                .frame_samples
-                .iter()
-                .filter(|s| s.touching)
-                .map(|s| PacketPoint {
-                    pos: to_points(s),
-                    pressure: s.pressure,
-                    tilt: s.tilt,
-                    time: now - newest.wrapping_sub(s.time_ms) as f32 / 1000.0,
-                })
-                .collect()
         }
-        #[cfg(not(windows))]
-        {
-            let _ = (pixels_per_point, now, pointer);
-            Vec::new()
+        if !self.positions_ok || self.position_misses >= 3 {
+            return Vec::new();
         }
+        let newest = last.time_ms;
+        self.frame_samples
+            .iter()
+            .filter(|s| s.touching)
+            .map(|s| PacketPoint {
+                pos: to_points(s),
+                pressure: s.pressure,
+                tilt: s.tilt,
+                time: now - newest.wrapping_sub(s.time_ms) as f32 / 1000.0,
+            })
+            .collect()
     }
 
     /// `Some(true)` once when the eraser end comes into use, `Some(false)` when the tip returns.
@@ -189,28 +199,38 @@ impl TabletState {
 
     /// Status-bar summary of the input backend and current pen state.
     pub fn describe(&self) -> String {
-        #[cfg(windows)]
-        if self.wintab.is_some() {
+        if let Some(pen) = &self.pen {
             return match self.sample {
                 Some(s) => format!(
-                    "WinTab · {} {:.0}% · tilt {:.0}%",
+                    "{} · {} {:.0}% · tilt {:.0}%",
+                    pen.name(),
                     if s.eraser { "eraser" } else { "pen" },
                     s.pressure * 100.0,
                     s.tilt * 100.0
                 ),
-                None => "WinTab".into(),
+                None => pen.name().into(),
             };
         }
-        let pen = if cfg!(target_os = "ios") { "Apple Pencil" } else { "Windows Ink · pen" };
+        let pen = if cfg!(target_os = "ios") {
+            "Apple Pencil"
+        } else if cfg!(target_os = "android") {
+            "Stylus"
+        } else if cfg!(windows) {
+            "Windows Ink · pen"
+        } else {
+            "Pen"
+        };
         match self.ink_pressure {
             Some(p) => format!("{pen} {:.0}%", p * 100.0),
             None if cfg!(target_os = "ios") => "Touch / Apple Pencil".into(),
-            None => "Mouse / Windows Ink".into(),
+            None if cfg!(target_os = "android") => "Touch / stylus".into(),
+            None if cfg!(windows) => "Mouse / Windows Ink".into(),
+            None => "Mouse".into(),
         }
     }
 }
 
-/// One WinTab sample on the canvas: see [`TabletState::packet_points`].
+/// One pen packet on the canvas: see [`TabletState::packet_points`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PacketPoint {
     pub pos: eframe::egui::Pos2,
@@ -218,27 +238,6 @@ pub struct PacketPoint {
     pub tilt: f32,
     /// Seconds, on the app's clock.
     pub time: f32,
-}
-
-/// The window's client area origin on the desktop, in physical pixels.
-#[cfg(windows)]
-fn client_origin(hwnd: isize) -> Option<[f32; 2]> {
-    #[link(name = "user32")]
-    extern "system" {
-        fn ClientToScreen(hwnd: isize, point: *mut [i32; 2]) -> i32;
-    }
-    let mut p = [0i32; 2];
-    // SAFETY: `hwnd` is this app's window; `p` is a POINT (two LONGs).
-    (unsafe { ClientToScreen(hwnd, &mut p) } != 0).then_some([p[0] as f32, p[1] as f32])
-}
-
-#[cfg(windows)]
-fn window_handle(frame: &eframe::Frame) -> Option<isize> {
-    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    match frame.window_handle().ok()?.as_raw() {
-        RawWindowHandle::Win32(handle) => Some(handle.hwnd.get()),
-        _ => None,
-    }
 }
 
 /// Which of `samples` (oldest first) belongs to pointer event `event` of

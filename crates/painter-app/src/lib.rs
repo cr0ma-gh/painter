@@ -28,6 +28,8 @@ mod print_ui;
 mod scan_source;
 mod scene_ui;
 mod texture_paint;
+#[cfg(target_os = "linux")]
+mod pen_x11;
 mod tablet;
 mod theme;
 mod toolbar;
@@ -65,8 +67,30 @@ pub fn native_options() -> eframe::NativeOptions {
             .with_inner_size([1400.0, 860.0])
             .with_min_inner_size([900.0, 600.0])
             .with_maximized(true),
+        event_loop_builder: linux_x11(),
         ..Default::default()
     }
+}
+
+/// Linux: start on X11, through XWayland under Wayland, where pen tablets
+/// report pressure and tilt (see `pen_x11`). `PAINTER_WAYLAND=1` keeps
+/// native Wayland (no pen pressure there yet).
+#[cfg(target_os = "linux")]
+fn linux_x11() -> Option<eframe::EventLoopBuilderHook> {
+    let has_x = std::env::var_os("DISPLAY").is_some_and(|d| !d.is_empty());
+    let want_wayland = std::env::var_os("PAINTER_WAYLAND").is_some_and(|v| v != "0");
+    if !has_x || want_wayland {
+        return None;
+    }
+    Some(Box::new(|builder| {
+        use winit::platform::x11::EventLoopBuilderExtX11;
+        builder.with_x11();
+    }))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn linux_x11() -> Option<eframe::EventLoopBuilderHook> {
+    None
 }
 
 /// Runs the app until its window closes, opening `file` first if given.

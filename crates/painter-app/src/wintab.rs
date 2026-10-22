@@ -82,23 +82,7 @@ type WtOpenA = unsafe extern "system" fn(isize, *mut LogContextA, i32) -> Hctx;
 type WtClose = unsafe extern "system" fn(Hctx) -> i32;
 type WtPacketsGet = unsafe extern "system" fn(Hctx, i32, *mut c_void) -> i32;
 
-/// The latest pen state reported by the driver.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PenSample {
-    /// 0..=1.
-    pub pressure: f32,
-    /// Tilt away from vertical, 0 (upright) ..= 1 (flat).
-    pub tilt: f32,
-    /// Tilt direction in degrees, clockwise from north.
-    pub azimuth: f32,
-    pub eraser: bool,
-    pub touching: bool,
-    /// Where the pen is on the desktop, in physical pixels (sub-pixel), from
-    /// the tablet's own coordinates.
-    pub screen: [f32; 2],
-    /// Driver timestamp, milliseconds.
-    pub time_ms: u32,
-}
+pub use crate::tablet::PenSample;
 
 /// How tablet coordinates map onto the desktop.
 #[derive(Clone, Copy, Debug)]
@@ -126,6 +110,7 @@ pub struct WinTab {
     ctx: Hctx,
     pressure_max: f32,
     mapping: Mapping,
+    hwnd: isize,
 }
 
 // The context handle is only used from the UI thread.
@@ -175,7 +160,7 @@ impl WinTab {
                 sys_org: f(ctx.sys_org),
                 sys_ext: f(ctx.sys_ext),
             };
-            Some(Self { _lib: lib, close, packets_get, ctx: handle, pressure_max, mapping })
+            Some(Self { _lib: lib, close, packets_get, ctx: handle, pressure_max, mapping, hwnd })
         }
     }
 
@@ -209,6 +194,27 @@ impl WinTab {
             screen: self.mapping.screen(p.x, p.y),
             time_ms: p.time,
         }
+    }
+}
+
+impl crate::tablet::PenSource for WinTab {
+    fn poll(&mut self) -> Vec<PenSample> {
+        WinTab::poll(self)
+    }
+
+    /// The client area's origin on the desktop (WinTab positions are desktop pixels).
+    fn origin(&self) -> Option<[f32; 2]> {
+        #[link(name = "user32")]
+        extern "system" {
+            fn ClientToScreen(hwnd: isize, point: *mut [i32; 2]) -> i32;
+        }
+        let mut p = [0i32; 2];
+        // SAFETY: `hwnd` is this app's window; `p` is a POINT (two LONGs).
+        (unsafe { ClientToScreen(self.hwnd, &mut p) } != 0).then_some([p[0] as f32, p[1] as f32])
+    }
+
+    fn name(&self) -> &'static str {
+        "WinTab"
     }
 }
 
