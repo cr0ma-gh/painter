@@ -17,6 +17,50 @@ pub struct ImportedObject {
     pub color: [f32; 3],
     /// The base colour image, as the file's bytes (PNG or JPEG), when there is one.
     pub image: Option<Vec<u8>>,
+    /// Its skeleton and skin, when the model is rigged (posable).
+    pub rig: Option<crate::rig::Rig>,
+}
+
+/// What a reader finds of a skin: bones (parents first), the space they live
+/// in, and per mesh vertex the bones and weights.
+pub(crate) struct Skin {
+    pub bones: Vec<crate::rig::Bone>,
+    pub base: Mat4,
+    pub joints: Vec<[u16; 4]>,
+    pub weights: Vec<[f32; 4]>,
+}
+
+/// A skinned object: its rig and the mesh in the rest pose, centred.
+pub(crate) fn skinned(
+    name: &str,
+    positions: Vec<[f32; 3]>,
+    normals: Option<Vec<[f32; 3]>>,
+    uvs: Option<Vec<[f32; 2]>>,
+    triangles: &[[u32; 3]],
+    skin: Skin,
+) -> Option<(Mesh, crate::rig::Rig)> {
+    let n = positions.len();
+    if n == 0 || triangles.is_empty() || skin.joints.len() != n || skin.weights.len() != n {
+        return None;
+    }
+    let indices: Vec<u32> = triangles.iter().flatten().copied().filter(|&i| (i as usize) < n).collect();
+    let normals = normals.filter(|v| v.len() == n).unwrap_or_else(|| crate::rig::smooth_normals(&positions, &indices));
+    let uv = |i: usize| uvs.as_ref().and_then(|u| u.get(i)).copied().unwrap_or([0.0, 0.0]);
+    let template =
+        Mesh::from_buffers(name, (0..n).map(|i| Vertex { position: positions[i], normal: normals[i], uv: uv(i) }).collect(), indices);
+    let mut rig = crate::rig::Rig {
+        bones: skin.bones,
+        base: skin.base,
+        centre: Vec3::ZERO,
+        positions,
+        normals,
+        joints: skin.joints,
+        weights: skin.weights,
+    };
+    let rest = vec![crate::math::Quat::IDENTITY; rig.bones.len()];
+    let placed = rig.deform(&template, &rest);
+    rig.centre = placed.bounds.center();
+    Some((rig.deform(&template, &rest), rig))
 }
 
 /// Y-up (glTF, most FBX) to Z-up: x stays, y becomes z, z becomes −y.

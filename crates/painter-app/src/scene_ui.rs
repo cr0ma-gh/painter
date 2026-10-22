@@ -118,6 +118,7 @@ fn scene_from_imported(objects: Vec<scene_3d::import::ImportedObject>) -> Scene3
             visible: true,
             color: o.color,
             texture: texture.map(std::sync::Arc::new),
+            rig: o.rig.map(|r| scene_3d::rig::Posed::new(std::sync::Arc::new(r))),
         });
     }
     if let Some(bounds) = scene.bounds() {
@@ -183,6 +184,8 @@ impl PainterApp {
                 self.doc.add_layer(Layer::raster(id, name));
                 self.doc.active = id;
                 let objects = scene.objects.len();
+                // A rigged model (its bones show, ready to pose) or a lone object starts selected.
+                scene.selected = scene.objects.iter().position(|o| o.rig.is_some()).or((objects == 1).then_some(0));
                 // Seen through the file's camera, like Blender's camera view.
                 if let Some(cam) = &blend_camera {
                     scene.camera = self.blend_view(&scene, cam);
@@ -549,6 +552,10 @@ impl PainterApp {
     }
 
     pub(crate) fn scene_press(&mut self, at: Pos2) {
+        // A joint of the selected rigged object: pose that bone.
+        if self.pose_press(at) {
+            return;
+        }
         let id = self.doc.active;
         let (w, h) = self.doc.canvas();
         let (w, h) = (w as f32, h as f32);
@@ -579,6 +586,9 @@ impl PainterApp {
     }
 
     pub(crate) fn scene_move(&mut self, at: Pos2) {
+        if self.pose_move(at) {
+            return;
+        }
         if self.scene_drag != Some(SceneDrag::Gizmo) {
             return;
         }
@@ -599,6 +609,7 @@ impl PainterApp {
     }
 
     pub(crate) fn scene_release(&mut self) {
+        self.pose_release();
         self.gizmo.end();
         if self.scene_drag == Some(SceneDrag::Gizmo) {
             self.scene_drag = None;
@@ -677,6 +688,8 @@ impl PainterApp {
         if let Some(p) = screen(c) {
             painter.circle_stroke(p, 6.0, Stroke::new(1.5_f32, Color32::WHITE));
         }
+        // A rigged model's bones, over everything.
+        self.draw_bones(painter, rect);
     }
 
     // ---- panel --------------------------------------------------------------------------
@@ -798,6 +811,12 @@ impl PainterApp {
                     edit(&r, &mut changed, &mut checkpoint);
                 });
             });
+            // Rigged models: their pose.
+            if scene.objects[sel].rig.is_some() {
+                let (c, k) = crate::pose_ui::pose_panel(ui, &mut scene.objects[sel], &mut self.pose_bone, &mut self.pose_filter);
+                changed |= c;
+                checkpoint |= k;
+            }
         }
 
         egui::CollapsingHeader::new("Camera").id_salt("scene_camera").default_open(true).show(ui, |ui| {

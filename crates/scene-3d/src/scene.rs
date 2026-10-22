@@ -30,6 +30,8 @@ pub struct SceneObject {
     pub color: [f32; 3],
     /// Colour painted over the base colour through the UVs (see [`crate::texture`]).
     pub texture: Option<Arc<crate::texture::Texture>>,
+    /// A rigged model's skeleton and pose (the mesh shows that pose).
+    pub rig: Option<crate::rig::Posed>,
 }
 
 /// Clay grey for imported objects.
@@ -74,7 +76,7 @@ impl Scene3D {
     /// One OBJ model as a scene.
     pub fn from_mesh(mesh: Mesh) -> Self {
         let mut scene = Scene3D::default();
-        scene.objects.push(SceneObject { name: mesh.name.clone(), mesh: Arc::new(mesh), transform: Transform::default(), visible: true, color: CLAY, texture: None });
+        scene.objects.push(SceneObject { name: mesh.name.clone(), mesh: Arc::new(mesh), transform: Transform::default(), visible: true, color: CLAY, texture: None, rig: None });
         if let Some(bounds) = scene.bounds() {
             scene.camera.frame(&bounds);
         }
@@ -93,6 +95,7 @@ impl Scene3D {
                     visible: true,
                     color: CLAY,
                     texture: None,
+                    rig: None,
                 });
             }
         }
@@ -149,6 +152,7 @@ mod tests {
                 visible: true,
                 color: CLAY,
                 texture: None,
+                rig: None,
             });
         }
         let bounds = scene.bounds().unwrap();

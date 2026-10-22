@@ -15,8 +15,9 @@ use crate::mesh::{Mesh, Vertex};
 use crate::scene::{Light, LightKind, Scene3D, SceneObject};
 
 const MAGIC: &[u8; 4] = b"P3DS";
-/// 2: textures (after the meshes, raw RGBA).
-const FORMAT: u32 = 2;
+/// 2: textures (after the meshes, raw RGBA). 3: rigs (bones in the header,
+/// per-vertex skin data after the textures) and each object's pose.
+const FORMAT: u32 = 3;
 
 #[derive(Serialize, Deserialize)]
 struct Header {
@@ -28,6 +29,40 @@ struct Header {
     objects: Vec<ObjectFile>,
     #[serde(default)]
     textures: Vec<TextureFile>,
+    #[serde(default)]
+    rigs: Vec<RigFile>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct BoneFile {
+    name: String,
+    parent: Option<usize>,
+    translation: [f32; 3],
+    /// w, x, y, z.
+    rotation: [f32; 4],
+    scale: [f32; 3],
+    /// Column-major.
+    inverse_bind: [f32; 16],
+}
+
+/// A rig: its bones here, its per-vertex data (position, normal: 6 × f32;
+/// joints: 4 × u16; weights: 4 × f32 — 48 bytes) after the textures.
+#[derive(Serialize, Deserialize)]
+struct RigFile {
+    bones: Vec<BoneFile>,
+    base: [f32; 16],
+    centre: [f32; 3],
+    vertices: usize,
+}
+
+const RIG_VERTEX_BYTES: usize = 48;
+
+fn flat(m: &crate::math::Mat4) -> [f32; 16] {
+    std::array::from_fn(|i| m.0[i / 4][i % 4])
+}
+
+fn unflat(v: [f32; 16]) -> crate::math::Mat4 {
+    crate::math::Mat4(std::array::from_fn(|c| std::array::from_fn(|r| v[c * 4 + r])))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -85,6 +120,11 @@ struct ObjectFile {
     color: [f32; 3],
     #[serde(default)]
     texture: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rig: Option<usize>,
+    /// Per bone, w x y z (empty: the rest pose).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pose: Vec<[f32; 4]>,
 }
 
 impl Scene3D {
@@ -105,6 +145,15 @@ impl Scene3D {
             tex_index.entry(Arc::as_ptr(t) as usize).or_insert_with(|| {
                 textures.push(t);
                 textures.len() - 1
+            });
+        }
+        // Distinct rigs, the same way.
+        let mut rig_index: HashMap<usize, usize> = HashMap::new();
+        let mut rigs: Vec<&Arc<crate::rig::Rig>> = Vec::new();
+        for p in self.objects.iter().filter_map(|o| o.rig.as_ref()) {
+            rig_index.entry(Arc::as_ptr(&p.rig) as usize).or_insert_with(|| {
+                rigs.push(&p.rig);
+                rigs.len() - 1
             });
         }
         let cam = &self.camera;
@@ -139,6 +188,26 @@ impl Scene3D {
             selected: self.selected,
             meshes: meshes.iter().map(|m| MeshFile { name: m.name.clone(), vertices: m.vertices.len(), indices: m.indices.len() }).collect(),
             textures: textures.iter().map(|t| TextureFile { width: t.width, height: t.height }).collect(),
+            rigs: rigs
+                .iter()
+                .map(|r| RigFile {
+                    bones: r
+                        .bones
+                        .iter()
+                        .map(|b| BoneFile {
+                            name: b.name.clone(),
+                            parent: b.parent,
+                            translation: b.translation.to_array(),
+                            rotation: [b.rotation.w, b.rotation.x, b.rotation.y, b.rotation.z],
+                            scale: b.scale.to_array(),
+                            inverse_bind: flat(&b.inverse_bind),
+                        })
+                        .collect(),
+                    base: flat(&r.base),
+                    centre: r.centre.to_array(),
+                    vertices: r.positions.len(),
+                })
+                .collect(),
             objects: self
                 .objects
                 .iter()
@@ -153,6 +222,8 @@ impl Scene3D {
                         visible: o.visible,
                         color: o.color,
                         texture: o.texture.as_ref().map(|t| tex_index[&(Arc::as_ptr(t) as usize)]),
+                        rig: o.rig.as_ref().map(|p| rig_index[&(Arc::as_ptr(&p.rig) as usize)]),
+                        pose: o.rig.as_ref().filter(|p| !p.is_rest()).map_or_else(Vec::new, |p| p.pose.iter().map(|q| [q.w, q.x, q.y, q.z]).collect()),
                     }
                 })
                 .collect(),
@@ -175,6 +246,19 @@ impl Scene3D {
         }
         for t in textures {
             out.extend_from_slice(&t.rgba);
+        }
+        for r in rigs {
+            for k in 0..r.positions.len() {
+                for f in r.positions[k].iter().chain(&r.normals[k]) {
+                    out.extend_from_slice(&f.to_le_bytes());
+                }
+                for j in r.joints[k] {
+                    out.extend_from_slice(&j.to_le_bytes());
+                }
+                for w in r.weights[k] {
+                    out.extend_from_slice(&w.to_le_bytes());
+                }
+            }
         }
         out
     }
@@ -237,6 +321,46 @@ impl Scene3D {
             shift: c.shift,
             ..ViewCamera::default()
         };
+        let mut rigs = Vec::with_capacity(header.rigs.len());
+        for r in &header.rigs {
+            let len = r.vertices.checked_mul(RIG_VERTEX_BYTES).ok_or("rig too big")?;
+            let data = bytes.get(at..at + len).ok_or("truncated rig data")?;
+            at += len;
+            let f = |b: &[u8]| f32::from_le_bytes(b.try_into().expect("4 bytes"));
+            let (mut positions, mut normals, mut joints, mut weights) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            for v in data.as_chunks::<RIG_VERTEX_BYTES>().0 {
+                positions.push([f(&v[0..4]), f(&v[4..8]), f(&v[8..12])]);
+                normals.push([f(&v[12..16]), f(&v[16..20]), f(&v[20..24])]);
+                joints.push(std::array::from_fn(|i| u16::from_le_bytes([v[24 + i * 2], v[25 + i * 2]])));
+                weights.push(std::array::from_fn(|i| f(&v[32 + i * 4..36 + i * 4])));
+            }
+            let bones: Vec<crate::rig::Bone> = r
+                .bones
+                .iter()
+                .enumerate()
+                .map(|(i, b)| crate::rig::Bone {
+                    name: b.name.clone(),
+                    // Parents come first; anything else is a root.
+                    parent: b.parent.filter(|&p| p < i),
+                    translation: Vec3::from_array(b.translation),
+                    rotation: quat(b.rotation),
+                    scale: Vec3::from_array(b.scale),
+                    inverse_bind: unflat(b.inverse_bind),
+                })
+                .collect();
+            if joints.iter().flatten().any(|&j| j as usize >= bones.len().max(1)) {
+                return Err("rig: a vertex follows a missing bone".into());
+            }
+            rigs.push(Arc::new(crate::rig::Rig {
+                bones,
+                base: unflat(r.base),
+                centre: Vec3::from_array(r.centre),
+                positions,
+                normals,
+                joints,
+                weights,
+            }));
+        }
         let mut objects = Vec::with_capacity(header.objects.len());
         for o in header.objects {
             let mesh = meshes.get(o.mesh).ok_or_else(|| format!("object {} refers to a missing mesh", o.name))?.clone();
@@ -247,6 +371,13 @@ impl Scene3D {
                 visible: o.visible,
                 color: o.color,
                 texture: o.texture.and_then(|i| textures.get(i).cloned()),
+                rig: o.rig.and_then(|i| rigs.get(i).cloned()).map(|rig| {
+                    let mut posed = crate::rig::Posed::new(rig);
+                    if o.pose.len() == posed.pose.len() {
+                        posed.pose = o.pose.iter().map(|&q| quat(q)).collect();
+                    }
+                    posed
+                }),
             });
         }
         let lights = header
@@ -290,6 +421,7 @@ mod tests {
                 visible: name == "a",
                 color: CLAY,
                 texture: None,
+                rig: None,
             });
         }
         scene.selected = Some(1);
@@ -321,5 +453,52 @@ mod tests {
 
         assert!(Scene3D::from_bytes(b"nope").is_err());
         assert!(Scene3D::from_bytes(&bytes[..bytes.len() - 10]).is_err(), "truncated");
+    }
+}
+
+#[cfg(test)]
+mod rig_tests {
+    use super::*;
+    use crate::math::{vec3, Mat4};
+    use crate::rig::{Bone, Posed, Rig};
+
+    #[test]
+    fn rigs_and_poses_round_trip() {
+        let bone = |name: &str, parent| Bone {
+            name: name.into(),
+            parent,
+            translation: vec3(0.0, 0.0, 1.0),
+            rotation: Quat::from_axis_angle(Vec3::X, 0.3),
+            scale: vec3(1.0, 1.0, 1.0),
+            inverse_bind: Mat4::from_trs(vec3(0.0, 0.0, -1.0), Quat::IDENTITY, vec3(1.0, 1.0, 1.0)),
+        };
+        let rig = Arc::new(Rig {
+            bones: vec![bone("root", None), bone("tip", Some(0))],
+            base: Mat4::IDENTITY,
+            centre: vec3(0.0, 0.0, 0.5),
+            positions: vec![[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 1.0]],
+            normals: vec![[0.0, 0.0, 1.0]; 3],
+            joints: vec![[0, 0, 0, 0], [0, 1, 0, 0], [1, 0, 0, 0]],
+            weights: vec![[1.0, 0.0, 0.0, 0.0], [0.5, 0.5, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+        });
+        let mesh = Mesh::from_buffers("m", vec![Vertex { position: [0.0; 3], normal: [0.0, 0.0, 1.0], uv: [0.0; 2] }; 3], vec![0, 1, 2]);
+        let mut posed = Posed::new(rig.clone());
+        posed.pose[1] = Quat::from_axis_angle(Vec3::Y, 0.8);
+        let mut scene = Scene3D::default();
+        scene.objects.push(SceneObject {
+            name: "arm".into(),
+            mesh: Arc::new(rig.deform(&mesh, &posed.pose)),
+            transform: Transform::default(),
+            visible: true,
+            color: [1.0; 3],
+            texture: None,
+            rig: Some(posed.clone()),
+        });
+        let back = Scene3D::from_bytes(&scene.to_bytes()).unwrap();
+        let o = &back.objects[0];
+        let r = o.rig.as_ref().expect("rig kept");
+        assert_eq!(*r.rig, *rig);
+        assert_eq!(r.pose, posed.pose);
+        assert_eq!(o.mesh.vertices, scene.objects[0].mesh.vertices);
     }
 }

@@ -31,6 +31,7 @@ mod lines;
 mod ios_ui;
 mod modifier_keys;
 mod panels;
+mod pose_ui;
 mod previews;
 mod ruler_bar;
 mod rulers_ui;

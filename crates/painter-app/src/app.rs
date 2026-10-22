@@ -196,6 +196,10 @@ pub struct PainterApp {
     pub(crate) smart: Option<crate::smart_shape::SmartShape>,
     /// File → Set Up File Types is open.
     pub(crate) file_types_open: bool,
+    /// Posing: the bone picked, a bone being turned, the bone list's filter.
+    pub(crate) pose_bone: Option<usize>,
+    pub(crate) pose_drag: Option<crate::pose_ui::PoseDrag>,
+    pub(crate) pose_filter: String,
     /// Android: the "open with" intent was looked at.
     #[cfg(target_os = "android")]
     pub(crate) android_intent_read: bool,
@@ -329,6 +333,9 @@ impl PainterApp {
             dev_shot: crate::dev_shot::DevShot::new(),
             smart: None,
             file_types_open: false,
+            pose_bone: None,
+            pose_drag: None,
+            pose_filter: String::new(),
             #[cfg(target_os = "android")]
             android_intent_read: false,
             logo: None,

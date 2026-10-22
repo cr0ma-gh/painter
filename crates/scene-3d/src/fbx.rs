@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
 
-use crate::import::{object, ImportedObject, Y_UP_TO_Z_UP};
+use crate::import::{object, skinned, ImportedObject, Skin, Y_UP_TO_Z_UP};
 use crate::math::{vec3, Mat4, Quat, Vec3};
 
 const MAGIC: &[u8] = b"Kaydara FBX Binary  \0";
@@ -325,16 +325,152 @@ impl<'a> Document<'a> {
                 if name.is_empty() {
                     name = geometry.object_name();
                 }
-                let Some((positions, normals, uvs, triangles)) = mesh_corners(geometry) else { continue };
-                let Some((mesh, centre)) = object(&name, positions, normals, uvs, triangles, &world) else { continue };
+                let Some((positions, normals, uvs, triangles, corner_point)) = mesh_corners(geometry) else { continue };
                 let (color, image) = self.material(model_id);
-                out.push(ImportedObject { name, mesh, location: centre, color, image });
+                // A skinned mesh: posable, its bones drive it.
+                if let Some(skin) = self.skin(gid, &corner_point) {
+                    if let Some((mesh, rig)) = skinned(&name, positions.clone(), normals.clone(), uvs.clone(), &triangles, skin) {
+                        out.push(ImportedObject { name, location: rig.centre, mesh, color, image, rig: Some(rig) });
+                        continue;
+                    }
+                }
+                let Some((mesh, centre)) = object(&name, positions, normals, uvs, triangles, &world) else { continue };
+                out.push(ImportedObject { name, mesh, location: centre, color, image, rig: None });
             }
         }
         if out.is_empty() {
             return Err("no meshes in the file".into());
         }
         Ok(out)
+    }
+
+    /// A model's global transform in the file's own space (no axis change).
+    fn world_in_file(&self, id: i64, depth: usize) -> Mat4 {
+        let Some(model) = self.objects.get(&id) else { return Mat4::IDENTITY };
+        let parent = self.parents.get(&id).and_then(|p| p.iter().find(|&&p| self.kind(p) == Some("Model"))).copied();
+        let base = match parent {
+            Some(p) if depth < 64 => self.world_in_file(p, depth + 1),
+            _ => Mat4::IDENTITY,
+        };
+        base * self.local(model)
+    }
+
+    /// The skin on geometry `gid`: its bones (parents first) and, per corner,
+    /// the bones and weights. `None` without a skin deformer.
+    fn skin(&self, gid: i64, corner_point: &[usize]) -> Option<Skin> {
+        let subtype = |id: i64| self.objects.get(&id).and_then(|n| n.props.get(2)).and_then(Prop::text);
+        let is = |id: i64, kind: &str, sub: &str| self.kind(id) == Some(kind) && subtype(id).as_deref() == Some(sub);
+        let skin = self.children.get(&gid)?.iter().map(|c| c.0).find(|&c| is(c, "Deformer", "Skin"))?;
+        let clusters: Vec<i64> = self.children.get(&skin)?.iter().map(|c| c.0).filter(|&c| is(c, "Deformer", "Cluster")).collect();
+        // Bones: each cluster's model, and its model ancestors (so the hierarchy is whole).
+        let mut ids: Vec<i64> = Vec::new();
+        let mut cluster_bone = Vec::new();
+        for &c in &clusters {
+            let Some(bone) = self.children.get(&c).and_then(|ch| ch.iter().map(|x| x.0).find(|&x| self.kind(x) == Some("Model")))
+            else {
+                continue;
+            };
+            cluster_bone.push((c, bone));
+            let mut at = Some(bone);
+            let mut guard = 0;
+            while let Some(id) = at {
+                if ids.contains(&id) || guard > 64 {
+                    break;
+                }
+                ids.push(id);
+                at = self.parents.get(&id).and_then(|p| p.iter().find(|&&p| self.kind(p) == Some("Model"))).copied();
+                guard += 1;
+            }
+        }
+        if cluster_bone.is_empty() {
+            return None;
+        }
+        // Rest = the bind pose (the model as it was made), not whatever pose
+        // the file was saved in: each cluster's TransformLink, else the
+        // BindPose's matrix, else the bone's current transform.
+        let matrix16 =
+            |v: Vec<f64>| (v.len() == 16).then(|| Mat4(std::array::from_fn(|c| std::array::from_fn(|r| v[c * 4 + r] as f32))));
+        let mut bind: HashMap<i64, Mat4> = HashMap::new();
+        for pose in self.objects.values().filter(|n| n.name == "Pose") {
+            for p in pose.children("PoseNode") {
+                if let (Some(id), Some(m)) =
+                    (p.value("Node").and_then(Prop::int), p.value("Matrix").and_then(Prop::floats).and_then(matrix16))
+                {
+                    bind.insert(id, m);
+                }
+            }
+        }
+        for &(c, bone) in &cluster_bone {
+            if let Some(m) = self.objects[&c].value("TransformLink").and_then(Prop::floats).and_then(matrix16) {
+                bind.insert(bone, m);
+            }
+        }
+        let globals: Vec<Mat4> = ids.iter().map(|&id| bind.get(&id).copied().unwrap_or_else(|| self.world_in_file(id, 0))).collect();
+        let mut bones: Vec<crate::rig::Bone> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, &id)| {
+                let parent = self.parents.get(&id).and_then(|p| p.iter().find_map(|q| ids.iter().position(|x| x == q)));
+                let local = match parent {
+                    Some(p) => globals[p].inverse().unwrap_or(Mat4::IDENTITY) * globals[i],
+                    None => globals[i],
+                };
+                let (translation, rotation, scale) = crate::rig::decompose(&local);
+                crate::rig::Bone {
+                    name: self.objects[&id].object_name(),
+                    parent,
+                    translation,
+                    rotation,
+                    scale,
+                    inverse_bind: globals[i].inverse().unwrap_or(Mat4::IDENTITY),
+                }
+            })
+            .collect();
+        // Weights per control point.
+        let points = corner_point.iter().copied().max().map_or(0, |m| m + 1);
+        let mut influence: Vec<Vec<(u16, f32)>> = vec![Vec::new(); points];
+        let matrix = |node: &Node, key: &str| -> Option<Mat4> {
+            let v = node.value(key)?.floats()?;
+            (v.len() == 16).then(|| Mat4(std::array::from_fn(|c| std::array::from_fn(|r| v[c * 4 + r] as f32))))
+        };
+        // Clusters' Transform: the mesh's global matrix at bind time (the
+        // specification), or, as some exporters write it (Mixamo), already
+        // relative to the bone. Relative ones give the same TransformLink ·
+        // Transform (the mesh's matrix) for every cluster.
+        let pairs: Vec<(Mat4, Mat4)> = cluster_bone
+            .iter()
+            .filter_map(|&(c, _)| Some((matrix(self.objects[&c], "TransformLink")?, matrix(self.objects[&c], "Transform")?)))
+            .collect();
+        let same = |a: &Mat4, b: &Mat4| (0..4).all(|c| (0..4).all(|r| (a.0[c][r] - b.0[c][r]).abs() < 1e-3));
+        let relative = pairs.len() >= 2 && pairs.iter().all(|(l, t)| same(&(*l * *t), &(pairs[0].0 * pairs[0].1)));
+        for (c, bone) in cluster_bone {
+            let node = self.objects[&c];
+            let b = ids.iter().position(|&x| x == bone).expect("bone listed");
+            // Skin space (the mesh at bind time) to the bone.
+            if let (Some(transform), Some(link)) = (matrix(node, "Transform"), matrix(node, "TransformLink")) {
+                bones[b].inverse_bind = if relative { transform } else { link.inverse().unwrap_or(Mat4::IDENTITY) * transform };
+            }
+            let (Some(indexes), Some(weights)) =
+                (node.value("Indexes").and_then(Prop::ints), node.value("Weights").and_then(Prop::floats))
+            else {
+                continue;
+            };
+            for (i, w) in indexes.iter().zip(weights) {
+                if let Some(slot) = usize::try_from(*i).ok().and_then(|i| influence.get_mut(i)) {
+                    slot.push((b as u16, w as f32));
+                }
+            }
+        }
+        let map = crate::rig::parents_first(&mut bones);
+        let per_point: Vec<([u16; 4], [f32; 4])> = influence
+            .iter()
+            .map(|inf| {
+                let moved: Vec<(u16, f32)> = inf.iter().map(|(b, w)| (map[*b as usize] as u16, *w)).collect();
+                crate::rig::strongest_four(&moved)
+            })
+            .collect();
+        let (joints, weights) = corner_point.iter().map(|&p| per_point[p]).unzip();
+        Some(Skin { bones, base: self.global(), joints, weights })
     }
 
     /// The first material's diffuse colour and image.
@@ -384,7 +520,8 @@ impl<'a> Document<'a> {
     }
 }
 
-type Corners = (Vec<[f32; 3]>, Option<Vec<[f32; 3]>>, Option<Vec<[f32; 2]>>, Vec<[u32; 3]>);
+/// Positions, normals, UVs and triangles per corner, and each corner's control point.
+type Corners = (Vec<[f32; 3]>, Option<Vec<[f32; 3]>>, Option<Vec<[f32; 2]>>, Vec<[u32; 3]>, Vec<usize>);
 
 /// A geometry's corners (one vertex per polygon corner) and fan triangles.
 fn mesh_corners(geometry: &Node) -> Option<Corners> {
@@ -437,7 +574,7 @@ fn mesh_corners(geometry: &Node) -> Option<Corners> {
         layer("LayerElementNormal", "Normals", "NormalsIndex", 3).map(|n| n.into_iter().map(|v| [v[0], v[1], v[2]]).collect());
     // FBX v runs up, as the scene's does.
     let uvs = layer("LayerElementUV", "UV", "UVIndex", 2).map(|u| u.into_iter().map(|v| [v[0], v[1]]).collect());
-    Some((positions, normals, uvs, triangles))
+    Some((positions, normals, uvs, triangles, corner_point))
 }
 
 #[cfg(test)]

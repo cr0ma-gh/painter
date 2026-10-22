@@ -8,7 +8,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::import::{object, ImportedObject, Y_UP_TO_Z_UP};
+use crate::import::{object, skinned, ImportedObject, Skin, Y_UP_TO_Z_UP};
 use crate::math::{vec3, Mat4, Quat};
 
 /// Reads a `.gltf` or `.glb` file (`path` finds the files a `.gltf` refers to).
@@ -154,7 +154,21 @@ impl Reader<'_> {
         if depth > 64 {
             return;
         }
-        let local = match node["matrix"].as_array() {
+        let world = *parent * self.local(index);
+        if let Some(mesh) = node["mesh"].as_u64() {
+            let name = node["name"].as_str().or_else(|| self.doc["meshes"][mesh as usize]["name"].as_str()).unwrap_or("Mesh");
+            let skin = node["skin"].as_u64().map(|s| s as usize);
+            self.mesh(mesh as usize, name, &world, skin, out);
+        }
+        for child in node["children"].as_array().into_iter().flatten().filter_map(|c| c.as_u64()) {
+            self.node(child as usize, &world, out, depth + 1);
+        }
+    }
+
+    /// Node `index`'s own transform.
+    fn local(&self, index: usize) -> Mat4 {
+        let node = &self.doc["nodes"][index];
+        match node["matrix"].as_array() {
             Some(m) if m.len() == 16 => {
                 let v: Vec<f32> = m.iter().map(|x| x.as_f64().unwrap_or(0.0) as f32).collect();
                 Mat4(std::array::from_fn(|c| std::array::from_fn(|r| v[c * 4 + r])))
@@ -170,18 +184,99 @@ impl Reader<'_> {
                 let (t, r, s) = (f("translation", &[0.0; 3]), f("rotation", &[0.0, 0.0, 0.0, 1.0]), f("scale", &[1.0; 3]));
                 Mat4::from_trs(vec3(t[0], t[1], t[2]), Quat { x: r[0], y: r[1], z: r[2], w: r[3] }.normalize(), vec3(s[0], s[1], s[2]))
             }
-        };
-        let world = *parent * local;
-        if let Some(mesh) = node["mesh"].as_u64() {
-            let name = node["name"].as_str().or_else(|| self.doc["meshes"][mesh as usize]["name"].as_str()).unwrap_or("Mesh");
-            self.mesh(mesh as usize, name, &world, out);
-        }
-        for child in node["children"].as_array().into_iter().flatten().filter_map(|c| c.as_u64()) {
-            self.node(child as usize, &world, out, depth + 1);
         }
     }
 
-    fn mesh(&self, index: usize, name: &str, world: &Mat4, out: &mut Vec<ImportedObject>) {
+    /// Every node's parent, and its global transform in the file's space.
+    fn hierarchy(&self) -> (Vec<Option<usize>>, Vec<Mat4>) {
+        let count = self.doc["nodes"].as_array().map_or(0, |n| n.len());
+        let mut parent = vec![None; count];
+        for (i, n) in self.doc["nodes"].as_array().into_iter().flatten().enumerate() {
+            for c in n["children"].as_array().into_iter().flatten().filter_map(|c| c.as_u64()) {
+                if let Some(p) = parent.get_mut(c as usize) {
+                    *p = Some(i);
+                }
+            }
+        }
+        let mut world: Vec<Option<Mat4>> = vec![None; count];
+        fn resolve(i: usize, parent: &[Option<usize>], world: &mut [Option<Mat4>], r: &Reader, depth: usize) -> Mat4 {
+            if let Some(w) = world[i] {
+                return w;
+            }
+            let base = match parent[i] {
+                Some(p) if depth < 64 => resolve(p, parent, world, r, depth + 1),
+                _ => Mat4::IDENTITY,
+            };
+            let w = base * r.local(i);
+            world[i] = Some(w);
+            w
+        }
+        let world = (0..count).map(|i| resolve(i, &parent, &mut world, self, 0)).collect();
+        (parent, world)
+    }
+
+    /// Skin `index` for a primitive's JOINTS_0 / WEIGHTS_0.
+    fn skin(&self, index: usize, joints: &[f32], weights: &[f32]) -> Option<Skin> {
+        let skin = self.doc["skins"].get(index)?;
+        let nodes: Vec<usize> = skin["joints"].as_array()?.iter().filter_map(|j| j.as_u64()).map(|j| j as usize).collect();
+        if nodes.is_empty() {
+            return None;
+        }
+        let (parent, world) = self.hierarchy();
+        let inverse_binds: Vec<Mat4> = skin["inverseBindMatrices"]
+            .as_u64()
+            .and_then(|a| self.floats(a as usize, 16))
+            .map(|v| {
+                v.as_chunks::<16>().0.iter().map(|m| Mat4(std::array::from_fn(|c| std::array::from_fn(|r| m[c * 4 + r])))).collect()
+            })
+            .unwrap_or_default();
+        let mut bones: Vec<crate::rig::Bone> = nodes
+            .iter()
+            .enumerate()
+            .map(|(k, &n)| {
+                // The nearest ancestor that is a joint too.
+                let mut up = parent.get(n).copied().flatten();
+                let mut guard = 0;
+                while let Some(p) = up.filter(|p| !nodes.contains(p)) {
+                    up = parent.get(p).copied().flatten();
+                    guard += 1;
+                    if guard > 64 {
+                        up = None;
+                    }
+                }
+                let parent_bone = up.and_then(|p| nodes.iter().position(|&x| x == p));
+                let g = world.get(n).copied().unwrap_or(Mat4::IDENTITY);
+                let local = match up {
+                    Some(p) => world[p].inverse().unwrap_or(Mat4::IDENTITY) * g,
+                    None => g,
+                };
+                let (translation, rotation, scale) = crate::rig::decompose(&local);
+                let name = self.doc["nodes"][n]["name"].as_str().map_or_else(|| format!("Bone {k}"), str::to_string);
+                crate::rig::Bone {
+                    name,
+                    parent: parent_bone,
+                    translation,
+                    rotation,
+                    scale,
+                    inverse_bind: inverse_binds.get(k).copied().unwrap_or(Mat4::IDENTITY),
+                }
+            })
+            .collect();
+        let map = crate::rig::parents_first(&mut bones);
+        let (joints, weights) = joints
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(weights.as_chunks::<4>().0)
+            .map(|(j, w)| {
+                let pairs: Vec<(u16, f32)> = (0..4).map(|i| (map.get(j[i] as usize).copied().unwrap_or(0) as u16, w[i])).collect();
+                crate::rig::strongest_four(&pairs)
+            })
+            .unzip();
+        Some(Skin { bones, base: Y_UP_TO_Z_UP, joints, weights })
+    }
+
+    fn mesh(&self, index: usize, name: &str, world: &Mat4, skin: Option<usize>, out: &mut Vec<ImportedObject>) {
         let primitives = self.doc["meshes"][index]["primitives"].as_array().cloned().unwrap_or_default();
         let several = primitives.len() > 1;
         for (k, p) in primitives.iter().enumerate() {
@@ -204,9 +299,21 @@ impl Reader<'_> {
             // glTF's v runs down the image; the scene's runs up.
             let uv = uvs.map(|u| u.as_chunks::<2>().0.iter().map(|t| [t[0], 1.0 - t[1]]).collect());
             let label = if several { format!("{name} {}", k + 1) } else { name.to_string() };
-            let Some((mesh, centre)) = object(&label, pos, nor, uv, triangles, world) else { continue };
             let (color, image) = self.material(p["material"].as_u64());
-            out.push(ImportedObject { name: label, mesh, location: centre, color, image });
+            // Skinned: posable (the node's own transform doesn't apply, as glTF says).
+            let skin_data = skin.and_then(|s| {
+                let joints = attr["JOINTS_0"].as_u64().and_then(|a| self.floats(a as usize, 4))?;
+                let weights = attr["WEIGHTS_0"].as_u64().and_then(|a| self.floats(a as usize, 4))?;
+                self.skin(s, &joints, &weights)
+            });
+            if let Some(s) = skin_data {
+                if let Some((mesh, rig)) = skinned(&label, pos.clone(), nor.clone(), uv.clone(), &triangles, s) {
+                    out.push(ImportedObject { name: label, location: rig.centre, mesh, color, image, rig: Some(rig) });
+                    continue;
+                }
+            }
+            let Some((mesh, centre)) = object(&label, pos, nor, uv, triangles, world) else { continue };
+            out.push(ImportedObject { name: label, mesh, location: centre, color, image, rig: None });
         }
     }
 
@@ -251,6 +358,7 @@ impl Reader<'_> {
             "VEC2" => 2,
             "VEC3" => 3,
             "VEC4" => 4,
+            "MAT4" => 16,
             _ => return None,
         };
         let count = a["count"].as_u64()? as usize;

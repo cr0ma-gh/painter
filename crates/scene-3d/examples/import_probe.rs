@@ -29,6 +29,10 @@ fn main() {
                         o.color,
                         o.image.map(|i| i.len())
                     );
+                    if let Some(rig) = &o.rig {
+                        let names: Vec<&str> = rig.bones.iter().take(8).map(|b| b.name.as_str()).collect();
+                        println!("    rigged: {} bones ({}…)", rig.bones.len(), names.join(", "));
+                    }
                 }
             }
             Err(e) => println!("  error: {e}"),

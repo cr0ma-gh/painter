@@ -27,5 +27,6 @@ pub mod import;
 pub mod math;
 pub mod mesh;
 pub mod persist;
+pub mod rig;
 pub mod scene;
 pub mod texture;

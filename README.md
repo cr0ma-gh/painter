@@ -267,7 +267,10 @@ cargo run --release -p painter-app -- drawing.painter
 - **3D layers** (Layer â New 3D Layer from Model, 3D tool; crates `scene-3d`
   and `painter-render`'s depth-buffered scene pass): import `.blend`, `.obj`,
   `.fbx` (binary, 7.x), `.gltf` and `.glb` (meshes, node transforms, the file's
-  up axis and unit, base colour and base colour image),
+  up axis and unit, base colour and base colour image; **rigged models**
+  keep their skeleton and skin, open in their bind pose and can be posed:
+  click a joint on the canvas and drag to turn its bone, or set it exactly in
+  the 3D panel's Pose section; poses are saved with the project),
   Blender-style navigation (middle drag orbit, Shift pan, wheel / Ctrl zoom,
   1 / 3 / 7 views, 5 perspective, Home frame), click to pick, G / R / S gizmo,
   and a panel for transforms, colour, FOV, views and up to four lights. A

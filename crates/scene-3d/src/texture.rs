@@ -350,6 +350,7 @@ mod tests {
             visible: true,
             color: CLAY,
             texture: None,
+            rig: None,
         });
         scene.camera.set_view(crate::camera::ViewPreset::Front);
         scene.camera.pivot = Vec3::ZERO;

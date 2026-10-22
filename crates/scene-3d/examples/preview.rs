@@ -16,7 +16,7 @@ fn main() {
     let mut scene = if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("obj")) {
         let mesh = scene_3d::mesh::load_obj(&std::fs::read_to_string(path).unwrap(), "obj").unwrap();
         let mut s = Scene3D::default();
-        s.objects.push(SceneObject { name: "obj".into(), mesh: std::sync::Arc::new(mesh), transform: Default::default(), visible: true, color: scene_3d::scene::CLAY, texture: None });
+        s.objects.push(SceneObject { name: "obj".into(), mesh: std::sync::Arc::new(mesh), transform: Default::default(), visible: true, color: scene_3d::scene::CLAY, texture: None, rig: None });
         s.camera.frame(&s.bounds().unwrap());
         s
     } else if path.extension().is_some_and(|e| ["fbx", "gltf", "glb"].iter().any(|x| e.eq_ignore_ascii_case(x))) {
@@ -25,7 +25,20 @@ fn main() {
         let mut s = Scene3D::default();
         for o in objects {
             let transform = scene_3d::gizmo::Transform { location: o.location, ..Default::default() };
-            s.objects.push(SceneObject { name: o.name, mesh: std::sync::Arc::new(o.mesh), transform, visible: true, color: o.color, texture: None });
+            let mut mesh = o.mesh;
+            // PAINTER_POSE="bone=x,y,z;…" (degrees, XYZ Euler): a pose for rigged models.
+            if let (Some(rig), Ok(spec)) = (&o.rig, std::env::var("PAINTER_POSE")) {
+                let mut pose = vec![scene_3d::math::Quat::IDENTITY; rig.bones.len()];
+                for part in spec.split(';') {
+                    let Some((bone, angles)) = part.split_once('=') else { continue };
+                    let a: Vec<f32> = angles.split(',').filter_map(|v| v.trim().parse::<f32>().ok()).map(f32::to_radians).collect();
+                    if let (Some(i), [x, y, z]) = (rig.bones.iter().position(|b| b.name.ends_with(bone)), a.as_slice()) {
+                        pose[i] = scene_3d::math::Quat::from_euler_xyz([*x, *y, *z]);
+                    }
+                }
+                mesh = rig.deform(&mesh, &pose);
+            }
+            s.objects.push(SceneObject { name: o.name, mesh: std::sync::Arc::new(mesh), transform, visible: true, color: o.color, texture: None, rig: None });
         }
         s.camera.frame(&s.bounds().unwrap());
         s
