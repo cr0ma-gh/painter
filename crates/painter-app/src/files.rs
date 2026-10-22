@@ -264,7 +264,7 @@ pub(crate) enum FileKind {
 pub(crate) fn kind_of(path: &Path) -> Option<FileKind> {
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     match ext.as_str() {
-        "painter" | "psd" | "kra" | "ora" | "png" | "jpg" | "jpeg" => Some(FileKind::Document),
+        "painter" | "psd" | "kra" | "ora" | "clip" | "png" | "jpg" | "jpeg" => Some(FileKind::Document),
         "blend" | "obj" => Some(FileKind::Model),
         _ if brush_io::is_brush_file(path) => Some(FileKind::Brushes),
         _ => None,

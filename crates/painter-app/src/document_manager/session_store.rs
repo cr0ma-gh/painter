@@ -146,6 +146,14 @@ impl DocManager {
 pub(crate) fn load_file(path: &Path) -> Loaded {
     let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
     match ext.as_str() {
+        "clip" => painter_core::clip::load(path).map(|(doc, warnings)| {
+            let mut extras = project::Extras::new();
+            if !warnings.is_empty() {
+                extras.insert(OPEN_WARNINGS.into(), warnings.join("
+").into_bytes());
+            }
+            (doc, false, extras)
+        }),
         "kra" | "ora" => {
             let read = if ext == "kra" { painter_core::kra::load(path) } else { painter_core::ora::load(path) };
             read.map(|(doc, warnings)| {

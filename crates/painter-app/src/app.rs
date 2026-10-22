@@ -1125,10 +1125,11 @@ impl PainterApp {
 
     pub(crate) fn open_dialog(&mut self) {
         let Some(path) = crate::files::FileDialog::new()
-            .add_filter("All supported", &[project::EXTENSION, "psd", "kra", "ora", "png", "jpg"])
+            .add_filter("All supported", &[project::EXTENSION, "psd", "kra", "ora", "clip", "png", "jpg"])
             .add_filter("Painter project", &[project::EXTENSION])
             .add_filter("Photoshop", &["psd"])
             .add_filter("Krita", &["kra"])
+            .add_filter("Clip Studio", &["clip"])
             .add_filter("OpenRaster", &["ora"])
             .add_filter("PNG image", &["png"])
             .pick_file()

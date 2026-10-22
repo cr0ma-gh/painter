@@ -7,6 +7,7 @@
 pub mod adjust;
 pub mod blend;
 pub mod brush;
+pub mod clip;
 pub mod document;
 pub mod fill_tool;
 pub mod filters;
