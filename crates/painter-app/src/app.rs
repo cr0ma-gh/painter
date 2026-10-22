@@ -176,6 +176,12 @@ pub struct PainterApp {
     /// The GPU, for reading 3D renders back into layer pixels.
     pub(crate) render_state: Option<eframe::egui_wgpu::RenderState>,
     pub(crate) scene_renderer: Option<painter_render::SceneRenderer>,
+    /// Ctrl + Alt resizing of the brush, while held.
+    pub(crate) size_drag: Option<crate::brush_cursor::SizeDrag>,
+    /// Extended Color Selector state.
+    pub(crate) gamut: crate::gamut_selector::GamutSelector,
+    /// Image tips as textures for the brush cursor.
+    pub(crate) tip_textures: crate::brush_cursor::TipTextures,
     /// Painting on a model through a layer over its 3D layer.
     pub(crate) model_paint: Option<crate::texture_paint::ModelPaint>,
     /// Texture documents (by tab) and the models they paint.
@@ -289,6 +295,9 @@ impl PainterApp {
             gizmo: Gizmo::default(),
             render_state: cc.wgpu_render_state.clone(),
             scene_renderer: None,
+            size_drag: None,
+            gamut: Default::default(),
+            tip_textures: Default::default(),
             model_paint: None,
             texture_links: Default::default(),
             doc_touched: false,

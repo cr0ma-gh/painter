@@ -231,6 +231,8 @@ impl PainterApp {
                 ui.label("Rotation");
                 ui.indent("adv_rotation", |ui| {
                     ui.checkbox(&mut brush.rotation.follow_direction, "Follows the stroke direction");
+                    ui.checkbox(&mut brush.rotation.follow_tilt, "Follows the pen's lean")
+                        .on_hover_text("Turns the tip towards where the pen leans (tablets with tilt, Apple Pencil)");
                     ui.horizontal(|ui| {
                         ui.label("Random flip");
                         ui.checkbox(&mut brush.rotation.random_flip_x, "horizontal");
@@ -246,6 +248,8 @@ impl PainterApp {
                     }
                     percent_slider(ui, &mut brush.rotation.jitter, "Random", 0.0..=100.0);
                 });
+                percent_slider(ui, &mut brush.tilt_side, "Pencil side with tilt", 0.0..=100.0);
+                ui.small("As the pen leans the tip lies down along it, like a pencil's side: wider, flatter, lighter.");
             }
             Section::Spraying => {
                 let s = &mut brush.scatter;

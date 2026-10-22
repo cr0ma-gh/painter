@@ -34,10 +34,12 @@ pub enum EditorType {
     ApproximateColor,
     ColorMixing,
     SearchLayer,
+    /// Krita's extended gamut selector: shapes and colour models.
+    GamutSelector,
 }
 
 impl EditorType {
-    pub const ALL: [EditorType; 19] = [
+    pub const ALL: [EditorType; 20] = [
         EditorType::Canvas,
         EditorType::Reference,
         EditorType::Viewport3D,
@@ -57,6 +59,7 @@ impl EditorType {
         EditorType::ApproximateColor,
         EditorType::ColorMixing,
         EditorType::SearchLayer,
+        EditorType::GamutSelector,
     ];
 
     pub fn title(self) -> &'static str {
@@ -80,6 +83,7 @@ impl EditorType {
             EditorType::ApproximateColor => "Approximate Color",
             EditorType::ColorMixing => "Color Mixing",
             EditorType::SearchLayer => "Search Layer",
+            EditorType::GamutSelector => "Extended Color Selector",
         }
     }
 

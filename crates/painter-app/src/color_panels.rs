@@ -112,6 +112,9 @@ pub(crate) struct ColorData {
     pub(crate) slider_mode: SliderMode,
     /// Colours kept under the mixing canvas.
     pub(crate) mixing_palette: Vec<Rgb>,
+    /// Extended Color Selector: shape and colour model.
+    pub(crate) gamut_shape: crate::gamut_selector::GamutShape,
+    pub(crate) gamut_model: crate::gamut_selector::ColorModel,
 }
 
 impl Default for ColorData {
@@ -135,6 +138,8 @@ impl Default for ColorData {
                 [40, 200, 230],
                 [140, 60, 230],
             ],
+            gamut_shape: Default::default(),
+            gamut_model: Default::default(),
         }
     }
 }

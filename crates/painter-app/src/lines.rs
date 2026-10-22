@@ -23,6 +23,7 @@ pub(crate) struct LineDraft {
     pressure_sum: f32,
     samples: u32,
     tilt: f32,
+    azimuth: f32,
 }
 
 /// `p` turned about `from` to the nearest multiple of `step_degrees`.
@@ -60,7 +61,7 @@ impl PainterApp {
             Some((doc, end)) if doc == here => end,
             _ => sample,
         };
-        let mut line = LineDraft { start, end: Pos2::new(sample.x, sample.y), pressure_sum: 0.0, samples: 0, tilt: sample.tilt };
+        let mut line = LineDraft { start, end: Pos2::new(sample.x, sample.y), pressure_sum: 0.0, samples: 0, tilt: sample.tilt, azimuth: sample.azimuth };
         line.pressure_sum += sample.pressure;
         line.samples += 1;
         self.line = Some(line);
@@ -75,6 +76,7 @@ impl PainterApp {
         line.pressure_sum += sample.pressure;
         line.samples += 1;
         line.tilt = sample.tilt;
+        line.azimuth = sample.azimuth;
     }
 
     /// Draws the line as a stroke.
@@ -83,7 +85,7 @@ impl PainterApp {
         let pressure = (line.pressure_sum / line.samples.max(1) as f32).clamp(0.0, 1.0);
         let t0 = self.started.elapsed().as_secs_f32();
         let points = line_points([line.start.x, line.start.y], [line.end.x, line.end.y], pressure, line.tilt, t0, 2.0);
-        let mut points = points.into_iter();
+        let mut points = points.into_iter().map(|p| p.with_azimuth(line.azimuth));
         let Some(first) = points.next() else { return };
         self.begin_stroke(first);
         for p in points {

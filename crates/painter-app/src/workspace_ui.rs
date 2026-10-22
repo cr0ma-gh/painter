@@ -809,6 +809,7 @@ impl PainterApp {
                 }
             }
             EditorType::ColorSlider => self.color_slider_panel(ui),
+            EditorType::GamutSelector => self.gamut_selector_panel(ui),
             EditorType::ColorSet => self.color_set_panel(ui),
             EditorType::ColorHistory => self.color_history_panel(ui),
             EditorType::IntermediateColor => self.intermediate_color_panel(ui),

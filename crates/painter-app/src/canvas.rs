@@ -164,6 +164,8 @@ impl PainterApp {
         // pointer moves Windows sends, so fast strokes keep their shape.
         let now = self.started.elapsed().as_secs_f32();
         let pointer = ui.input(|i| i.pointer.latest_pos());
+        // Ctrl + Alt: sideways motion resizes the brush; no stroke starts meanwhile.
+        let resizing = !hand && self.brush_resize(if hovering { response.hover_pos().or(pointer) } else { None });
         let packets = self.tablet.packet_points(ui.ctx().pixels_per_point(), now, pointer);
         let mut packets_fed = packets.is_empty();
         let feed_packets = |app: &mut PainterApp, fed: &mut bool| {
@@ -173,7 +175,7 @@ impl PainterApp {
             *fed = true;
             for pp in &packets {
                 let p = app.view.screen_to_doc(rect, doc_size, pp.pos);
-                app.continue_stroke(StrokePoint::new(p.x, p.y, pp.pressure).with_tilt(pp.tilt).at_time(pp.time));
+                app.continue_stroke(StrokePoint::new(p.x, p.y, pp.pressure).with_tilt(pp.tilt).with_azimuth(pp.azimuth).at_time(pp.time));
             }
         };
         for event in &events {
@@ -184,7 +186,7 @@ impl PainterApp {
             match event {
                 // Alt with a brush, fill or gradient: the eyedropper while the button is held.
                 Event::PointerButton { pos, button: PointerButton::Primary, pressed: true, modifiers, .. }
-                    if !hand && hovering && rect.contains(*pos) && modifiers.alt && self.alt_eyedropper() && self.drag.is_none() =>
+                    if !hand && !resizing && !modifiers.ctrl && hovering && rect.contains(*pos) && modifiers.alt && self.alt_eyedropper() && self.drag.is_none() =>
                 {
                     let p = to_doc(&self.view, *pos);
                     self.begin_temporary_pick(p);
@@ -197,7 +199,7 @@ impl PainterApp {
                     self.end_pick();
                 }
                 Event::PointerButton { pos, button: PointerButton::Primary, pressed: true, modifiers, .. }
-                    if !hand && hovering && rect.contains(*pos) && self.stroke.is_none() && self.drag.is_none() && self.line.is_none() =>
+                    if !hand && !resizing && hovering && rect.contains(*pos) && self.stroke.is_none() && self.drag.is_none() && self.line.is_none() =>
                 {
                     let p = to_doc(&self.view, *pos);
                     if self.tool == Tool::Brush && modifiers.shift {
@@ -303,22 +305,7 @@ impl PainterApp {
 
     /// A pointer sample at canvas point `p`, with pen pressure, tilt and time.
     fn stroke_point(&self, p: Pos2) -> StrokePoint {
-        StrokePoint::new(p.x, p.y, self.tablet.pressure()).with_tilt(self.tablet.tilt()).at_time(self.started.elapsed().as_secs_f32())
-    }
-
-    fn draw_brush_cursor(&self, painter: &egui::Painter, rect: Rect, response: &egui::Response) {
-        if self.tool != Tool::Brush {
-            return;
-        }
-        let Some(pos) = response.hover_pos() else {
-            return;
-        };
-        if !rect.contains(pos) {
-            return;
-        }
-        let radius = (self.current_brush().size * 0.5 * self.view.zoom).max(1.5);
-        painter.circle_stroke(pos, radius + 1.0, Stroke::new(1.0_f32, Color32::from_black_alpha(140)));
-        painter.circle_stroke(pos, radius, Stroke::new(1.0_f32, Color32::from_white_alpha(200)));
+        StrokePoint::new(p.x, p.y, self.tablet.pressure()).with_tilt(self.tablet.tilt()).with_azimuth(self.tablet.azimuth()).at_time(self.started.elapsed().as_secs_f32())
     }
 
     /// The whole canvas at fit size, with the visible area outlined; click or drag to pan.

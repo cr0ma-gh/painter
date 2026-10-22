@@ -58,3 +58,79 @@ void painter_ios_safe_area(double *top, double *left, double *bottom, double *ri
     *bottom = insets.bottom;
     *right = insets.right;
 }
+
+// ---- Apple Pencil tilt (see src/tablet.rs) ---------------------------------
+//
+// winit reports the Pencil's altitude, but egui keeps only the force; the
+// azimuth isn't passed on at all. This recognizer watches every touch on the
+// app's view (it never recognises, cancels or delays anything) and keeps the
+// latest Pencil touch's altitude and azimuth for Rust to read each frame.
+
+#import <UIKit/UIGestureRecognizerSubclass.h>
+
+static double pencil_altitude = M_PI_2, pencil_azimuth = 0, pencil_time = 0;
+static int pencil_seen = 0;
+
+@interface PainterPencilObserver : UIGestureRecognizer <UIGestureRecognizerDelegate>
+@end
+
+@implementation PainterPencilObserver
+- (void)record:(NSSet<UITouch *> *)touches {
+    for (UITouch *touch in touches) {
+        if (touch.type != UITouchTypePencil) continue;
+        pencil_altitude = touch.altitudeAngle;
+        pencil_azimuth = [touch azimuthAngleInView:self.view];
+        pencil_time = NSProcessInfo.processInfo.systemUptime;
+        pencil_seen = 1;
+    }
+}
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [super touchesBegan:touches withEvent:event];
+    [self record:touches];
+}
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [super touchesMoved:touches withEvent:event];
+    [self record:touches];
+}
+- (void)touchesEstimatedPropertiesUpdated:(NSSet<UITouch *> *)touches {
+    [self record:touches];
+}
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [super touchesEnded:touches withEvent:event];
+    [self record:touches];
+    self.state = UIGestureRecognizerStateFailed;
+}
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [super touchesCancelled:touches withEvent:event];
+    self.state = UIGestureRecognizerStateFailed;
+}
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)a shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)b {
+    return YES;
+}
+@end
+
+// 1 once the observer is on the app's view; call again until then.
+int painter_pencil_install(void) {
+    static PainterPencilObserver *observer = nil;
+    if (observer) return 1;
+    if (![NSThread isMainThread]) return 0;
+    UIView *view = painter_window().rootViewController.view;
+    if (!view) return 0;
+    observer = [[PainterPencilObserver alloc] initWithTarget:nil action:nil];
+    observer.cancelsTouchesInView = NO;
+    observer.delaysTouchesBegan = NO;
+    observer.delaysTouchesEnded = NO;
+    observer.delegate = observer;
+    [view addGestureRecognizer:observer];
+    return 1;
+}
+
+// The latest Pencil touch: altitude (radians, π/2 = upright), azimuth in the
+// view (radians clockwise from +x) and how many seconds ago. 0 before any.
+int painter_pencil_state(double *altitude, double *azimuth, double *age) {
+    if (!pencil_seen) return 0;
+    *altitude = pencil_altitude;
+    *azimuth = pencil_azimuth;
+    *age = NSProcessInfo.processInfo.systemUptime - pencil_time;
+    return 1;
+}

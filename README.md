@@ -65,6 +65,11 @@ cargo run --release -p painter-app -- drawing.painter
   is the same file byte for byte; edited, it keeps the settings Painter
   doesn't have. Between different programs the engines differ, so brushes
   are mapped as closely as their settings allow (see docs/BRUSH_IO.md).
+- **Extended Color Selector** (Window → Extended Color Selector), after
+  Krita's: a hue ring around a triangle, square or diamond, a hue / saturation
+  wheel with a value bar, a square with a hue bar, or hue × value and hue ×
+  saturation rectangles, in HSV, HSL, HSI or HSY′ (the last two stretched to
+  the whole gamut). The ☰ menu shows every shape as a thumbnail.
 - **Colour:** colour wheel; the transparent colour (the checkered chip beside main / sub: any brush erases with its own tip and dynamics, until a colour is picked); Color Slider (RGB, HSV and CMYK device values);
   Color Set (named sets, GIMP `.gpl` import / export); Color History;
   Intermediate Color (four blended corners); Approximate Color (value /
@@ -159,6 +164,12 @@ cargo run --release -p painter-app -- drawing.painter
 - **Tablet:** WinTab on Windows and XInput2 on Linux (pressure, tilt, every
   packet of fast strokes, automatic switch on the eraser end), with a
   fallback to Windows Ink; Apple Pencil on iPad, stylus pressure on Android.
+  Tilt shapes the brush: "Follows the pen's lean" turns the tip towards where
+  the pen leans, and "Pencil side" lays it down like a pencil's side (wider,
+  flatter, lighter; on by default for the Pencil). The cursor and Tool
+  Settings' tip preview show the tip as the pen would stamp it now (shape,
+  image tip, pressure, tilt, lean). Ctrl + Alt and a sideways move of the pen
+  or mouse resizes the brush.
 - **Files:** `.painter` projects, PSD import/export, PNG open/import/export,
   File → New from Clipboard (Ctrl+Alt+N) makes a document the size of a
   picture copied in another app (a screenshot, a browser image) or of the

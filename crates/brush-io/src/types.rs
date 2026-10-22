@@ -247,6 +247,8 @@ impl BrushPreset {
         self.settings.thickness_dynamics = input(&d.thickness, true);
         self.settings.rotation = RotationDynamics {
             follow_direction: d.rotation_follows_direction,
+            // No file format here carries it: kept from the brush.
+            follow_tilt: self.settings.rotation.follow_tilt,
             jitter: d.rotation.random.unwrap_or(0.0).clamp(0.0, 1.0),
             pressure: d.rotation.pressure.clone(),
             velocity: d.rotation.velocity.clone(),

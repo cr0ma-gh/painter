@@ -38,6 +38,13 @@ impl StrokeEngine {
         Self::with_seed(settings, DEFAULT_SEED)
     }
 
+    /// The dab a pen at `point` would stamp right now (pressure, tilt and lean
+    /// included; no speed, randomness as for a stroke's first dab): what a
+    /// brush cursor or tip preview shows.
+    pub fn preview_dab(settings: &BrushSettings, point: StrokePoint) -> Dab {
+        Self::with_seed(settings, DEFAULT_SEED).dab_at(point)
+    }
+
     /// An engine whose random dynamics are reproducible from `seed`.
     pub fn with_seed(settings: &BrushSettings, seed: u64) -> Self {
         Self {
@@ -236,13 +243,30 @@ impl StrokeEngine {
         let r: [f32; 5] = std::array::from_fn(|_| self.random());
         let s = &self.settings;
         let (pressure, velocity, tilt) = (p.pressure, self.velocity, p.tilt);
-        let size = s.size_dynamics.factor(pressure, velocity, tilt, r[0]);
-        let density = s.density_dynamics.factor(pressure, velocity, tilt, r[1]);
+        let mut size = s.size_dynamics.factor(pressure, velocity, tilt, r[0]);
+        let mut density = s.density_dynamics.factor(pressure, velocity, tilt, r[1]);
         let opacity = s.opacity_dynamics.factor(pressure, velocity, tilt, r[2]);
-        let thickness = s.thickness_dynamics.factor(pressure, velocity, tilt, r[3]);
+        let mut thickness = s.thickness_dynamics.factor(pressure, velocity, tilt, r[3]);
         let mut angle = s.rotation.offset(pressure, velocity, tilt, r[4]);
         if s.rotation.follow_direction {
             angle += self.direction;
+        }
+        // Where the pen leans, as a tip angle (counter-clockwise from the right):
+        // the azimuth is clockwise from the top of the screen.
+        let lean_angle = 90.0 - p.azimuth;
+        let leaning = tilt > 0.02;
+        if s.rotation.follow_tilt && leaning {
+            angle += lean_angle;
+        }
+        let side = (s.tilt_side.clamp(0.0, 1.0) * tilt).clamp(0.0, 1.0);
+        if side > 0.0 {
+            // The tip lies down along the lean: longer that way, thinner across, lighter.
+            size *= 1.0 + 1.2 * side;
+            thickness *= 1.0 - 0.7 * side;
+            density *= 1.0 - 0.45 * side;
+            if !s.rotation.follow_tilt {
+                angle += lean_angle;
+            }
         }
         // The flips take the low bits of the rotation draw, so the draw count stays five.
         let (mirror, half_turn) = s.rotation.flips((r[4] * (1u32 << 24) as f32) as u32);
@@ -427,6 +451,30 @@ mod tests {
         assert!(a.iter().all(|d| (0.0..=1.0).contains(&d.alpha) && d.angle.abs() <= 180.0));
         let spread = a.iter().map(|d| d.radius).fold(f32::MAX, f32::min);
         assert!(spread < 4.0, "jitter actually varies the size");
+    }
+
+    #[test]
+    fn leaning_pens_turn_and_lay_the_tip_down() {
+        // A pen leaning to the right (azimuth 90°), half way down.
+        let leaning: Vec<StrokePoint> = horizontal(100.0, 1.0).into_iter().map(|p| p.with_tilt(0.5).with_azimuth(90.0)).collect();
+        let upright = line_dabs(&plain(), 1, &horizontal(100.0, 1.0));
+        // Follow tilt: the tip turns to the lean (0° = pointing right), nothing else changes.
+        let follow = BrushSettings { rotation: crate::brush::RotationDynamics { follow_tilt: true, ..Default::default() }, ..plain() };
+        let dabs = line_dabs(&follow, 1, &leaning);
+        assert!(dabs.iter().all(|d| d.angle.abs() < 1e-3 && d.thickness == 1.0));
+        // Upright pens don't turn the tip.
+        let still: Vec<StrokePoint> = horizontal(100.0, 1.0).into_iter().map(|p| p.with_azimuth(90.0)).collect();
+        assert!(line_dabs(&follow, 1, &still).iter().all(|d| d.angle == 0.0));
+        // Pencil side: wider, flatter across, lighter, along the lean; more with more tilt.
+        let side = BrushSettings { tilt_side: 1.0, ..plain() };
+        let dabs = line_dabs(&side, 1, &leaning);
+        let (d, u) = (dabs[3], upright[3]);
+        assert!(d.radius > u.radius * 1.5 && d.thickness < 0.7 && d.alpha < u.alpha && d.angle.abs() < 1e-3);
+        let flatter: Vec<StrokePoint> = horizontal(100.0, 1.0).into_iter().map(|p| p.with_tilt(0.9).with_azimuth(90.0)).collect();
+        assert!(line_dabs(&side, 1, &flatter)[3].thickness < d.thickness);
+        // The smoother keeps the lean direction.
+        let smoothed = BrushSettings { stabilization: 30, ..follow };
+        assert!(line_dabs(&smoothed, 1, &leaning).iter().all(|d| d.angle.abs() < 1e-3));
     }
 
     #[test]

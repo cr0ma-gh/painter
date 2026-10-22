@@ -174,6 +174,8 @@ impl InputDynamics {
 pub struct RotationDynamics {
     /// Turn the tip with the stroke direction.
     pub follow_direction: bool,
+    /// Turn the tip towards where the pen leans (its azimuth), while it's tilted.
+    pub follow_tilt: bool,
     /// Random rotation, 0..=1 of a half turn either way (1 = ±180°).
     pub jitter: f32,
     /// Turns from pen pressure: the curve's output × 360°.
@@ -271,6 +273,10 @@ pub struct BrushSettings {
     /// start of a stroke (0 = off).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub taper_start: f32,
+    /// Pencil side, 0..=1: as the pen leans, the tip lies down along the lean like
+    /// a pencil's side: wider, flatter across, lighter. 0 = off.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub tilt_side: f32,
 }
 
 fn is_zero(v: &f32) -> bool {
@@ -397,12 +403,15 @@ impl BrushSettings {
             scatter: Scatter::default(),
             color_jitter: ColorJitter::default(),
             taper_start: 0.0,
+            tilt_side: 0.0,
         }
     }
 
     pub fn pencil() -> Self {
         Self {
             name: "Pencil".into(),
+            // Shading with the side of the lead when the pen leans.
+            tilt_side: 0.7,
             size: 6.0,
             min_size_ratio: 0.6,
             opacity: 0.9,

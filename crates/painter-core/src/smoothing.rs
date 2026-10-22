@@ -14,6 +14,10 @@ pub struct StrokePoint {
     /// Pen tilt away from vertical, 0 (upright) ..= 1 (flat); 0 for a mouse.
     #[serde(default)]
     pub tilt: f32,
+    /// Which way the pen leans, degrees clockwise from the top of the screen
+    /// (meaningful while `tilt` > 0).
+    #[serde(default)]
+    pub azimuth: f32,
     /// Seconds since some fixed instant (only differences matter); drives velocity.
     #[serde(default)]
     pub time: f32,
@@ -21,11 +25,15 @@ pub struct StrokePoint {
 
 impl StrokePoint {
     pub fn new(x: f32, y: f32, pressure: f32) -> Self {
-        Self { x, y, pressure, tilt: 0.0, time: 0.0 }
+        Self { x, y, pressure, tilt: 0.0, azimuth: 0.0, time: 0.0 }
     }
 
     pub fn with_tilt(self, tilt: f32) -> Self {
         Self { tilt: tilt.clamp(0.0, 1.0), ..self }
+    }
+
+    pub fn with_azimuth(self, azimuth: f32) -> Self {
+        Self { azimuth: azimuth.rem_euclid(360.0), ..self }
     }
 
     pub fn at_time(self, time: f32) -> Self {
@@ -43,6 +51,8 @@ impl StrokePoint {
             y: mix(self.y, other.y),
             pressure: mix(self.pressure, other.pressure),
             tilt: mix(self.tilt, other.tilt),
+            // The short way round.
+            azimuth: (self.azimuth + ((other.azimuth - self.azimuth + 540.0).rem_euclid(360.0) - 180.0) * t).rem_euclid(360.0),
             time: mix(self.time, other.time),
         }
     }
@@ -83,9 +93,9 @@ impl Smoother {
                 let sum = samples
                     .iter()
                     .fold([0.0f32; 4], |acc, s| [acc[0] + s.x, acc[1] + s.y, acc[2] + s.pressure, acc[3] + s.tilt]);
-                // Time is the newest sample's: smoothing lags position, not the clock.
-                let time = samples.back().map_or(0.0, |s| s.time);
-                Some(StrokePoint::new(sum[0] / n, sum[1] / n, sum[2] / n).with_tilt(sum[3] / n).at_time(time))
+                // Time and lean direction are the newest sample's: smoothing lags position, not the clock.
+                let (time, azimuth) = samples.back().map_or((0.0, 0.0), |s| (s.time, s.azimuth));
+                Some(StrokePoint::new(sum[0] / n, sum[1] / n, sum[2] / n).with_tilt(sum[3] / n).with_azimuth(azimuth).at_time(time))
             }
             Smoother::Pulled { length, pos } => {
                 let Some(cur) = pos else {
@@ -96,10 +106,11 @@ impl Smoother {
                 if d <= *length {
                     cur.pressure = p.pressure;
                     cur.tilt = p.tilt;
+                    cur.azimuth = p.azimuth;
                     cur.time = p.time;
                     return None;
                 }
-                let moved = StrokePoint { pressure: p.pressure, tilt: p.tilt, time: p.time, ..cur.lerp(p, (d - *length) / d) };
+                let moved = StrokePoint { pressure: p.pressure, tilt: p.tilt, azimuth: p.azimuth, time: p.time, ..cur.lerp(p, (d - *length) / d) };
                 *cur = moved;
                 Some(moved)
             }

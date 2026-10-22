@@ -125,6 +125,7 @@ pub fn editor_icon(editor: ui_workspace::tiles::EditorType) -> Icon {
         E::Timeline => Icon::Curve,
         E::NodeGraph => Icon::Path,
         E::ColorSlider => Icon::GradientLinear,
+        E::GamutSelector => Icon::ColorTriangle,
         E::ColorSet => Icon::DefaultColors,
         E::ColorHistory => Icon::Undo,
         E::IntermediateColor => Icon::Transparency,

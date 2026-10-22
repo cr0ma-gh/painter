@@ -59,6 +59,10 @@ pub struct TabletState {
     /// A touch is down, and whether it is a stylus (it reports force; fingers don't).
     touching: bool,
     stylus: bool,
+    /// iPad: the Apple Pencil's latest (tilt, azimuth), read from UIKit; egui drops them.
+    pencil: Option<(f32, f32)>,
+    #[cfg(target_os = "ios")]
+    pencil_watching: bool,
 }
 
 /// The pen driver for this platform and window, if one is there.
@@ -84,6 +88,13 @@ impl TabletState {
             self.pen = open_pen(frame);
         }
         self.frame_samples = self.pen.as_mut().map(|p| p.poll()).unwrap_or_default();
+        #[cfg(target_os = "ios")]
+        {
+            if !self.pencil_watching {
+                self.pencil_watching = ios_pencil::install();
+            }
+            self.pencil = ios_pencil::state();
+        }
         if let Some(&sample) = self.frame_samples.last() {
             if sample.eraser != self.eraser {
                 self.eraser = sample.eraser;
@@ -147,9 +158,15 @@ impl TabletState {
         self.ink_pressure.unwrap_or(1.0)
     }
 
-    /// Pen tilt for the current pointer event, 0 (upright) ..= 1 (flat). Only pen drivers report it.
+    /// Pen tilt for the current pointer event, 0 (upright) ..= 1 (flat): from the pen
+    /// driver, or the Apple Pencil; 0 for a mouse.
     pub fn tilt(&self) -> f32 {
-        self.current().map_or(0.0, |s| s.tilt)
+        self.current().map(|s| s.tilt).or(self.pencil.filter(|_| self.touching).map(|p| p.0)).unwrap_or(0.0)
+    }
+
+    /// Which way the pen leans, degrees clockwise from the top of the screen.
+    pub fn azimuth(&self) -> f32 {
+        self.current().map(|s| s.azimuth).or(self.pencil.filter(|_| self.touching).map(|p| p.1)).unwrap_or(0.0)
     }
 
     /// This frame's pen packets while touching, as window points (egui
@@ -187,6 +204,7 @@ impl TabletState {
                 pos: to_points(s),
                 pressure: s.pressure,
                 tilt: s.tilt,
+                azimuth: s.azimuth,
                 time: now - newest.wrapping_sub(s.time_ms) as f32 / 1000.0,
             })
             .collect()
@@ -236,6 +254,7 @@ pub struct PacketPoint {
     pub pos: eframe::egui::Pos2,
     pub pressure: f32,
     pub tilt: f32,
+    pub azimuth: f32,
     /// Seconds, on the app's clock.
     pub time: f32,
 }
@@ -261,5 +280,37 @@ mod tests {
         assert_eq!((0..4).map(|e| sample_index(e, 4, 2)).collect::<Vec<_>>(), [0, 0, 1, 1]);
         assert_eq!(sample_index(0, 1, 5), 4, "a single event gets the newest packet");
         assert_eq!(sample_index(9, 3, 3), 2, "out-of-range events clamp");
+    }
+}
+
+/// The Apple Pencil's tilt and azimuth, read from UIKit (`native/ios_ui.m`):
+/// a gesture recognizer that watches every touch without taking any.
+#[cfg(target_os = "ios")]
+mod ios_pencil {
+    use std::ffi::c_int;
+
+    extern "C" {
+        fn painter_pencil_install() -> c_int;
+        fn painter_pencil_state(altitude: *mut f64, azimuth: *mut f64, age: *mut f64) -> c_int;
+    }
+
+    pub(super) fn install() -> bool {
+        // SAFETY: adds a recognizer to the window's view on the main thread (where eframe runs).
+        unsafe { painter_pencil_install() != 0 }
+    }
+
+    /// (tilt 0..1, azimuth degrees clockwise from up) of the Pencil touching now.
+    pub(super) fn state() -> Option<(f32, f32)> {
+        let (mut altitude, mut azimuth, mut age) = (0.0, 0.0, 0.0);
+        // SAFETY: writes three doubles.
+        let has = unsafe { painter_pencil_state(&mut altitude, &mut azimuth, &mut age) } != 0;
+        // Only a Pencil touching now (the last sample is recent).
+        if !has || age > 0.25 {
+            return None;
+        }
+        // Altitude: π/2 upright, 0 flat. UIKit's azimuth: radians clockwise from +x (y down).
+        let tilt = (1.0 - altitude / std::f64::consts::FRAC_PI_2).clamp(0.0, 1.0) as f32;
+        let azimuth = (azimuth.to_degrees() + 90.0).rem_euclid(360.0) as f32;
+        Some((tilt, azimuth))
     }
 }

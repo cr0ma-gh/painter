@@ -708,6 +708,7 @@ impl PainterApp {
         if !missing.is_empty() {
             ui.colored_label(Color32::from_rgb(240, 190, 90), format!("Imported features not painted yet: {}", missing.join(", ")));
         }
+        egui::CollapsingHeader::new("Tip preview").id_salt("tip_preview").default_open(true).show(ui, |ui| self.tip_preview(ui));
         let vector_eraser = &mut self.tools.vector_eraser_whole_strokes;
         let brush = &mut self.brushes[self.brush].settings;
         prop_slider(ui, "Brush Size", &mut brush.size, 0.5..=2000.0, "", 1, true);
@@ -767,6 +768,8 @@ impl PainterApp {
             ui.label("Tip rotation");
             ui.indent("rotation", |ui| {
                 ui.checkbox(&mut brush.rotation.follow_direction, "Follows stroke direction");
+                ui.checkbox(&mut brush.rotation.follow_tilt, "Follows the pen's lean")
+                    .on_hover_text("Turns the tip towards where the pen leans (tablets with tilt, Apple Pencil)");
                 ui.horizontal(|ui| {
                     ui.label("Random flip");
                     ui.checkbox(&mut brush.rotation.random_flip_x, "horizontal");
@@ -782,7 +785,10 @@ impl PainterApp {
                 }
                 percent_slider(ui, &mut brush.rotation.jitter, "Jitter", 0.0..=100.0);
             });
-            ui.small("Tilt needs a WinTab tablet; speed is measured on the canvas.");
+            ui.label("Tilt");
+            percent_slider(ui, &mut brush.tilt_side, "Pencil side", 0.0..=100.0);
+            ui.small("As the pen leans the tip lies down along it, like a pencil's side: wider, flatter, lighter.");
+            ui.small("Tilt comes from WinTab or XInput2 tablets and the Apple Pencil; speed is measured on the canvas.");
         });
 
         ui.separator();
