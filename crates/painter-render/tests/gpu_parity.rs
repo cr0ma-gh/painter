@@ -22,8 +22,12 @@ fn gpu() -> Option<(&'static wgpu::Device, &'static wgpu::Queue, MutexGuard<'sta
     static TURN: Mutex<()> = Mutex::new(());
     let (device, queue) = DEVICE
         .get_or_init(|| {
-            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+            // WGPU_BACKEND (e.g. "gl") picks the API, to test the OpenGL path where it exists.
+            let backends = wgpu::Backends::from_env().unwrap_or(wgpu::Backends::all());
+            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor { backends, ..Default::default() });
             let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))?;
+            let info = adapter.get_info();
+            eprintln!("GPU tests on {} ({:?}, {})", info.name, info.backend, info.driver);
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None)).ok()
         })
         .as_ref()?;
@@ -634,4 +638,45 @@ fn uniform_mask_tiles_share_one_atlas_slot() {
     // 100 colour tiles share one slot too (solid red), plus the mask's edge tiles.
     let (slots, _) = canvas.atlas_usage();
     assert!(slots < 30, "{slots} slots in use");
+}
+
+/// Every pixel says where it is (red = x, green = y, blue = which tile), so
+/// a wrong composite shows exactly which texel each pixel read.
+#[test]
+fn tiles_read_their_own_texels() {
+    let Some((device, queue, _turn)) = gpu() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    let (w, h) = (192u32, 128u32);
+    let mut rgba = vec![0u8; (w * h * 4) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            let i = ((y * w + x) * 4) as usize;
+            rgba[i..i + 4].copy_from_slice(&[(x % 256) as u8, (y % 256) as u8, (40 * (x / 64 + 3 * (y / 64))) as u8, 255]);
+        }
+    }
+    let mut doc = Document::from_parts(w, h, Vec::new(), LayerId(0), 1);
+    let id = doc.alloc_id();
+    doc.layers.push(Layer::raster_with(id, "Probe", TileStore::from_rgba(w, h, &rgba)));
+    doc.active = id;
+    let mut canvas = GpuCanvas::new(device, wgpu::TextureFormat::Rgba8Unorm);
+    run(device, queue, &mut canvas, &frame(&doc, true, None));
+    let gpu = canvas.read_composite(device, queue).unwrap();
+    let cpu = io::flatten(&doc);
+    let mut report = String::new();
+    let mut bad = 0;
+    for (tx, ty) in [(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1)] {
+        for (dx, dy) in [(0, 0), (1, 0), (63, 0), (0, 1), (5, 9), (32, 32), (63, 63)] {
+            let (x, y) = (tx * 64 + dx, ty * 64 + dy);
+            let i = ((y * w + x) * 4) as usize;
+            let (g, c) = (&gpu[i..i + 4], &cpu[i..i + 4]);
+            if (0..4).any(|k| g[k].abs_diff(c[k]) > TOLERANCE) {
+                bad += 1;
+            }
+            report += &format!("tile ({tx},{ty}) at ({x},{y}): gpu {g:?} cpu {c:?}\n");
+        }
+    }
+    eprintln!("{report}");
+    assert_eq!(bad, 0, "{bad} probes read the wrong texel:\n{report}");
 }

@@ -61,11 +61,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev pkg-config
+          # Mesa's software OpenGL, for the GPU tests on the OpenGL path (Android's Mali GPUs use it).
+          sudo apt-get install -y libegl1 libgles2 libgl1-mesa-dri
       # The GPU tests are left out: the runner only has Mesa's software renderer.
       - name: Tests
         run: |
           cargo test --workspace --exclude painter-render
           cargo test -p painter-render --lib
+      - name: GPU tests on OpenGL (Mesa, informational)
+        continue-on-error: true
+        env:
+          WGPU_BACKEND: gl
+        run: cargo test -p painter-render --test gpu_parity -- --nocapture --test-threads 1 tiles_read_their_own_texels composite_matches_cpu_flatten
       - name: Build and package
         run: bash packaging/linux/build-appimage.sh
       - uses: actions/upload-artifact@v4
