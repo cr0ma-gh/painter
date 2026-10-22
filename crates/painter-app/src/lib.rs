@@ -79,6 +79,7 @@ pub fn native_options() -> eframe::NativeOptions {
 /// GPUs, whose Vulkan shader compiler crashes on the canvas shaders (seen on
 /// a Pixel 9), and after a start that died while setting up the GPU: those
 /// use OpenGL ES, which has its own compiler. The choice sticks once made.
+/// Only the chosen API is started: the window can belong to one of them.
 #[cfg(target_os = "android")]
 fn gpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
     use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetupCreateNew};
@@ -96,21 +97,23 @@ fn gpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
         }
         let _ = std::fs::write(starting, b"");
     }
+    // Decided before the window's surface exists: one backend only, since a
+    // Vulkan surface takes the window and OpenGL ES can't attach to it after.
     let force_gl = use_gl.is_some_and(|p| p.exists());
+    let vulkan = if force_gl { Vec::new() } else { vulkan_gpus() };
+    let mali = vulkan.iter().any(|info| info.vendor == 0x13B5 || info.name.to_ascii_lowercase().contains("mali"));
+    let backends = if force_gl || mali || vulkan.is_empty() { wgpu::Backends::GL } else { wgpu::Backends::VULKAN };
     let mut setup = WgpuSetupCreateNew::default();
-    setup.instance_descriptor.backends = wgpu::Backends::VULKAN | wgpu::Backends::GL;
-    setup.native_adapter_selector = Some(std::sync::Arc::new(move |adapters: &[wgpu::Adapter], surface: Option<&wgpu::Surface<'_>>| {
-        let usable: Vec<&wgpu::Adapter> = adapters.iter().filter(|a| surface.is_none_or(|s| a.is_surface_supported(s))).collect();
-        let find = |backend: wgpu::Backend| usable.iter().copied().find(|a| a.get_info().backend == backend);
-        let (vulkan, gl) = (find(wgpu::Backend::Vulkan), find(wgpu::Backend::Gl));
-        let mali = vulkan.is_some_and(|a| {
-            let info = a.get_info();
-            info.vendor == 0x13B5 || info.name.to_ascii_lowercase().contains("mali")
-        });
-        let pick = if force_gl || mali { gl.or(vulkan) } else { vulkan.or(gl) };
-        pick.or(usable.first().copied()).cloned().ok_or_else(|| "no graphics adapter".to_string())
-    }));
+    setup.instance_descriptor.backends = backends;
     WgpuConfiguration { wgpu_setup: setup.into(), ..Default::default() }
+}
+
+/// The Vulkan GPUs, listed without touching the window.
+#[cfg(target_os = "android")]
+fn vulkan_gpus() -> Vec<eframe::wgpu::AdapterInfo> {
+    use eframe::wgpu;
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..Default::default() });
+    instance.enumerate_adapters(wgpu::Backends::VULKAN).iter().map(|a| a.get_info()).collect()
 }
 
 #[cfg(not(target_os = "android"))]
