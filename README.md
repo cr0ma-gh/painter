@@ -43,7 +43,8 @@ cargo run --release -p painter-app -- drawing.painter
 - **Layers:** raster, vector, folders (pass-through or isolated), paper,
   gradient and screentone layers. Each has 13 blend modes, opacity, locks,
   clipping to the layer below, and layer masks. The Layer palette works like Clip
-  Studio's: Ctrl / Shift + click selects several layers; drag them above,
+  Studio's: Ctrl / Shift + click, or the selection checkbox on each row
+  (and "Select all" above the list), selects several layers; drag them above,
   below or into a folder; duplicate (Ctrl+J, folders with their contents),
   group into a folder (Ctrl+G), delete, show / hide, lock or change opacity
   and blend mode for all of them at once (right-click menu too). Draft
@@ -167,7 +168,11 @@ cargo run --release -p painter-app -- drawing.painter
   document is on the GPU.
 - **Brush library:** the brush list (built-in and imported brushes, edits,
   order, tips and textures) is saved to `%APPDATA%\Painter\brushes.rustbrush`
-  and comes back at the next launch; right-click the import button to add
+  and comes back at the next launch. Right-click a brush to reset it to its
+  default settings (built-in brushes), duplicate or delete it; Tool Settings
+  has a Reset button too. Right-click the import button to reset every
+  built-in brush, reset the whole list (with a warning about imported
+  brushes), or add
   back deleted default brushes.
 - **Tablet:** WinTab on Windows and XInput2 on Linux (pressure, tilt, every
   packet of fast strokes, automatic switch on the eraser end), with a
@@ -234,7 +239,9 @@ cargo run --release -p painter-app -- drawing.painter
   `cargo run -p painter-comic-layout --example layout_preview -- "Manga B5" "Manga dynamic 6" 150 out.png`
   renders one.
 - **3D layers** (Layer â New 3D Layer from Model, 3D tool; crates `scene-3d`
-  and `painter-render`'s depth-buffered scene pass): import `.blend` / `.obj`,
+  and `painter-render`'s depth-buffered scene pass): import `.blend`, `.obj`,
+  `.fbx` (binary, 7.x), `.gltf` and `.glb` (meshes, node transforms, the file's
+  up axis and unit, base colour and base colour image),
   Blender-style navigation (middle drag orbit, Shift pan, wheel / Ctrl zoom,
   1 / 3 / 7 views, 5 perspective, Home frame), click to pick, G / R / S gizmo,
   and a panel for transforms, colour, FOV, views and up to four lights. A
@@ -242,7 +249,13 @@ cargo run --release -p painter-app -- drawing.painter
   focal length, sensor fit, lens shift, clipping; the render frame fitted to
   the canvas) and gets a perspective ruler on the vanishing points of the
   scene's X, Y and Z axes, usable from any layer; the 3D panel can go back to
-  the Blender camera or rebuild the ruler from the current view.
+  the Blender camera or rebuild the ruler from the current view. The other way
+  round, **Layer → New 3D Layer from Perspective Ruler** turns a drawing's
+  1, 2 or 3 vanishing points into a 3D camera (focal length from two
+  perpendicular points, image centre from three, eye 1.6 m above the ground).
+  Drop model files on the canvas and each one stands on the ground under the
+  pointer, at its real size, in the drawing's perspective (on the active 3D
+  layer, or a new one made from the ruler).
   **Texture painting** (3D panel â Texture painting): each object can have a
   colour texture (new, loaded from an image, or an OBJ material's `map_Kd`),
   saved with the project and exportable as PNG. *Paint on model* puts a

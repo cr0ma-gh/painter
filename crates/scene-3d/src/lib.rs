@@ -4,7 +4,10 @@
 //!   bounds) and an OBJ reader.
 //! - [`blend_loader`]: `.blend` reading (Blender 3.4 – 5.x, plain or zstd):
 //!   blocks, the SDNA struct catalogue, mesh objects with their transforms.
-//! - [`camera`]: the viewport camera with Blender-style navigation.
+//! - [`gltf`], [`fbx`]: glTF / GLB and binary FBX models, through [`import`]
+//!   (Y-up to Z-up, transforms baked, objects centred).
+//! - [`camera`]: the viewport camera with Blender-style navigation, and the
+//!   camera a perspective drawing's vanishing points imply.
 //! - [`gizmo`]: object transforms, picking, translate / rotate / scale.
 //! - [`scene`]: what a 3D layer holds (objects, camera, lights).
 //! - [`texture`]: painted textures and projection painting onto them.
@@ -17,7 +20,10 @@
 
 pub mod blend_loader;
 pub mod camera;
+pub mod fbx;
 pub mod gizmo;
+pub mod gltf;
+pub mod import;
 pub mod math;
 pub mod mesh;
 pub mod persist;

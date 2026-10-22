@@ -2550,6 +2550,7 @@ dependencies = [
 name = "painter-scene-3d"
 version = "0.3.0"
 dependencies = [
+ "flate2",
  "image",
  "serde",
  "serde_json",

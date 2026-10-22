@@ -22,10 +22,10 @@ use painter_core::{project, Layer, LayerId, LayerKind, SelectionOp, TileStore};
 use painter_render::{Plane, SceneDraw, SceneLight, ScenePreview, SceneRenderer, MAX_LIGHTS};
 use scene_3d::blend_loader::{load_camera, load_objects, BlendCamera, BlendFile};
 use scene_3d::camera::{OrbitStyle, Projection, ViewCamera, ViewPreset};
-use scene_3d::gizmo::{Constraint, Gizmo, GizmoMode, AXIS_COLORS};
+use scene_3d::gizmo::{Constraint, Gizmo, GizmoMode, Transform, AXIS_COLORS};
 use scene_3d::math::{vec3, Vec3};
 use scene_3d::mesh::load_obj;
-use scene_3d::scene::{Light, LightKind, Scene3D};
+use scene_3d::scene::{Light, LightKind, Scene3D, SceneObject};
 
 use crate::app::PainterApp;
 use crate::tools::{Tool, ToolDrag};
@@ -90,11 +90,40 @@ pub(crate) fn load_model(path: &std::path::Path) -> Result<(Scene3D, Option<Blen
             }
             Ok((scene, load_camera(&file)))
         }
-        "gltf" | "glb" | "fbx" => {
-            Err(format!(".{ext} isn't supported yet; export the model as .obj or open it in Blender and save a .blend"))
-        }
+        "gltf" | "glb" => Ok((scene_from_imported(scene_3d::gltf::load(path)?), None)),
+        "fbx" => Ok((scene_from_imported(scene_3d::fbx::load(path)?), None)),
         _ => Err("unknown model format".into()),
     }
+}
+
+/// The model files a 3D layer opens.
+pub(crate) const MODEL_EXTENSIONS: [&str; 5] = ["blend", "obj", "gltf", "glb", "fbx"];
+
+/// Eye height for a camera made from a perspective ruler: a standing person's,
+/// in metres, so models at their real size look right in an eye-level drawing.
+const EYE_HEIGHT: f32 = 1.6;
+
+/// glTF / FBX objects as a scene, their images as textures.
+fn scene_from_imported(objects: Vec<scene_3d::import::ImportedObject>) -> Scene3D {
+    let mut scene = Scene3D::default();
+    for o in objects {
+        let texture = o.image.as_deref().and_then(|bytes| image::load_from_memory(bytes).ok()).and_then(|i| {
+            let i = i.to_rgba8();
+            scene_3d::texture::Texture::from_rgba(i.width(), i.height(), i.into_raw())
+        });
+        scene.objects.push(SceneObject {
+            name: o.name,
+            mesh: std::sync::Arc::new(o.mesh),
+            transform: Transform { location: o.location, ..Transform::default() },
+            visible: true,
+            color: o.color,
+            texture: texture.map(std::sync::Arc::new),
+        });
+    }
+    if let Some(bounds) = scene.bounds() {
+        scene.camera.frame(&bounds);
+    }
+    scene
 }
 
 impl PainterApp {
@@ -136,7 +165,7 @@ impl PainterApp {
     /// New 3D layer from a model file chosen by the user.
     pub(crate) fn new_scene_layer_dialog(&mut self) {
         if let Some(path) = crate::files::FileDialog::new()
-            .add_filter("3D model", &["blend", "obj"])
+            .add_filter("3D model", &MODEL_EXTENSIONS)
             .purpose(crate::files::Purpose::NewModelLayer)
             .pick_file()
         {
@@ -217,7 +246,7 @@ impl PainterApp {
             return;
         }
         if let Some(path) =
-            crate::files::FileDialog::new().add_filter("3D model", &["blend", "obj"]).purpose(crate::files::Purpose::AddModel).pick_file()
+            crate::files::FileDialog::new().add_filter("3D model", &MODEL_EXTENSIONS).purpose(crate::files::Purpose::AddModel).pick_file()
         {
             self.add_model_from(&path);
         }
@@ -241,6 +270,99 @@ impl PainterApp {
             }
             Err(err) => self.status = format!("Couldn't load {}: {err}", path.display()),
         }
+    }
+
+    /// The vanishing points of the perspective ruler for the active layer
+    /// (its own, or one for all layers), else of any perspective ruler.
+    pub(crate) fn perspective_ruler(&self) -> Option<Vec<[f32; 2]>> {
+        let active = self.doc.active.0;
+        let rulers = &self.doc.rulers.rulers;
+        let perspective = |r: &&Ruler| matches!(r.kind, RulerKind::Perspective { .. });
+        let applies = |r: &&Ruler| r.visible && (r.layer.is_none() || r.layer == Some(active) || matches!(r.scope, RulerScope::AllLayers));
+        let ruler = rulers.iter().filter(perspective).find(applies).or_else(|| rulers.iter().find(perspective))?;
+        match &ruler.kind {
+            RulerKind::Perspective { vanishing } => Some(vanishing.clone()),
+            _ => None,
+        }
+    }
+
+    /// An empty 3D layer seen through the camera the perspective ruler
+    /// implies (no undo step: callers make it).
+    fn ruler_scene_layer(&mut self) -> Result<LayerId, String> {
+        let points = self.perspective_ruler().ok_or("add a perspective ruler first")?;
+        let (w, h) = self.doc.canvas();
+        let camera = ViewCamera::from_vanishing_points(&points, w as f32, h as f32, EYE_HEIGHT)
+            .ok_or("these vanishing points can't belong to one camera (two of them should sit on opposite sides of the picture)")?;
+        let id = self.doc.alloc_id();
+        self.doc.add_layer(Layer::raster(id, "3D Perspective".to_string()));
+        self.doc.active = id;
+        let scene = Scene3D { camera, ..Scene3D::default() };
+        self.scenes.insert(id, SceneLayer { scene, revision: 0, commit_at: None, blend_camera: None });
+        self.scene_changed(id);
+        self.recomposite = true;
+        Ok(id)
+    }
+
+    /// Layer → New 3D Layer from Perspective Ruler: the drawing's perspective
+    /// as a 3D space; models dropped on the canvas stand on its ground.
+    pub(crate) fn new_scene_layer_from_ruler(&mut self) {
+        self.checkpoint();
+        match self.ruler_scene_layer() {
+            Ok(_) => {
+                let n = self.perspective_ruler().map_or(0, |p| p.len());
+                self.status = format!(
+                    "3D layer in the {n}-point perspective (eye {EYE_HEIGHT} m above the ground). Drop .fbx, .glb, .obj or .blend models on the canvas to place them"
+                );
+            }
+            Err(err) => self.status = format!("No 3D layer: {err}"),
+        }
+    }
+
+    /// A model file dropped at canvas point `at`: added to the active 3D
+    /// layer, or to a new one in the perspective ruler's space, standing on
+    /// the ground under the pointer. With neither, it opens as a new 3D layer.
+    pub(crate) fn drop_model(&mut self, path: std::path::PathBuf, at: Option<Pos2>) {
+        let into_active = self.scenes.contains_key(&self.doc.active);
+        if !into_active && self.perspective_ruler().is_none() {
+            self.new_scene_layer_from(path);
+            return;
+        }
+        let mut added = match load_model(&path) {
+            Ok((scene, _)) => scene,
+            Err(err) => {
+                self.status = format!("Couldn't load {}: {err}", path.display());
+                return;
+            }
+        };
+        let Some(bounds) = added.bounds() else { return };
+        self.checkpoint();
+        let id = if into_active {
+            self.doc.active
+        } else {
+            match self.ruler_scene_layer() {
+                Ok(id) => id,
+                Err(err) => {
+                    self.status = format!("Couldn't place the model: {err}");
+                    return;
+                }
+            }
+        };
+        let (w, h) = self.doc.canvas();
+        let (w, h) = (w as f32, h as f32);
+        let Some(layer) = self.scenes.get_mut(&id) else { return };
+        let at = at.unwrap_or(Pos2::new(w * 0.5, h * 0.5));
+        let (hit, base, scale) = ground_placement(&layer.scene.camera, &bounds, [at.x, at.y], w, h);
+        for o in &mut added.objects {
+            o.transform.location = hit + (o.transform.location - base) * scale;
+            o.transform.scale = o.transform.scale * scale;
+        }
+        let count = added.objects.len();
+        layer.scene.objects.extend(added.objects);
+        layer.scene.selected = Some(layer.scene.objects.len() - 1);
+        self.scene_changed(id);
+        self.tool = Tool::Scene3D;
+        let resized = if scale == 1.0 { String::new() } else { format!(", scaled ×{scale:.3} to fit") };
+        self.status = format!("Placed {} ({count} objects{resized}). Drag the gizmo to move it", path.display());
     }
 
     /// Copies due renders into their layers' pixels. `force` does all pending ones now.
@@ -563,8 +685,11 @@ impl PainterApp {
         let id = self.scene_target();
         if !self.scenes.contains_key(&id) {
             ui.label("The active layer isn't a 3D layer.");
-            if ui.button("New 3D layer from a model…").on_hover_text(".blend (Blender 3.4+) or .obj").clicked() {
+            if ui.button("New 3D layer from a model…").on_hover_text(".blend (Blender 3.4+), .obj, .fbx, .gltf or .glb").clicked() {
                 self.new_scene_layer_dialog();
+            }
+            if ui.button("New 3D layer from the perspective ruler").on_hover_text("Turns the drawing's vanishing points into a 3D space; drop models on the canvas to place them").clicked() {
+                self.new_scene_layer_from_ruler();
             }
             return;
         }
@@ -890,5 +1015,48 @@ pub(crate) fn restore(scenes: &mut HashMap<LayerId, SceneLayer>, snapshot: Scene
     scenes.clear();
     for (id, scene) in snapshot {
         scenes.insert(id, SceneLayer { scene, revision: 0, commit_at: None, blend_camera: None });
+    }
+}
+
+/// Where a model with world `bounds` lands when dropped at canvas point `at`:
+/// the ground (z = 0) under the pointer (ahead of the camera when the pointer
+/// is above the horizon), the model's bottom centre that goes there, and a
+/// scale for models far too big or too small for that spot (else 1).
+fn ground_placement(camera: &ViewCamera, bounds: &scene_3d::mesh::Aabb, at: [f32; 2], w: f32, h: f32) -> (Vec3, Vec3, f32) {
+    let ray = camera.ray(at[0], at[1], w, h);
+    let hit = if ray.dir.z < -1e-4 { ray.at(-ray.origin.z / ray.dir.z) } else { vec3(camera.pivot.x, camera.pivot.y, 0.0) };
+    let size = bounds.max - bounds.min;
+    let extent = size.x.max(size.y).max(size.z).max(1e-6);
+    let distance = (hit - camera.eye()).length().max(0.1);
+    let scale = if extent > 2.0 * distance || extent < 0.02 * distance { 0.4 * distance / extent } else { 1.0 };
+    let centre = bounds.center();
+    (hit, vec3(centre.x, centre.y, bounds.min.z), scale)
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+    use scene_3d::mesh::Aabb;
+
+    #[test]
+    fn dropped_models_stand_under_the_pointer() {
+        let (w, h) = (1600.0, 1000.0);
+        // A 2-point perspective drawn on the canvas: horizon at 40% of the height.
+        let camera = ViewCamera::from_vanishing_points(&[[-300.0, 400.0], [2100.0, 400.0]], w, h, EYE_HEIGHT).unwrap();
+        // A person-sized model 10 cm off the ground.
+        let person = Aabb { min: vec3(-0.3, -0.2, 0.1), max: vec3(0.3, 0.2, 1.9) };
+        let at = [500.0, 800.0];
+        let (hit, base, scale) = ground_placement(&camera, &person, at, w, h);
+        assert!(hit.z.abs() < 1e-3, "on the ground: {hit:?}");
+        let back = camera.to_screen(hit, w, h).unwrap();
+        assert!((back[0] - at[0]).abs() < 0.5 && (back[1] - at[1]).abs() < 0.5, "under the pointer: {back:?}");
+        assert_eq!(base, vec3(0.0, 0.0, 0.1));
+        assert_eq!(scale, 1.0, "real size kept");
+        // A 500 m model is brought down to fit.
+        let tower = Aabb { min: vec3(0.0, 0.0, 0.0), max: vec3(10.0, 10.0, 500.0) };
+        assert!(ground_placement(&camera, &tower, at, w, h).2 < 0.1);
+        // Above the horizon: in front of the camera, still on the ground.
+        let (sky, _, _) = ground_placement(&camera, &person, [800.0, 100.0], w, h);
+        assert!(sky.z.abs() < 1e-6);
     }
 }

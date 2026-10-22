@@ -17,7 +17,7 @@ const FEATURES: [(&str, &str); 8] = [
     ("Layers like the pros", "Folders, masks, clipping, 13 blend modes, screentones, vector and draft layers."),
     ("Comic pages", "Print presets, bleed, panel templates; every panel a masked folder."),
     ("Rulers & perspective", "Perspective, symmetry, parallel, radial and concentric rulers; Shift for straight lines."),
-    ("3D you can paint", "Blender and OBJ models as layers, their camera for perspective, textures painted on the model."),
+    ("3D you can paint", "Blender, FBX, glTF and OBJ models as layers; drop them into your perspective; paint their textures."),
     ("Your files open", "Clip Studio .clip, PSD, Krita, OpenRaster and PNG, with their layers; export to all of them."),
     ("References and scans", "A reference board beside the canvas; scanners and the camera, with clean-up and panel extraction."),
     ("Pen first, everywhere", "WinTab, XInput2, Apple Pencil and Android styluses; Windows, macOS, Linux, iPad and Android."),
@@ -153,6 +153,44 @@ impl PainterApp {
             });
         if !open {
             self.about_open = false;
+        }
+    }
+}
+
+impl PainterApp {
+    /// "Reset whole brush list": asks first, since imported brushes go.
+    pub(crate) fn brush_reset_prompt(&mut self, ctx: &egui::Context) {
+        if !self.confirm_brush_reset {
+            return;
+        }
+        let imported = self.brushes.iter().enumerate().filter(|(i, _)| self.default_of(*i).is_none()).count();
+        let mut answer = None;
+        egui::Window::new("Reset the brush list?")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label("The brush list goes back to Painter's default brushes, with their default settings.");
+                if imported > 0 {
+                    ui.label(RichText::new(format!("{imported} imported or custom brushes will be removed.")).strong());
+                    ui.small("Export them first (right-click the export button: all brushes) to keep a copy.");
+                }
+                ui.horizontal(|ui| {
+                    if ui.button("Reset").clicked() {
+                        answer = Some(true);
+                    }
+                    if ui.button("Cancel").clicked() {
+                        answer = Some(false);
+                    }
+                });
+            });
+        match answer {
+            Some(true) => {
+                self.confirm_brush_reset = false;
+                self.reset_brush_list();
+            }
+            Some(false) => self.confirm_brush_reset = false,
+            None => {}
         }
     }
 }

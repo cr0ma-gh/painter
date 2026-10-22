@@ -314,6 +314,107 @@ impl ViewCamera {
     pub fn axis_vanishing_points(&self, width: f32, height: f32) -> Vec<[f32; 2]> {
         [Vec3::X, Vec3::Y, Vec3::Z].into_iter().filter_map(|d| self.vanishing_point(d, width, height)).collect()
     }
+
+    /// The camera a perspective drawing implies: the inverse of
+    /// [`Self::axis_vanishing_points`], for 1 to 3 vanishing points on a
+    /// `width` × `height` canvas. The eye stands `eye_height` above the ground
+    /// (z = 0) over the origin, looking towards the points.
+    ///
+    /// - 1 point: the depth axis (world Y), a level horizon, a 50° lens.
+    /// - 2 points: two perpendicular directions (the horizontal X and Y, or
+    ///   one of them and the vertical); the lens follows from them, with the
+    ///   image centre at the canvas centre.
+    /// - 3 points: X, Y and Z; the image centre is the points' orthocentre
+    ///   (a lens shift when it isn't the canvas centre).
+    ///
+    /// `None` when the points can't be a camera's (e.g. two horizontal points
+    /// on the same side of the image centre).
+    pub fn from_vanishing_points(points: &[[f32; 2]], width: f32, height: f32, eye_height: f32) -> Option<ViewCamera> {
+        let (w, h) = (width.max(1.0), height.max(1.0));
+        let mut centre = [w * 0.5, h * 0.5];
+        if points.len() >= 3 {
+            centre = orthocentre(points[0], points[1], points[2])?;
+        }
+        let rel = |p: [f32; 2]| [p[0] - centre[0], centre[1] - p[1]];
+        // Focal length in pixels.
+        let focal = match points.len() {
+            0 => return None,
+            1 => h * 0.5 / (25f32.to_radians()).tan(),
+            _ => {
+                let (a, b) = (rel(points[0]), rel(points[1]));
+                let f2 = -(a[0] * b[0] + a[1] * b[1]);
+                if f2 <= 1.0 {
+                    return None;
+                }
+                f2.sqrt()
+            }
+        };
+        // A point's direction in camera axes (right, up, back: right-handed, so crosses hold).
+        let dir = |p: [f32; 2]| {
+            let r = rel(p);
+            vec3(r[0] / focal, r[1] / focal, -1.0).normalize()
+        };
+        let dirs: Vec<Vec3> = points.iter().take(3).map(|&p| dir(p)).collect();
+        // World axes in camera coordinates.
+        let (x, z) = match dirs.len() {
+            1 => {
+                // Looking along +Y with a level horizon.
+                let y = dirs[0];
+                let z = (Vec3::Y - y * y.dot(Vec3::Y)).normalize();
+                (y.cross(z), z)
+            }
+            2 => {
+                // One of them may be the vertical.
+                match (0..2).find(|&i| dirs[i].y.abs() > 0.8 && dirs[1 - i].y.abs() < 0.5) {
+                    Some(i) => (dirs[1 - i], if dirs[i].y > 0.0 { dirs[i] } else { -dirs[i] }),
+                    None => {
+                        let (x, mut y) = (dirs[0], dirs[1]);
+                        if x.cross(y).y < 0.0 {
+                            y = -y;
+                        }
+                        (x, x.cross(y))
+                    }
+                }
+            }
+            _ => {
+                // The vertical is the one closest to the camera's up.
+                let k = (0..3).max_by(|&a, &b| dirs[a].y.abs().total_cmp(&dirs[b].y.abs()))?;
+                let z = if dirs[k].y > 0.0 { dirs[k] } else { -dirs[k] };
+                let x = dirs[(0..3).find(|&i| i != k)?];
+                (x, z)
+            }
+        };
+        // Square them up (hand-placed points are never exact).
+        let x = (x - z * x.dot(z)).normalize();
+        let y = z.cross(x);
+        // Camera axes in world coordinates: the rows of [x y z].
+        let right = vec3(x.x, y.x, z.x);
+        let up = vec3(x.y, y.y, z.y);
+        let forward = -vec3(x.z, y.z, z.z);
+        let mut cam = ViewCamera {
+            rotation: quat_from_axes(right, up, -forward),
+            projection: Projection::Perspective { fov_y: 2.0 * (h * 0.5 / focal).atan() },
+            shift: [-(centre[0] / w * 2.0 - 1.0), -(1.0 - centre[1] / h * 2.0)],
+            ..ViewCamera::default()
+        };
+        let eye = vec3(0.0, 0.0, eye_height);
+        // Orbit the spot on the ground straight ahead, or a point 10 units away.
+        cam.distance = if forward.z < -0.02 { (eye_height / -forward.z).clamp(0.5, 200.0) } else { 10.0 };
+        cam.pivot = eye + forward * cam.distance;
+        Some(cam)
+    }
+}
+
+/// Where a triangle's three altitudes meet.
+fn orthocentre(a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> Option<[f32; 2]> {
+    // Solve (p − a)·(c − b) = 0 and (p − b)·(c − a) = 0.
+    let (d1, d2) = ([c[0] - b[0], c[1] - b[1]], [c[0] - a[0], c[1] - a[1]]);
+    let (r1, r2) = (a[0] * d1[0] + a[1] * d1[1], b[0] * d2[0] + b[1] * d2[1]);
+    let det = d1[0] * d2[1] - d1[1] * d2[0];
+    if det.abs() < 1e-6 {
+        return None;
+    }
+    Some([(r1 * d2[1] - r2 * d1[1]) / det, (d1[0] * r2 - d2[0] * r1) / det])
 }
 
 /// The rotation taking camera axes X, Y, Z onto `right`, `up`, `back`.
@@ -395,6 +496,39 @@ mod tests {
         let ray = cam.ray(sx, sy, w, h);
         let off = (p - ray.origin) - ray.dir * (p - ray.origin).dot(ray.dir);
         assert!(off.length() < 1e-3, "ortho: {off:?}");
+    }
+
+    #[test]
+    fn cameras_from_vanishing_points_round_trip() {
+        let (w, h) = (1600.0, 1000.0);
+        // Two-point (level), three-point (looking down) and one-point (straight along Y).
+        let mut two = ViewCamera::default();
+        two.set_view(ViewPreset::Front);
+        two.orbit(-35f32.to_radians() / two.orbit_speed, 0.0);
+        let three = ViewCamera::default();
+        let mut one = ViewCamera::default();
+        one.set_view(ViewPreset::Front);
+        for (cam, n) in [(two, 2), (three, 3), (one, 1)] {
+            let points = cam.axis_vanishing_points(w, h);
+            assert_eq!(points.len(), n, "{points:?} {:?}", cam.forward());
+            let back = ViewCamera::from_vanishing_points(&points, w, h, 1.6).expect("a camera");
+            let again = back.axis_vanishing_points(w, h);
+            assert_eq!(again.len(), n, "{points:?} → {again:?}, fwd {:?}", back.forward());
+            for p in &points {
+                assert!(again.iter().any(|q| (p[0] - q[0]).hypot(p[1] - q[1]) < 0.5), "{n}: {points:?} → {again:?}");
+            }
+            // Upright, at eye height.
+            assert!(back.up().z > 0.0);
+            assert!((back.eye().z - 1.6).abs() < 1e-3);
+            if n >= 2 {
+                let (Projection::Perspective { fov_y: a }, Projection::Perspective { fov_y: b }) = (cam.projection, back.projection) else {
+                    panic!("perspective")
+                };
+                assert!((a - b).abs() < 1e-3, "{a} vs {b}");
+            }
+        }
+        // Two points on the same side of the centre: no camera sees them at a right angle.
+        assert!(ViewCamera::from_vanishing_points(&[[900.0, 500.0], [1000.0, 500.0]], w, h, 1.6).is_none());
     }
 
     #[test]

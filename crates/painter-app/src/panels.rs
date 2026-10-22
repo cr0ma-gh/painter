@@ -190,6 +190,7 @@ impl PainterApp {
                         ("New Folder", PainterApp::add_folder),
                         ("New Gradient Layer", PainterApp::add_gradient_layer),
                         ("New 3D Layer from Model...", PainterApp::new_scene_layer_dialog),
+                        ("New 3D Layer from Perspective Ruler", PainterApp::new_scene_layer_from_ruler),
                         ("New Tone Layer (from selection)", PainterApp::add_tone_layer),
                     ] {
                         if ui.button(label).clicked() {
@@ -454,6 +455,9 @@ impl PainterApp {
         let list_height = (ui.available_height() - footer).max(60.0);
         let indices = self.brushes_in(group);
         let mut picked = None;
+        // What a brush's right-click menu asked for: (brush, 0 reset, 1 duplicate, 2 delete).
+        let mut menu: Option<(usize, u8)> = None;
+        let builtin: Vec<String> = crate::app::default_brushes().into_iter().map(|b| b.settings.name).collect();
         egui::Frame::new().fill(theme::well()).show(ui, |ui| {
             ui.set_min_height(list_height);
             egui::ScrollArea::vertical().max_height(list_height).auto_shrink([false, false]).show(ui, |ui| {
@@ -502,11 +506,36 @@ impl PainterApp {
                     if response.clicked() {
                         picked = Some(i);
                     }
+                    let is_builtin = builtin.contains(&self.brushes[i].settings.name);
+                    response.context_menu(|ui| {
+                        if ui
+                            .add_enabled(is_builtin, egui::Button::new("Reset to Default"))
+                            .on_disabled_hover_text("Imported brushes have no default to go back to")
+                            .clicked()
+                        {
+                            menu = Some((i, 0));
+                            ui.close_menu();
+                        }
+                        if ui.button("Duplicate").clicked() {
+                            menu = Some((i, 1));
+                            ui.close_menu();
+                        }
+                        if ui.button("Delete").clicked() {
+                            menu = Some((i, 2));
+                            ui.close_menu();
+                        }
+                    });
                 }
             });
         });
         if let Some(i) = picked {
             self.select_brush(i);
+        }
+        match menu {
+            Some((i, 0)) => self.reset_brush(i),
+            Some((i, 1)) => self.duplicate_brush(i),
+            Some((i, 2)) => self.delete_brush(i),
+            _ => {}
         }
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
@@ -523,6 +552,14 @@ impl PainterApp {
             import.context_menu(|ui| {
                 if ui.button("Add Back Missing Default Brushes").clicked() {
                     self.restore_default_brushes();
+                    ui.close_menu();
+                }
+                if ui.button("Reset Built-in Brushes").on_hover_text("Edited built-in brushes back to default; imported brushes stay").clicked() {
+                    self.reset_builtin_brushes();
+                    ui.close_menu();
+                }
+                if ui.button("Reset Whole Brush List…").on_hover_text("Only the default brushes: imported ones are removed").clicked() {
+                    self.confirm_brush_reset = true;
                     ui.close_menu();
                 }
             });
@@ -716,6 +753,15 @@ impl PainterApp {
             if ui.button("Advanced Tool Settings...").on_hover_text("Every setting by category; export for Photoshop or Clip Studio").clicked() {
                 self.open_advanced_tool_settings();
             }
+            let builtin = self.default_of(self.brush).is_some();
+            if ui
+                .add_enabled(builtin, egui::Button::new("Reset"))
+                .on_hover_text("Back to this brush's default settings")
+                .on_disabled_hover_text("Imported brushes have no default to go back to")
+                .clicked()
+            {
+                self.reset_brush(self.brush);
+            }
         });
         let missing = self.brushes[self.brush].unsupported_features();
         if !missing.is_empty() {
@@ -900,6 +946,23 @@ impl PainterApp {
         let mut drop: Option<(painter_core::LayerId, painter_core::layer_ops::LayerDrop)> = None;
         let mut eye_all: Option<bool> = None;
         let mut menu_action: Option<(painter_core::LayerId, &str)> = None;
+        // Checkbox clicks: toggle the layer in the selection (Shift: the range).
+        let mut checked: Option<(painter_core::LayerId, bool)> = None;
+        // Select all / none, over the list.
+        let total = rows.len();
+        ui.horizontal(|ui| {
+            let all = multi.len() == total && total > 1;
+            let mut on = all;
+            let label = if multi.len() > 1 { format!("{} selected", multi.len()) } else { "Select all".to_string() };
+            if ui.checkbox(&mut on, label).on_hover_text("Select every layer, or only the active one").changed() {
+                if on {
+                    self.layer_selection = rows.iter().map(|(id, _)| *id).collect();
+                } else {
+                    self.layer_selection = vec![active];
+                }
+            }
+        });
+        let multi = self.selected_layers();
         egui::Frame::new().fill(theme::well()).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             for (id, depth) in rows {
@@ -981,7 +1044,24 @@ impl PainterApp {
                 }
                 ui.painter().vline(eye.right(), rect.y_range(), Stroke::new(1.0_f32, theme::line()));
 
-                let mut x = eye.right() + 6.0 + depth as f32 * 12.0;
+                // Selection checkbox.
+                let check = egui::Rect::from_min_size(egui::pos2(eye.right() + 2.0, rect.top()), Vec2::new(22.0, rect.height()));
+                let check_response = ui.interact(check, response.id.with("check"), Sense::click());
+                let boxed = egui::Rect::from_center_size(check.center(), Vec2::splat(13.0));
+                if selected {
+                    ui.painter().rect_filled(boxed, 3.0, theme::accent());
+                    let (a, b, c) = (boxed.left_center() + Vec2::new(3.0, 0.0), boxed.center_bottom() + Vec2::new(-1.0, -3.0), boxed.right_top() + Vec2::new(-3.0, 3.0));
+                    ui.painter().line_segment([a, b], Stroke::new(1.8_f32, Color32::WHITE));
+                    ui.painter().line_segment([b, c], Stroke::new(1.8_f32, Color32::WHITE));
+                } else {
+                    let ring = if check_response.hovered() { theme::text() } else { theme::text_dim() };
+                    ui.painter().rect_stroke(boxed, 3.0, Stroke::new(1.2_f32, ring), egui::StrokeKind::Inside);
+                }
+                if check_response.on_hover_text("Select or deselect this layer (Shift: the range from the active one)").clicked() {
+                    checked = Some((id, modifiers.shift));
+                }
+
+                let mut x = check.right() + 4.0 + depth as f32 * 12.0;
                 if layer.clip {
                     ui.painter().text(
                         egui::pos2(x, rect.center().y),
@@ -1096,6 +1176,10 @@ impl PainterApp {
                 "reference" => self.set_on_selected_layers(|l| l.reference = !first.3),
                 _ => {}
             }
+        }
+        if let Some((id, range)) = checked {
+            let m = if range { egui::Modifiers::SHIFT } else { egui::Modifiers::CTRL };
+            self.click_layer(id, m);
         }
         if let Some(id) = toggle_rulers {
             let show = !ruler_layers.get(&id.0).copied().unwrap_or(true);

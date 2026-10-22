@@ -181,6 +181,8 @@ pub struct PainterApp {
     /// The welcome screen and the About window are open.
     pub(crate) welcome_open: bool,
     pub(crate) about_open: bool,
+    /// "Reset whole brush list" waits for a yes.
+    pub(crate) confirm_brush_reset: bool,
     /// The ensō for them, once loaded.
     pub(crate) logo: Option<egui::TextureHandle>,
     /// Extended Color Selector state.
@@ -303,6 +305,7 @@ impl PainterApp {
             size_drag: None,
             welcome_open: ws.welcome,
             about_open: false,
+            confirm_brush_reset: false,
             logo: None,
             gamut: Default::default(),
             tip_textures: Default::default(),
@@ -1071,6 +1074,59 @@ impl PainterApp {
         self.select_brush(self.brush);
     }
 
+    /// The built-in brush brush `index` started as (same name), if it's one of them.
+    pub(crate) fn default_of(&self, index: usize) -> Option<BrushPreset> {
+        let name = &self.brushes.get(index)?.settings.name;
+        default_brushes().into_iter().find(|d| d.settings.name == *name)
+    }
+
+    /// Brush `index` back to its built-in settings, in the same place.
+    pub(crate) fn reset_brush(&mut self, index: usize) {
+        let Some(default) = self.default_of(index) else {
+            self.status = "This brush isn't one of the built-in ones: it has no default to go back to".into();
+            return;
+        };
+        let name = default.settings.name.clone();
+        self.brushes[index] = default;
+        self.group_brush.clear();
+        if index == self.brush {
+            self.select_brush(index);
+        }
+        self.status = format!("“{name}” is back to its default settings");
+    }
+
+    /// Every built-in brush back to its default settings, and the missing ones
+    /// added back; imported brushes stay as they are.
+    pub(crate) fn reset_builtin_brushes(&mut self) {
+        let mut reset = 0;
+        for i in 0..self.brushes.len() {
+            if let Some(default) = self.default_of(i) {
+                if self.brushes[i] != default {
+                    self.brushes[i] = default;
+                    reset += 1;
+                }
+            }
+        }
+        let missing: Vec<BrushPreset> =
+            default_brushes().into_iter().filter(|d| !self.brushes.iter().any(|b| b.settings.name == d.settings.name)).collect();
+        let added = missing.len();
+        self.brushes.extend(missing);
+        self.group_brush.clear();
+        self.select_brush(self.brush.min(self.brushes.len() - 1));
+        self.status = format!("Built-in brushes reset ({reset} changed back, {added} added back); imported brushes kept");
+    }
+
+    /// The brush list as Painter first had it: built-in brushes only.
+    pub(crate) fn reset_brush_list(&mut self) {
+        self.brushes = default_brushes();
+        self.brush = 0;
+        self.last_paint_brush = 0;
+        self.last_eraser = self.brushes.iter().position(|b| b.settings.mode == painter_core::BrushMode::Erase).unwrap_or(0);
+        self.group_brush.clear();
+        self.select_brush(0);
+        self.status = "The brush list is back to the default brushes".into();
+    }
+
     /// Adds the built-in brushes that are no longer in the list (by name).
     pub(crate) fn restore_default_brushes(&mut self) {
         let missing: Vec<BrushPreset> =
@@ -1122,9 +1178,16 @@ impl PainterApp {
         let dropped: Vec<std::path::PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
         // Pictures dropped on the reference board go there.
         let dropped = if dropped.is_empty() { dropped } else { self.drop_on_board(ctx, dropped) };
+        // Where on the canvas they were dropped (models stand there).
+        let at = ctx
+            .input(|i| i.pointer.latest_pos())
+            .filter(|p| self.canvas_rect.contains(*p))
+            .map(|p| self.view.screen_to_doc(self.canvas_rect, self.doc_size(), p));
         for path in dropped {
             if brush_io::is_brush_file(&path) {
                 self.import_brushes(&path);
+            } else if crate::files::kind_of(&path) == Some(crate::files::FileKind::Model) {
+                self.drop_model(path, at);
             } else {
                 self.open_path(path);
             }
@@ -1485,6 +1548,7 @@ impl eframe::App for PainterApp {
         self.modifier_keys.overlay(ctx, crate::theme::panel(), crate::theme::selected());
         self.welcome_window(ctx);
         self.about_window(ctx);
+        self.brush_reset_prompt(ctx);
         self.close_prompts(ctx);
         if self.doc.selection.is_some() {
             // Marching ants.

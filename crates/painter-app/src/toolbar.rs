@@ -117,7 +117,7 @@ fn command_icon(id: &str) -> Option<Icon> {
         "layer.vector" => Icon::Path,
         "layer.folder" => Icon::GroupLayer,
         "layer.gradient" => Icon::GradientLinear,
-        "layer.scene3d" => Icon::Transform3d,
+        "layer.scene3d" | "layer.scene3d_ruler" => Icon::Transform3d,
         "layer.add_mask" | "layer.delete_mask" => Icon::LayerMask,
         "view.fit" => Icon::ZoomFit,
         "view.actual" => Icon::ZoomOriginal,
