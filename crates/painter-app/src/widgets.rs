@@ -203,7 +203,7 @@ pub fn color_chips(ui: &mut Ui, main: &mut Hsva, sub: &mut Hsva, size: f32) -> R
     painter.circle_filled(main_c, r, Color32::from(*main));
     painter.circle_stroke(main_c, r, Stroke::new(2.0_f32, Color32::from_gray(200)));
     painter.circle_stroke(main_c, r + 1.5, Stroke::new(1.0_f32, Color32::BLACK));
-    let response = response.on_hover_text("Main / sub colour. Click or press X to swap");
+    let response = response.on_hover_text("Main / sub colour. Click or press X to swap; double-click one to pick it");
     if response.clicked() {
         std::mem::swap(main, sub);
     }

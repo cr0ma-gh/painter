@@ -114,6 +114,8 @@ struct LayerFile {
     reference: bool,
     #[serde(default)]
     draft: bool,
+    #[serde(default)]
+    layer_color: Option<[u8; 3]>,
     mask: Option<MaskFile>,
     content: ContentFile,
 }
@@ -253,6 +255,7 @@ fn layer_file<'a>(layer: &'a Layer, planes: &mut Vec<(String, &'a TileStore)>) -
         clip: layer.clip,
         reference: layer.reference,
         draft: layer.draft,
+        layer_color: layer.layer_color,
         mask,
         content,
     }
@@ -327,6 +330,7 @@ fn read_layer<R: Read + Seek>(file: LayerFile, zip: &mut ZipArchive<R>, canvas: 
         clip: file.clip,
         reference: file.reference,
         draft: file.draft,
+        layer_color: file.layer_color,
         mask,
     })
 }

@@ -20,9 +20,18 @@ pub trait ScannerBackend: Send {
     /// Connected devices with their capabilities.
     fn devices(&mut self) -> Result<Vec<DeviceInfo>, ScanError>;
 
-    /// A low-resolution scan of the whole bed for choosing the crop region.
+    /// A low-resolution scan of the whole bed for choosing the crop region:
+    /// the lowest resolutions the device lists from 75 dpi up, trying the next
+    /// when a driver turns one down (some list values they then refuse).
     fn preview(&mut self, device: &DeviceInfo, settings: &ScanSettings) -> Result<ScannedImage, ScanError> {
-        self.scan(device, &settings.preview())
+        let mut last = None;
+        for dpi in preview_resolutions(&device.capabilities) {
+            match self.scan(device, &ScanSettings { dpi, ..settings.preview() }) {
+                Err(err @ ScanError::InvalidSettings(_)) => last = Some(err),
+                done => return done,
+            }
+        }
+        Err(last.unwrap_or_else(|| ScanError::InvalidSettings("no resolution works for a preview".into())))
     }
 
     /// The final scan with `settings` (already validated against the device).
@@ -40,6 +49,22 @@ pub fn backends() -> Vec<Box<dyn ScannerBackend>> {
             Box::new(escl::EsclBackend::default()),
         ];
     all.into_iter().filter(|b| b.is_available()).collect()
+}
+
+/// Preview resolutions to try, best first: the device's from 75 dpi up
+/// (at most three), or 75 / 100 / 150 when it lists none.
+pub fn preview_resolutions(caps: &crate::Capabilities) -> Vec<u32> {
+    let mut listed: Vec<u32> = caps.resolutions.iter().copied().filter(|&r| r >= 75).collect();
+    listed.sort_unstable();
+    listed.dedup();
+    if listed.is_empty() {
+        listed = caps.resolutions.iter().copied().max().into_iter().collect();
+    }
+    if listed.is_empty() {
+        return vec![75, 100, 150];
+    }
+    listed.truncate(3);
+    listed
 }
 
 /// Devices from every available backend, plus the errors of backends that failed.
@@ -117,5 +142,46 @@ mod tests {
             Err(ScanError::BackendUnavailable { backend: Backend::Twain, .. }) => {}
             other => panic!("{other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+    use crate::{Backend, Capabilities, ColorMode};
+
+    /// Lists 75 and 100 dpi but turns them down, as some WIA drivers do.
+    struct Picky(Vec<u32>);
+
+    impl ScannerBackend for Picky {
+        fn backend(&self) -> Backend {
+            Backend::Wia
+        }
+        fn is_available(&self) -> bool {
+            true
+        }
+        fn devices(&mut self) -> Result<Vec<DeviceInfo>, ScanError> {
+            Ok(Vec::new())
+        }
+        fn scan(&mut self, _device: &DeviceInfo, settings: &ScanSettings) -> Result<ScannedImage, ScanError> {
+            self.0.push(settings.dpi);
+            if settings.dpi < 150 {
+                return Err(ScanError::InvalidSettings(format!("resolution {}: Parametro non corretto.", settings.dpi)));
+            }
+            ScannedImage::new(1, 1, settings.dpi, vec![255; 4])
+        }
+    }
+
+    #[test]
+    fn previews_fall_back_to_a_resolution_the_driver_takes() {
+        let caps = Capabilities { resolutions: vec![1200, 100, 300, 75, 150], color_modes: vec![ColorMode::Grayscale], bed_mm: [216.0, 297.0], has_feeder: false };
+        assert_eq!(preview_resolutions(&caps), [75, 100, 150]);
+        let device = DeviceInfo { id: "x".into(), name: "x".into(), manufacturer: "x".into(), backend: Backend::Wia, capabilities: caps };
+        let mut scanner = Picky(Vec::new());
+        let image = scanner.preview(&device, &ScanSettings { dpi: 300, ..ScanSettings::default() }).unwrap();
+        assert_eq!(image.dpi, 150);
+        assert_eq!(scanner.0, [75, 100, 150]);
+        // Nothing listed: the usual low resolutions.
+        assert_eq!(preview_resolutions(&Capabilities { resolutions: vec![], ..device.capabilities.clone() }), [75, 100, 150]);
     }
 }

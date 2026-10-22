@@ -12,7 +12,8 @@ struct Params {
     clip_kind: u32,
     // gradient: shape | adjustment: 0 channel table, 1 luminance table, 2 HSL
     gradient_shape: u32,
-    _pad0: u32,
+    // 1: show the source in the layer colour (color1), as Clip Studio's layer colour
+    tint: u32,
     _pad1: u32,
     // solid colour (premultiplied) | gradient start colour | tone colour (straight)
     color0: vec4<f32>,
@@ -226,6 +227,11 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     }
     if (s.a <= 0.0) {
         return b;
+    }
+    // Layer colour: dark pixels in the colour, light ones white, by luminance.
+    if (params.tint == 1u) {
+        let l = dot(unpremultiply(s), vec3<f32>(0.299, 0.587, 0.114));
+        s = vec4<f32>(mix(params.color1.rgb, vec3<f32>(1.0), l) * s.a, s.a);
     }
     let k = coverage(texel);
     if (k <= 0.0) {

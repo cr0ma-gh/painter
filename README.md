@@ -140,6 +140,7 @@ cargo run --release -p painter-app -- drawing.painter
   to 300% (the squares icon at the top right, Window â Interface Size, or
   Ctrl + / Ctrl â / Ctrl 0), like Blender's Resolution Scale. F3 or Ctrl+Space opens a fuzzy command
   palette (menus, tools, brushes, workspaces, themes); Tab or F11 toggles zen
+  (floating panels stay where they are)
   mode (canvas only). Window â Theme Editor edits colours, text size and
   rounding with contrast warnings; dark, light and high-contrast presets,
   themes import and export as JSON. All of it is saved between sessions.

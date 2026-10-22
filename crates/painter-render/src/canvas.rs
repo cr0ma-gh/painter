@@ -103,7 +103,9 @@ struct CompositeParams {
     mask_kind: u32,
     clip_kind: u32,
     gradient_shape: u32,
-    _pad: [u32; 2],
+    /// 1: show the source in the layer colour `color1`.
+    tint: u32,
+    _pad: u32,
     color0: [f32; 4],
     color1: [f32; 4],
     geom: [f32; 4],
@@ -118,7 +120,8 @@ impl CompositeParams {
             mask_kind: 0,
             clip_kind: 0,
             gradient_shape: 0,
-            _pad: [0; 2],
+            tint: 0,
+            _pad: 0,
             color0: [0.0; 4],
             color1: [0.0; 4],
             geom: [0.0; 4],
@@ -786,7 +789,11 @@ impl GpuCanvas {
                 None => return false,
             },
         };
-        let params = CompositeParams::new(node.blend, node.opacity);
+        let mut params = CompositeParams::new(node.blend, node.opacity);
+        if let Some([r, g, b]) = node.tint {
+            params.tint = 1;
+            params.color1 = [r, g, b, 1.0];
+        }
         self.blend_pass(device, encoder, depth, cur, backdrop, source, mask, clip, params);
         true
     }

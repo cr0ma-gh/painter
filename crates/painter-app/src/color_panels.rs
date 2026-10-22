@@ -342,7 +342,7 @@ impl PainterApp {
         }
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            crate::widgets::color_chips(ui, &mut self.color, &mut self.sub_color, 24.0);
+            self.color_chips(ui, 24.0);
             if crate::widgets::transparent_chip(ui, self.transparent, 22.0).clicked() {
                 self.toggle_transparent();
             }

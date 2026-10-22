@@ -183,6 +183,9 @@ pub struct PainterApp {
     pub(crate) about_open: bool,
     /// "Reset whole brush list" waits for a yes.
     pub(crate) confirm_brush_reset: bool,
+    pub(crate) chip_picker: Option<crate::chip_picker::ChipPicker>,
+    /// Hold-E eraser: the tool and brush to return to, and when E went down.
+    pub(crate) spring_eraser: Option<(Tool, usize, std::time::Instant)>,
     /// The ensō for them, once loaded.
     pub(crate) logo: Option<egui::TextureHandle>,
     /// Extended Color Selector state.
@@ -306,6 +309,8 @@ impl PainterApp {
             welcome_open: ws.welcome,
             about_open: false,
             confirm_brush_reset: false,
+            chip_picker: None,
+            spring_eraser: None,
             logo: None,
             gamut: Default::default(),
             tip_textures: Default::default(),
@@ -1549,6 +1554,7 @@ impl eframe::App for PainterApp {
         self.welcome_window(ctx);
         self.about_window(ctx);
         self.brush_reset_prompt(ctx);
+        self.chip_picker_window(ctx);
         self.close_prompts(ctx);
         if self.doc.selection.is_some() {
             // Marching ants.

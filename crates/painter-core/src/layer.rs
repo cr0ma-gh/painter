@@ -81,6 +81,10 @@ pub struct Layer {
     /// A draft (Clip Studio's draft layer): shown while working, left out of
     /// exports and prints.
     pub draft: bool,
+    /// Clip Studio's layer colour: shown with its dark pixels in this colour
+    /// (light ones stay white), on screen only; files and exports keep the
+    /// real colours.
+    pub layer_color: Option<[u8; 3]>,
     pub mask: Option<Mask>,
 }
 
@@ -98,6 +102,7 @@ impl Layer {
             clip: false,
             reference: false,
             draft: false,
+            layer_color: None,
             mask: None,
         }
     }

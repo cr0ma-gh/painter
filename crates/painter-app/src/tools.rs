@@ -9,6 +9,9 @@ use painter_core::{BrushMode, BrushSettings};
 use crate::app::PainterApp;
 use crate::icons::Icon;
 
+/// Holding a tool key this long makes the switch temporary (released: back to the tool before).
+pub(crate) const SPRING_HOLD: std::time::Duration = std::time::Duration::from_millis(300);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
     /// Pen, pencil, airbrush and erasers (the sub tool decides).
@@ -464,8 +467,22 @@ impl PainterApp {
         if key(Key::B, false) {
             self.select_brush(self.last_paint_brush);
         }
+        // E: the eraser. Held (longer than a tap), it's only on until released,
+        // then the tool before comes back (Clip Studio's temporary tool switch).
         if key(Key::E, false) {
+            let on_eraser = self.tool == Tool::Brush && self.brush == self.last_eraser;
+            if !on_eraser {
+                self.spring_eraser = Some((self.tool, self.brush, std::time::Instant::now()));
+            }
             self.select_brush(self.last_eraser);
+        }
+        if ctx.input(|i| i.key_released(Key::E)) {
+            if let Some((tool, brush, since)) = self.spring_eraser.take() {
+                if since.elapsed() >= SPRING_HOLD && self.tool == Tool::Brush && self.brush == self.last_eraser {
+                    self.select_brush(brush);
+                    self.tool = tool;
+                }
+            }
         }
         if key(Key::G, false) {
             self.tool = Tool::Fill;

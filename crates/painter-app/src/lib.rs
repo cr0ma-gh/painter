@@ -10,6 +10,7 @@ mod app;
 mod brush_cursor;
 mod brush_library;
 mod clipboard_image;
+mod chip_picker;
 mod color_panels;
 mod search_layer;
 mod canvas;

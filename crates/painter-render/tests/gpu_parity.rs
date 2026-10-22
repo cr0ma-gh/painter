@@ -680,3 +680,28 @@ fn tiles_read_their_own_texels() {
     eprintln!("{report}");
     assert_eq!(bad, 0, "{bad} probes read the wrong texel:\n{report}");
 }
+
+/// Layer colour: black lines show in the colour on screen, and only there.
+#[test]
+fn layer_colour_shows_black_lines_in_its_colour() {
+    let Some((device, queue, _turn)) = gpu() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    let dabs = line((10.0, 20.0), (140.0, 70.0), 40, 6.0, 1.0);
+    let tint = [0.0, 150.0 / 255.0, 1.0];
+    let mut shown = Document::new(150, 90);
+    let id = add_raster(&mut shown, "Inks", BlendMode::Normal, &dabs, [0.0; 3]);
+    shown.find_mut(id).unwrap().layer_color = Some([0, 150, 255]);
+    // What the screen should look like: the same line drawn in the colour.
+    let mut expected = Document::new(150, 90);
+    add_raster(&mut expected, "Inks", BlendMode::Normal, &dabs, tint);
+    let mut canvas = GpuCanvas::new(device, wgpu::TextureFormat::Rgba8Unorm);
+    run(device, queue, &mut canvas, &frame(&shown, true, None));
+    let gpu = canvas.read_composite(device, queue).unwrap();
+    assert_close(&gpu, &io::flatten(&expected), "layer colour");
+    // Exports keep black.
+    let mut black = Document::new(150, 90);
+    add_raster(&mut black, "Inks", BlendMode::Normal, &dabs, [0.0; 3]);
+    assert_eq!(io::flatten(&shown), io::flatten(&black));
+}

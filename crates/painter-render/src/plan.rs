@@ -11,6 +11,8 @@ pub struct PlanNode {
     pub mask: bool,
     /// Alpha comes from this layer's pixels as well.
     pub clip: Option<LayerId>,
+    /// Layer colour (straight sRGB 0..1): dark pixels shown in it, light ones white.
+    pub tint: Option<[f32; 3]>,
     pub kind: NodeKind,
 }
 
@@ -54,7 +56,11 @@ fn build(layers: &[Layer]) -> Vec<PlanNode> {
                     NodeKind::Group { isolated: l.is_isolated_folder() || clip.is_some(), children: build(&f.children) }
                 }
             };
-            PlanNode { id: l.id, blend: l.blend, opacity: l.opacity, mask: l.active_mask().is_some(), clip, kind }
+            let tint = match (&kind, l.layer_color) {
+                (NodeKind::Pixels, Some(c)) => Some(c.map(|v| v as f32 / 255.0)),
+                _ => None,
+            };
+            PlanNode { id: l.id, blend: l.blend, opacity: l.opacity, mask: l.active_mask().is_some(), clip, tint, kind }
         })
         .collect()
 }
@@ -136,7 +142,7 @@ mod tests {
     use super::*;
 
     fn pixels(id: u64, blend: BlendMode) -> PlanNode {
-        PlanNode { id: LayerId(id), blend, opacity: 1.0, mask: false, clip: None, kind: NodeKind::Pixels }
+        PlanNode { id: LayerId(id), blend, opacity: 1.0, mask: false, clip: None, tint: None, kind: NodeKind::Pixels }
     }
 
     fn group(id: u64, isolated: bool, children: Vec<PlanNode>) -> PlanNode {
@@ -146,6 +152,7 @@ mod tests {
             opacity: 0.5,
             mask: false,
             clip: None,
+            tint: None,
             kind: NodeKind::Group { isolated, children },
         }
     }

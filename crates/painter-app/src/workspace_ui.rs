@@ -688,10 +688,8 @@ impl PainterApp {
     /// Panels detached into their own windows (the area menu's Float, or
     /// Window → Panels). Each keeps its place, size and own scale; the title
     /// bar folds it, the dock icon puts it back into the layout, × hides it.
+    /// They stay in zen mode, which only hides the docked layout and the bars.
     pub(crate) fn floating_panels(&mut self, ctx: &egui::Context) {
-        if self.ws.chrome.zen {
-            return;
-        }
         let panels = self.ws.set.current().floating.clone();
         let mut dock = None;
         let mut close = None;

@@ -15,7 +15,10 @@ use crate::icons::{icon_button, Icon};
 use crate::theme;
 use crate::tools::Tool;
 use crate::view::{MAX_ZOOM, MIN_ZOOM};
-use crate::widgets::{self, color_chips, color_wheel, prop_percent, prop_slider, segmented};
+use crate::widgets::{self, color_wheel, prop_percent, prop_slider, segmented};
+
+/// The layer colour a layer gets when it is switched on (a light blue, as in Clip Studio).
+const DEFAULT_LAYER_COLOR: [u8; 3] = [0, 150, 255];
 
 /// Which pressure curve the editor shows.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -376,7 +379,7 @@ impl PainterApp {
             color_wheel(ui, &mut self.color, size);
         });
         ui.horizontal(|ui| {
-            color_chips(ui, &mut self.color, &mut self.sub_color, 26.0);
+            self.color_chips(ui, 26.0);
             if widgets::transparent_chip(ui, self.transparent, 22.0).clicked() {
                 self.toggle_transparent();
             }
@@ -1150,6 +1153,7 @@ impl PainterApp {
                     item("Show / Hide", "visible");
                     item("Lock / Unlock", "lock");
                     item("Reference / Not", "reference");
+                    item("Layer Colour on / off", "layer_color");
                 });
             }
         });
@@ -1165,7 +1169,8 @@ impl PainterApp {
             if !self.selected_layers().contains(&id) {
                 self.click_layer(id, egui::Modifiers::NONE);
             }
-            let first = self.doc.find(id).map(|l| (l.draft, l.visible, l.locked, l.reference)).unwrap_or_default();
+            let first =
+                self.doc.find(id).map(|l| (l.draft, l.visible, l.locked, l.reference, l.layer_color.is_some())).unwrap_or_default();
             match what {
                 "duplicate" => self.duplicate_selected_layers(),
                 "group" => self.group_selected_layers(),
@@ -1174,6 +1179,11 @@ impl PainterApp {
                 "visible" => self.set_on_selected_layers(|l| l.visible = !first.1),
                 "lock" => self.set_on_selected_layers(|l| l.locked = !first.2),
                 "reference" => self.set_on_selected_layers(|l| l.reference = !first.3),
+                "layer_color" => self.set_on_selected_layers(|l| {
+                    if l.has_pixels() {
+                        l.layer_color = (!first.4).then_some(DEFAULT_LAYER_COLOR);
+                    }
+                }),
                 _ => {}
             }
         }
@@ -1262,6 +1272,23 @@ impl PainterApp {
                     ui.checkbox(&mut layer.alpha_locked, "Lock transparency");
                 }
             });
+            // Layer colour (Clip Studio): the layer shown in one colour, on screen only.
+            if layer.has_pixels() {
+                ui.horizontal(|ui| {
+                    let mut on = layer.layer_color.is_some();
+                    let r = ui.checkbox(&mut on, "Layer colour").on_hover_text(
+                        "Show the layer's lines in one colour (light pixels stay white) to tell layers apart. \
+                         On screen only: saving and exporting keep the real colours",
+                    );
+                    if r.changed() {
+                        layer.layer_color = on.then_some(DEFAULT_LAYER_COLOR);
+                        changed = true;
+                    }
+                    if let Some(color) = &mut layer.layer_color {
+                        changed |= ui.color_edit_button_srgb(color).changed();
+                    }
+                });
+            }
             match &mut layer.kind {
                 LayerKind::Folder(folder) => {
                     changed |= ui.checkbox(&mut folder.pass_through, "Pass-through blending").changed();
