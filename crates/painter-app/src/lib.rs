@@ -70,7 +70,59 @@ pub fn native_options() -> eframe::NativeOptions {
             .with_min_inner_size([900.0, 600.0])
             .with_maximized(true),
         event_loop_builder: linux_x11(),
+        wgpu_options: gpu_options(),
         ..Default::default()
+    }
+}
+
+/// Android: which graphics API draws the app. Vulkan, except on ARM Mali
+/// GPUs, whose Vulkan shader compiler crashes on the canvas shaders (seen on
+/// a Pixel 9), and after a start that died while setting up the GPU: those
+/// use OpenGL ES, which has its own compiler. The choice sticks once made.
+#[cfg(target_os = "android")]
+fn gpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
+    use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetupCreateNew};
+    use eframe::wgpu;
+    let dir = files::app_data_dir();
+    let starting = dir.as_ref().map(|d| d.join("gpu-starting"));
+    let use_gl = dir.as_ref().map(|d| d.join("gpu-use-opengl"));
+    // The marker of the last start is still there: it never got past the GPU setup.
+    if let (Some(starting), Some(use_gl)) = (&starting, &use_gl) {
+        if starting.exists() {
+            let _ = std::fs::write(use_gl, b"Vulkan crashed while starting; OpenGL ES is used.\n");
+        }
+        if let Some(d) = &dir {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let _ = std::fs::write(starting, b"");
+    }
+    let force_gl = use_gl.is_some_and(|p| p.exists());
+    let mut setup = WgpuSetupCreateNew::default();
+    setup.instance_descriptor.backends = wgpu::Backends::VULKAN | wgpu::Backends::GL;
+    setup.native_adapter_selector = Some(std::sync::Arc::new(move |adapters: &[wgpu::Adapter], surface: Option<&wgpu::Surface<'_>>| {
+        let usable: Vec<&wgpu::Adapter> = adapters.iter().filter(|a| surface.is_none_or(|s| a.is_surface_supported(s))).collect();
+        let find = |backend: wgpu::Backend| usable.iter().copied().find(|a| a.get_info().backend == backend);
+        let (vulkan, gl) = (find(wgpu::Backend::Vulkan), find(wgpu::Backend::Gl));
+        let mali = vulkan.is_some_and(|a| {
+            let info = a.get_info();
+            info.vendor == 0x13B5 || info.name.to_ascii_lowercase().contains("mali")
+        });
+        let pick = if force_gl || mali { gl.or(vulkan) } else { vulkan.or(gl) };
+        pick.or(usable.first().copied()).cloned().ok_or_else(|| "no graphics adapter".to_string())
+    }));
+    WgpuConfiguration { wgpu_setup: setup.into(), ..Default::default() }
+}
+
+#[cfg(not(target_os = "android"))]
+fn gpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
+    Default::default()
+}
+
+/// The app is up, GPU included: this start didn't crash (see `gpu_options`).
+fn gpu_started() {
+    #[cfg(target_os = "android")]
+    if let Some(d) = files::app_data_dir() {
+        let _ = std::fs::remove_file(d.join("gpu-starting"));
     }
 }
 
@@ -105,6 +157,7 @@ pub fn run(options: eframe::NativeOptions, file: Option<std::path::PathBuf>) -> 
         options,
         Box::new(move |cc| {
             let mut app = app::PainterApp::new(cc);
+            gpu_started();
             if let Some(path) = file {
                 app.open_any(path);
             }
