@@ -2468,6 +2468,7 @@ dependencies = [
  "egui_extras",
  "image",
  "libloading",
+ "ndk-context",
  "painter-brush-io",
  "painter-comic-layout",
  "painter-core",

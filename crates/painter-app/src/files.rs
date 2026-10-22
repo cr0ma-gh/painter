@@ -190,7 +190,7 @@ pub(crate) fn offer_export(path: &Path) {
     native::export(path);
     #[cfg(target_os = "android")]
     if let Ok(mut n) = NOTICE.lock() {
-        *n = Some(format!("Saved in the app's folder: {}", path.display()));
+        *n = Some(android::share(path));
     }
     #[cfg(desktop)]
     let _ = path;
@@ -363,7 +363,7 @@ pub(crate) fn picker_window(ctx: &eframe::egui::Context) {
 mod android {
     use super::{documents_dir, Purpose};
     use eframe::egui;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::Mutex;
 
     struct Picker {
@@ -371,14 +371,25 @@ mod android {
         multiple: bool,
         extensions: Vec<String>,
         chosen: Vec<PathBuf>,
+        /// The folder shown.
+        dir: Option<PathBuf>,
     }
 
     static PICKER: Mutex<Option<Picker>> = Mutex::new(None);
     static PICKED: Mutex<Vec<(Purpose, PathBuf)>> = Mutex::new(Vec::new());
+    /// The folder last opened from, for the next time.
+    static LAST_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 
     pub(super) fn open(purpose: Purpose, multiple: bool, extensions: &[String]) {
+        let dir = LAST_DIR.lock().ok().and_then(|d| d.clone()).filter(|d| d.is_dir()).or_else(documents_dir);
         if let Ok(mut p) = PICKER.lock() {
-            *p = Some(Picker { purpose, multiple, extensions: extensions.iter().map(|e| e.to_ascii_lowercase()).collect(), chosen: Vec::new() });
+            *p = Some(Picker {
+                purpose,
+                multiple,
+                extensions: extensions.iter().map(|e| e.to_ascii_lowercase()).collect(),
+                chosen: Vec::new(),
+                dir,
+            });
         }
     }
 
@@ -391,39 +402,106 @@ mod android {
         (!picked.is_empty()).then(|| picked.remove(0))
     }
 
+    /// Shortcuts: the app's own folder, then the device's usual folders when allowed.
+    fn places(access: bool) -> Vec<(&'static str, PathBuf)> {
+        let mut out = Vec::new();
+        if let Some(d) = documents_dir() {
+            out.push(("Painter", d));
+        }
+        if access {
+            if let Some(root) = crate::android::shared_root() {
+                for (name, sub) in [("Download", "Download"), ("Documents", "Documents"), ("Pictures", "Pictures"), ("Camera", "DCIM")] {
+                    let p = root.join(sub);
+                    if p.is_dir() {
+                        out.push((name, p));
+                    }
+                }
+                out.push(("Device", root));
+            }
+        }
+        out
+    }
+
+    /// Folders (not hidden) and the files that suit, each sorted by name.
+    fn list(dir: &Path, extensions: &[String]) -> (Vec<PathBuf>, Vec<PathBuf>) {
+        let (mut dirs, mut files) = (Vec::new(), Vec::new());
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for p in entries.filter_map(|e| e.ok().map(|e| e.path())) {
+                let hidden = p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'));
+                if hidden {
+                    continue;
+                }
+                if p.is_dir() {
+                    dirs.push(p);
+                } else {
+                    let ext = p.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+                    if extensions.is_empty() || extensions.contains(&ext) {
+                        files.push(p);
+                    }
+                }
+            }
+        }
+        let key = |p: &PathBuf| p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+        dirs.sort_by_key(key);
+        files.sort_by_key(key);
+        (dirs, files)
+    }
+
     pub(super) fn window(ctx: &egui::Context) {
         let Ok(mut guard) = PICKER.lock() else { return };
         let Some(picker) = guard.as_mut() else { return };
-        let Some(dir) = documents_dir() else {
+        let access = crate::android::has_storage_access();
+        let places = places(access);
+        if picker.dir.is_none() {
+            picker.dir = places.first().map(|(_, p)| p.clone());
+        }
+        let Some(dir) = picker.dir.clone() else {
             *guard = None;
             return;
         };
-        let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
-            .map(|entries| {
-                entries
-                    .filter_map(|e| e.ok().map(|e| e.path()))
-                    .filter(|p| p.is_file())
-                    .filter(|p| {
-                        let ext = p.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
-                        picker.extensions.is_empty() || picker.extensions.contains(&ext)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        files.sort();
+        let (dirs, files) = list(&dir, &picker.extensions);
         let mut done = None;
-        egui::Window::new("Open").collapsible(false).resizable(true).default_width(420.0).show(ctx, |ui| {
-            ui.label(format!("Files in {}", dir.display()));
-            ui.small("Copy files there over USB or with a file manager (Android/data/…/files).");
+        let mut go = None;
+        let row = egui::vec2(0.0, 40.0);
+        egui::Window::new("Open").collapsible(false).resizable(true).default_width(460.0).show(ctx, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for (name, path) in &places {
+                    if ui.selectable_label(dir.starts_with(path) && *name != "Device" || dir == *path, *name).clicked() {
+                        go = Some(path.clone());
+                    }
+                }
+            });
+            if !access {
+                ui.horizontal_wrapped(|ui| {
+                    ui.small("To open files from Download, Documents or your photos, allow Painter to see the device's files.");
+                    if ui.button("Allow access…").clicked() {
+                        crate::android::request_storage_access();
+                    }
+                });
+            }
             ui.separator();
-            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
-                if files.is_empty() {
+            ui.horizontal(|ui| {
+                let up = dir.parent().filter(|p| p.starts_with("/storage") || p.starts_with("/sdcard")).map(Path::to_path_buf);
+                if ui.add_enabled(up.is_some(), egui::Button::new("⬆ Up")).clicked() {
+                    go = up;
+                }
+                ui.label(egui::RichText::new(dir.display().to_string()).small());
+            });
+            egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
+                let width = ui.available_width();
+                for d in &dirs {
+                    let name = d.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    if ui.add(egui::Button::new(format!("📁 {name}")).min_size(egui::vec2(width, row.y))).clicked() {
+                        go = Some(d.clone());
+                    }
+                }
+                if dirs.is_empty() && files.is_empty() {
                     ui.label("Nothing here that this can open.");
                 }
                 for f in &files {
                     let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                     let on = picker.chosen.contains(f);
-                    if ui.add(egui::Button::new(name).selected(on).min_size(egui::vec2(ui.available_width(), 40.0))).clicked() {
+                    if ui.add(egui::Button::new(name).selected(on).min_size(egui::vec2(width, row.y))).clicked() {
                         if picker.multiple {
                             if on {
                                 picker.chosen.retain(|c| c != f);
@@ -446,13 +524,34 @@ mod android {
                 }
             });
         });
+        if let Some(path) = go {
+            picker.dir = Some(path);
+        }
         if let Some(chosen) = done {
             let purpose = picker.purpose;
+            if let Ok(mut last) = LAST_DIR.lock() {
+                *last = Some(dir);
+            }
             *guard = None;
             if let Ok(mut picked) = PICKED.lock() {
                 picked.extend(chosen.into_iter().map(|p| (purpose, p)));
             }
         }
+    }
+
+    /// After an export: a copy in the device's Documents/Painter folder when
+    /// Painter may write there, so other apps and computers see it.
+    pub(super) fn share(path: &Path) -> String {
+        if crate::android::has_storage_access() {
+            if let (Some(root), Some(name)) = (crate::android::shared_root(), path.file_name()) {
+                let dir = root.join("Documents").join("Painter");
+                let target = dir.join(name);
+                if std::fs::create_dir_all(&dir).is_ok() && std::fs::copy(path, &target).is_ok() {
+                    return format!("Saved, with a copy in {}", target.display());
+                }
+            }
+        }
+        format!("Saved in the app's folder: {}", path.display())
     }
 }
 

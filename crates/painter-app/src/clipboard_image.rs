@@ -1,6 +1,7 @@
 //! Pictures on the system clipboard, copied in other apps (a screenshot, an
 //! image from a browser or another painting program): arboard on Windows,
-//! macOS and Linux, UIPasteboard on iPad (`native/ios_files.m`).
+//! macOS and Linux, UIPasteboard on iPad (`native/ios_files.m`), the
+//! ClipboardManager on Android (pictures read through their content URI).
 //!
 //! egui only reports text pastes, so these are read directly.
 
@@ -91,7 +92,23 @@ mod native {
     }
 }
 
-#[cfg(not(any(windows, target_os = "macos", target_os = "linux", target_os = "ios")))]
+#[cfg(target_os = "android")]
+mod native {
+    use super::ClipboardImage;
+
+    /// A picture copied in another app: the file behind the clipboard's URI.
+    pub(super) fn read() -> Option<ClipboardImage> {
+        let bytes = crate::android::clipboard_file()?;
+        let img = image::load_from_memory(&bytes).ok()?.to_rgba8();
+        Some(ClipboardImage { width: img.width(), height: img.height(), rgba: img.into_raw() })
+    }
+
+    pub(super) fn text() -> Option<String> {
+        crate::android::clipboard_text()
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux", target_os = "ios", target_os = "android")))]
 mod native {
     use super::ClipboardImage;
 

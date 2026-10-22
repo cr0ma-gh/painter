@@ -1471,6 +1471,8 @@ impl eframe::App for PainterApp {
             // Marching ants.
             ctx.request_repaint_after(std::time::Duration::from_millis(80));
         }
+        #[cfg(target_os = "android")]
+        crate::android::end_frame(ctx);
     }
 
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {

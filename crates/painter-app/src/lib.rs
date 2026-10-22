@@ -3,6 +3,8 @@
 //! `painter-android` crate on Android).
 
 mod adjust_ui;
+#[cfg(target_os = "android")]
+mod android;
 mod advanced_tool;
 mod app;
 mod brush_library;
@@ -111,8 +113,9 @@ pub fn run(options: eframe::NativeOptions, file: Option<std::path::PathBuf>) -> 
     )
 }
 
-/// Android: where the app keeps its data (from the activity), before [`run`].
+/// Android: the activity (its folders, keyboard and system services), before [`run`].
 #[cfg(target_os = "android")]
-pub fn set_android_folders(internal: Option<std::path::PathBuf>, external: Option<std::path::PathBuf>) {
-    files::set_android_folders(internal, external);
+pub fn set_android_app(app: winit::platform::android::activity::AndroidApp) {
+    files::set_android_folders(app.internal_data_path(), app.external_data_path());
+    android::set_app(app);
 }

@@ -43,6 +43,12 @@ eframe = { workspace = true, features = ["x11", "wayland"] }
 x11-dl = "2.21"
 winit = { version = "0.30", default-features = false, features = ["x11", "wayland"] }
 
+[target.'cfg(target_os = "android")'.dependencies]
+# The activity (keyboard), and the Java VM for storage access, the clipboard
+# and the Wi-Fi multicast lock (see src/android.rs).
+winit = { version = "0.30", default-features = false, features = ["android-native-activity"] }
+ndk-context = "0.1"
+
 [target.'cfg(windows)'.dependencies]
 libloading.workspace = true
 

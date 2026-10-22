@@ -6,7 +6,7 @@
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(app: winit::platform::android::activity::AndroidApp) {
-    painter_app::set_android_folders(app.internal_data_path(), app.external_data_path());
+    painter_app::set_android_app(app.clone());
     let mut options = painter_app::native_options();
     options.android_app = Some(app);
     if let Err(err) = painter_app::run(options, None) {

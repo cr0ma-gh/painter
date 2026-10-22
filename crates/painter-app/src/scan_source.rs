@@ -66,6 +66,9 @@ pub(crate) fn take_error() -> Option<String> {
 /// Starts looking for network (eSCL / AirScan) scanners with Bonjour (iPad;
 /// elsewhere the scanner backend asks the network itself).
 pub(crate) fn find_network_scanners() {
+    // Android drops mDNS answers unless the app holds a Wi-Fi multicast lock.
+    #[cfg(target_os = "android")]
+    crate::android::multicast_lock();
     native::find_network();
 }
 
