@@ -60,10 +60,17 @@ one-year signatures and TestFlight.
 - The iOS status bar is hidden and swipes from the screen edges go to
   Painter first, so the menu bar at the top can be tapped; swipe a second
   time to open the Notification or Control Center.
+- **Scanning:** File → Import → From Scanner or Camera → Scan with camera
+  opens the iPad's document camera: it finds the sheet and straightens it,
+  and you can take several pages. Pick the paper size (it gives the pages
+  their resolution), crop, rotate, clean up (auto contrast, line art) and
+  import a page or all of them, a layer each. "From photo or file" takes a
+  photo or scan from the Files app the same way.
 - If the app closes unexpectedly, `painter-crash.txt` appears in that folder
   with the reason; please attach it to a bug report.
 
 ## Not on iPad (yet)
 
-- WinTab tablets and WIA scanners are Windows-only.
+- WinTab tablets and USB / network scanners (WIA) are Windows-only; on iPad
+  the camera scans instead.
 - Drag and drop from other apps (Split View) isn't wired up.

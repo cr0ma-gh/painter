@@ -207,11 +207,16 @@ cargo run --release -p painter-app -- drawing.painter
   format's description and Blender's behaviour, not its GPL source.
   `cargo run -p painter-scene-3d --example preview -- model.blend out.png`
   renders a file on the CPU; `--example probe` lists its objects and structs.
-- **Scanner import** (File → Import → From Scanner, crate `scanner-io`): device
-  list, resolution, colour mode, preview with crop, auto-contrast and line-art
-  extraction (paper → transparency) into a new layer. Works through WIA on
-  Windows (enumeration, capabilities and transfer; scans run on a background
-  thread); TWAIN and SANE are still stubs. `cargo run -p painter-scanner-io
+- **Scanner and camera import** (File → Import → From Scanner or Camera, crate
+  `scanner-io`): device list, resolution, colour mode, preview with crop,
+  auto-contrast and line-art extraction (paper → transparency) into a new
+  layer. Works through WIA on Windows (enumeration, capabilities and transfer;
+  scans run on a background thread); TWAIN and SANE are still stubs. On iPad
+  the document camera (VisionKit) finds the sheet, straightens it and takes
+  any number of pages; photos or scans as image files work everywhere. Pages
+  get their resolution from the paper size picked (A4, A5, A3, B5, B4, Letter,
+  postcard), share the crop and cleanup, and import one by one or all at once
+  (a layer each). `cargo run -p painter-scanner-io
   --example list_scanners` lists what WIA sees without scanning.
 - **SVG export** (File → Export → Layer / Canvas as SVG, crate `vector-export`):
   layers become nested Inkscape layer groups (name, visibility, opacity, blend

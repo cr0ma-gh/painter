@@ -27,6 +27,8 @@ pub(crate) enum Purpose {
     Theme,
     /// Pictures for the reference board.
     ReferenceImage,
+    /// Photos or scans of pages for the scanner dialog.
+    ScanPage,
 }
 
 /// The subset of `rfd::FileDialog` the app uses, plus the purpose.

@@ -21,6 +21,7 @@ mod panels;
 mod previews;
 mod rulers_ui;
 mod print_ui;
+mod scan_source;
 mod scene_ui;
 mod tablet;
 mod theme;

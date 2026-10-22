@@ -38,7 +38,7 @@ static volatile int picker_active;
 // The picker holds its delegate weakly.
 static PainterPickerDelegate *delegate;
 
-static UIViewController *top_view_controller(void) {
+UIViewController *painter_top_view_controller(void) {
     UIWindow *window = nil;
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:[UIWindowScene class]]) continue;
@@ -57,7 +57,7 @@ static void present(UIDocumentPickerViewController *picker) {
     if (!delegate) delegate = [PainterPickerDelegate new];
     picker.delegate = delegate;
     picker.modalPresentationStyle = UIModalPresentationFormSheet;
-    UIViewController *vc = top_view_controller();
+    UIViewController *vc = painter_top_view_controller();
     if (!vc) { picker_active = 0; return; }
     [vc presentViewController:picker animated:YES completion:nil];
 }

@@ -52,6 +52,9 @@
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
+	<!-- File → Import → From Scanner: the document camera. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Painter uses the camera to scan sketches and pages into your drawing.</string>
 	<!-- The Documents folder shows up as "Painter" in the Files app. -->
 	<key>UIFileSharingEnabled</key>
 	<true/>

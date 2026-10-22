@@ -914,7 +914,7 @@ impl PainterApp {
             ("file.save", "Save", C::File, "Ctrl+S", &[], true),
             ("file.save_as", "Save As...", C::File, "Ctrl+Shift+S", &[], true),
             ("file.import_png", "Import PNG as Layer...", C::File, "", &["image", "picture"], true),
-            ("file.scan", "Import from Scanner...", C::File, "", &["scan", "wia"], true),
+            ("file.scan", "Import from Scanner or Camera...", C::File, "", &["scan", "wia", "camera", "photo", "document"], true),
             ("file.import_brushes", "Import Brushes...", C::Brush, "", &["sut", "abr", "clip studio", "photoshop", "krita", "kpp", "bundle", "mypaint", "myb", "gimp", "gbr"], true),
             ("file.export_png", "Export PNG...", C::File, "", &["save image"], true),
             ("file.export_psd", "Export PSD...", C::File, "", &["photoshop"], true),

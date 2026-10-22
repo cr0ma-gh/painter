@@ -86,7 +86,7 @@ impl PainterApp {
                             ui.close_menu();
                             self.import_png_layer();
                         }
-                        if ui.button("From Scanner...").clicked() {
+                        if ui.button("From Scanner or Camera...").clicked() {
                             ui.close_menu();
                             self.scanner = Some(crate::dialogs::ScannerDialog::open());
                         }

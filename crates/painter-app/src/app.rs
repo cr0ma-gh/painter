@@ -1257,6 +1257,7 @@ impl PainterApp {
                 Purpose::AddModel => self.add_model_from(&path),
                 Purpose::Theme => self.import_theme_from(&path),
                 Purpose::ReferenceImage => self.add_board_image(&path),
+                Purpose::ScanPage => self.add_scan_pages(vec![path]),
             }
         }
         if crate::files::picking() {
