@@ -305,6 +305,25 @@ GitHub Actions builds an unsigned iPad app on every push (no Mac needed); see
 [docs/IPAD.md](docs/IPAD.md) for installing it with a free Apple ID. On the iPad the
 Apple Pencil draws and fingers navigate (pan, pinch, rotate, two-finger tap to undo).
 
+## Linux, macOS and Android
+
+GitHub Actions also builds, on every push (download them from the run's
+artifacts):
+
+- **Linux**: `Painter-x86_64.AppImage` (`packaging/linux/build-appimage.sh`).
+  Make it executable and run it; it uses the system's GTK 3 for file dialogs
+  and its Vulkan or OpenGL drivers. Building from source needs
+  `libgtk-3-dev libxkbcommon-dev libwayland-dev libx11-dev`.
+- **macOS**: `Painter.dmg` with a universal `Painter.app` (Apple Silicon and
+  Intel, macOS 11+; `packaging/macos/build-app.sh`). It's signed ad hoc, not
+  notarised: the first time, right-click the app → Open.
+- **Android**: `Painter.apk` for arm64 phones and tablets (Android 9+;
+  `packaging/android/build.sh`, with cargo-apk), signed with a test key:
+  allow installing unknown apps, or `adb install Painter.apk`. Documents live
+  in the app's own folder (`Android/data/io.github.cr0ma_gh.painter/files`,
+  reachable over USB); File → Open lists them in the app. Pen pressure and
+  the system file picker aren't there yet.
+
 ## Licence
 
 Painter is licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE),
