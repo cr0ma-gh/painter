@@ -51,6 +51,14 @@ ndk-context = "0.1"
 
 [target.'cfg(windows)'.dependencies]
 libloading.workspace = true
+# Videos on the reference board (Media Foundation).
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+] }
 
 [target.'cfg(any(windows, target_os = "macos", target_os = "linux"))'.dependencies]
 # Pasting pictures onto the reference board (already used by egui for text).

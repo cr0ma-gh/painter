@@ -29,6 +29,9 @@ pub(crate) enum Source {
     Image { name: String, ext: String, bytes: Arc<Vec<u8>> },
     /// A live picture of another open document (by its tab's slot id).
     Document { slot: u64 },
+    /// A video file, played in a loop. Kept by its path: videos are too big
+    /// to copy into the board.
+    Video { name: String, path: String },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -285,13 +288,20 @@ impl Board {
         let mut zip = ZipWriter::new();
         let mut items = Vec::new();
         for item in &self.items {
-            let Source::Image { name, ext, bytes } = &item.source else { continue };
-            let file = format!("images/{}.{ext}", item.id);
-            zip.add(&file, bytes, false);
+            let (name, file, video) = match &item.source {
+                Source::Image { name, ext, bytes } => {
+                    let file = format!("images/{}.{ext}", item.id);
+                    zip.add(&file, bytes, false);
+                    (name, file, None)
+                }
+                Source::Video { name, path } => (name, String::new(), Some(path.clone())),
+                Source::Document { .. } => continue,
+            };
             items.push(ItemFile {
                 id: item.id,
                 name: name.clone(),
                 file,
+                video,
                 size: item.size,
                 pos: item.pos,
                 scale: item.scale,
@@ -321,12 +331,18 @@ impl Board {
         }
         let mut board = Board { next_id: file.next_id, ..Board::default() };
         for i in file.items {
-            let Some(bytes) = zip.read(&i.file) else { continue };
-            let ext = i.file.rsplit('.').next().unwrap_or("png").to_string();
+            let source = match &i.video {
+                Some(path) => Source::Video { name: i.name, path: path.clone() },
+                None => {
+                    let Some(bytes) = zip.read(&i.file) else { continue };
+                    let ext = i.file.rsplit('.').next().unwrap_or("png").to_string();
+                    Source::Image { name: i.name, ext, bytes: Arc::new(bytes) }
+                }
+            };
             board.next_id = board.next_id.max(i.id);
             board.items.push(Item {
                 id: i.id,
-                source: Source::Image { name: i.name, ext, bytes: Arc::new(bytes) },
+                source,
                 size: i.size,
                 pos: i.pos,
                 scale: i.scale.max(1e-4),
@@ -347,7 +363,11 @@ impl Board {
 struct ItemFile {
     id: ItemId,
     name: String,
+    /// The picture's file in the board (empty for videos).
     file: String,
+    /// A video's path on disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    video: Option<String>,
     size: [f32; 2],
     pos: [f32; 2],
     scale: f32,
@@ -475,5 +495,77 @@ mod tests {
         // New ids don't reuse saved ones.
         let mut back = back;
         assert!(image(&mut back, 1.0, 1.0, [0.0, 0.0]) > id);
+    }
+}
+
+#[cfg(test)]
+mod media_tests {
+    use super::*;
+
+    #[test]
+    fn videos_are_saved_by_path() {
+        let mut b = Board::default();
+        let id = b.add(Source::Video { name: "walk".into(), path: "C:/refs/walk.mp4".into() }, [640.0, 360.0], [5.0, 6.0]);
+        let back = Board::from_bytes(b.to_bytes()).unwrap();
+        assert_eq!(back.find(id).unwrap().source, Source::Video { name: "walk".into(), path: "C:/refs/walk.mp4".into() });
+        assert_eq!(back.find(id).unwrap().pos, [5.0, 6.0]);
+    }
+
+    /// `PAINTER_DEMO_BOARD=out.refboard PAINTER_DEMO_VIDEO=clip.mp4 cargo test -p painter-app demo_board -- --ignored`
+    /// writes a board with an animated GIF (a dot going round) and the video, to try the board by hand.
+    #[test]
+    #[ignore]
+    fn demo_board() {
+        let out = std::env::var("PAINTER_DEMO_BOARD").expect("PAINTER_DEMO_BOARD");
+        let mut b = Board::default();
+        // 64×64, 12 frames: GIF89a, a 4-colour palette, one LZW image per frame
+        // (literal codes with frequent clears, so codes stay 3 bits).
+        let mut g = b"GIF89a".to_vec();
+        g.extend([64, 0, 64, 0, 0x81, 0, 0]);
+        g.extend([255, 255, 255, 230, 60, 40, 40, 90, 230, 0, 0, 0]);
+        g.extend([0x21, 0xFF, 11]);
+        g.extend(b"NETSCAPE2.0");
+        g.extend([3, 1, 0, 0, 0]);
+        for f in 0..12 {
+            let a = f as f32 / 12.0 * std::f32::consts::TAU;
+            let (cx, cy) = (32.0 + 20.0 * a.cos(), 32.0 + 20.0 * a.sin());
+            let px: Vec<u8> = (0..64 * 64)
+                .map(|i| {
+                    let (x, y) = ((i % 64) as f32, (i / 64) as f32);
+                    if (x - cx).hypot(y - cy) < 8.0 { 1 } else if (x - 32.0).abs() < 1.0 || (y - 32.0).abs() < 1.0 { 2 } else { 0 }
+                })
+                .collect();
+            g.extend([0x21, 0xF9, 4, 0, 8, 0, 0, 0, 0x2C, 0, 0, 0, 0, 64, 0, 64, 0, 0, 2]);
+            let mut data = Vec::new();
+            let (mut acc, mut bits) = (0u32, 0u32);
+            let mut put = |code: u32, data: &mut Vec<u8>| {
+                acc |= code << bits;
+                bits += 3;
+                while bits >= 8 {
+                    data.push(acc as u8);
+                    acc >>= 8;
+                    bits -= 8;
+                }
+            };
+            for chunk in px.chunks(1) {
+                put(4, &mut data);
+                put(chunk[0] as u32, &mut data);
+            }
+            put(5, &mut data);
+            if bits > 0 {
+                data.push(acc as u8);
+            }
+            for c in data.chunks(255) {
+                g.push(c.len() as u8);
+                g.extend(c);
+            }
+            g.push(0);
+        }
+        g.push(0x3B);
+        b.add(Source::Image { name: "dot".into(), ext: "gif".into(), bytes: Arc::new(g) }, [64.0, 64.0], [-300.0, 0.0]);
+        if let Ok(video) = std::env::var("PAINTER_DEMO_VIDEO") {
+            b.add(Source::Video { name: "clip".into(), path: video }, [640.0, 360.0], [200.0, 0.0]);
+        }
+        std::fs::write(out, b.to_bytes()).unwrap();
     }
 }

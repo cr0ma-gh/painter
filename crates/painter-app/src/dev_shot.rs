@@ -1,7 +1,7 @@
 //! A developer aid for checking the interface without clicking through it:
 //!
 //! - `PAINTER_COMMANDS="view.ruler_bar;tool.4"` runs those commands (palette
-//!   ids, `;`-separated) once the window is up;
+//!   ids, `;`-separated; `dev.float:N` floats panel N) once the window is up;
 //! - `PAINTER_SCREENSHOT=out.png` then saves the window as a PNG and quits.
 //!
 //! Neither is set in normal use, and then this does nothing.
@@ -45,6 +45,13 @@ impl PainterApp {
         if shot.frames == SETTLE {
             let commands = std::mem::take(&mut shot.commands);
             for c in commands {
+                // `dev.float:N`: panel N (EditorType::ALL order) as a large floating window.
+                if let Some(i) = c.strip_prefix("dev.float:").and_then(|n| n.parse::<usize>().ok()) {
+                    if let Some(e) = ui_workspace::EditorType::ALL.get(i) {
+                        self.ws.set.current_mut().add_floating(*e, [480.0, 120.0], [1000.0, 700.0], 1.0);
+                    }
+                    continue;
+                }
                 self.run_command(&c);
             }
             return;

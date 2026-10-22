@@ -9,9 +9,11 @@
 
 pub(crate) mod layer_transfer;
 pub(crate) mod board;
+pub(crate) mod board_media;
 pub(crate) mod session_store;
 pub(crate) mod split_viewport;
 pub(crate) mod tab_bar;
+pub(crate) mod video;
 
 pub(crate) use layer_transfer::LayerDrag;
 pub(crate) use session_store::DocManager;

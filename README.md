@@ -165,7 +165,10 @@ cargo run --release -p painter-app -- drawing.painter
   point things out (a mark drawn on a picture follows it), the eraser rubs
   them out. Own undo, pan and zoom; kept between launches, and saved to or
   opened from `.refboard` files. Layers dropped on a document's picture are
-  copied into that document.
+  copied into that document. Animated GIFs (own decoder) and videos (MP4,
+  MOV, WebM, MKV, AVI, WMV…: Media Foundation on Windows, `ffmpeg` elsewhere
+  when installed) play in a loop with a progress line: Space pauses, ← / →
+  step five seconds, Home restarts. Videos are kept by their path.
 - **Bars:** View â Tool Strip / Command Bar (or right-click a bar) hides
   either; the command bar under the menu is customisable like the tool strip
   (any command from the palette, drag to reorder, right-click to remove,

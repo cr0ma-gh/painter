@@ -2482,6 +2482,7 @@ dependencies = [
  "rfd",
  "serde",
  "serde_json",
+ "windows",
  "winit",
  "x11-dl",
 ]

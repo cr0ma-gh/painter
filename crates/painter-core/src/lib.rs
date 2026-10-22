@@ -10,6 +10,7 @@ pub mod brush;
 pub mod clip;
 pub mod document;
 pub mod fill_tool;
+pub mod gif;
 pub mod filters;
 pub mod history;
 pub(crate) mod interchange;

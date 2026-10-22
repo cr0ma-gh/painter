@@ -42,14 +42,14 @@ const HANDLE: f32 = 7.0;
 /// Smooth when shrunk, square pixels when enlarged (pixel art stays sharp).
 const SHARP_WHEN_ENLARGED: TextureOptions = TextureOptions { magnification: egui::TextureFilter::Nearest, ..TextureOptions::LINEAR };
 /// Image files the board takes.
-pub(crate) const IMAGE_EXTENSIONS: [&str; 4] = ["png", "jpg", "jpeg", "bmp"];
+pub(crate) const IMAGE_EXTENSIONS: [&str; 5] = ["png", "jpg", "jpeg", "bmp", "gif"];
 /// Documents the board shows as a picture (flattened): Photoshop, Krita,
 /// OpenRaster, Painter projects, Clip Studio.
 pub(crate) const DOCUMENT_EXTENSIONS: [&str; 5] = ["psd", "kra", "ora", "painter", "clip"];
 
 /// Files the board takes: pictures and documents.
 pub(crate) fn is_board_file(path: &std::path::Path) -> bool {
-    is_image_file(path) || path.extension().and_then(|e| e.to_str()).is_some_and(|e| DOCUMENT_EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)))
+    is_image_file(path) || super::video::is_video_file(path) || path.extension().and_then(|e| e.to_str()).is_some_and(|e| DOCUMENT_EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)))
 }
 
 pub(crate) fn is_image_file(path: &std::path::Path) -> bool {
@@ -144,6 +144,8 @@ pub(crate) struct ReferenceView {
     pub(crate) message: Option<String>,
     /// Ctrl+V was down last frame (see [`ctrl_v_down`]).
     paste_down: bool,
+    /// GIFs and videos playing.
+    pub(crate) media: super::board_media::Media,
 }
 
 impl Default for ReferenceView {
@@ -172,13 +174,14 @@ impl Default for ReferenceView {
             autosave: Autosave::default(),
             message: None,
             paste_down: false,
+            media: Default::default(),
         }
     }
 }
 
 /// `pixels` (premultiplied RGBA8, `w` × `h`) shrunk by an integer box filter
 /// so the longest side is at most `max`.
-fn downscale(pixels: &[u8], w: u32, h: u32, max: u32) -> ColorImage {
+pub(crate) fn downscale(pixels: &[u8], w: u32, h: u32, max: u32) -> ColorImage {
     let step = w.max(h).div_ceil(max).max(1) as usize;
     let (ow, oh) = ((w as usize).div_ceil(step), (h as usize).div_ceil(step));
     let mut out = vec![Color32::TRANSPARENT; ow * oh];
@@ -206,9 +209,16 @@ fn downscale(pixels: &[u8], w: u32, h: u32, max: u32) -> ColorImage {
 /// An image file decoded for the screen: premultiplied, at most
 /// [`TEXTURE_SIZE`] on a side, in grey if asked.
 fn decode(bytes: &[u8], grey: bool) -> Option<ColorImage> {
-    let img = image::load_from_memory(bytes).ok()?.to_rgba8();
-    let (w, h) = img.dimensions();
-    let mut raw = img.into_raw();
+    // GIFs: their first frame (animations play through `board_media`).
+    let (w, h, mut raw) = if painter_core::gif::is_gif(bytes) {
+        let gif = painter_core::gif::decode(bytes).ok()?;
+        let first = gif.frames.into_iter().next()?;
+        (gif.width, gif.height, first.rgba)
+    } else {
+        let img = image::load_from_memory(bytes).ok()?.to_rgba8();
+        let (w, h) = img.dimensions();
+        (w, h, img.into_raw())
+    };
     for px in raw.as_chunks_mut::<4>().0 {
         if grey {
             let l = ((px[0] as u32 * 299 + px[1] as u32 * 587 + px[2] as u32 * 114) / 1000) as u8;
@@ -221,6 +231,10 @@ fn decode(bytes: &[u8], grey: bool) -> Option<ColorImage> {
 
 /// A picture's size in pixels from its file's header.
 fn image_size(bytes: &[u8]) -> Option<[f32; 2]> {
+    if painter_core::gif::is_gif(bytes) && bytes.len() >= 10 {
+        let (w, h) = (u16::from_le_bytes([bytes[6], bytes[7]]), u16::from_le_bytes([bytes[8], bytes[9]]));
+        return (w > 0 && h > 0).then_some([w as f32, h as f32]);
+    }
     let (w, h) = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.into_dimensions().ok()?;
     Some([w as f32, h as f32])
 }
@@ -348,6 +362,9 @@ impl ReferenceView {
     }
 
     pub(crate) fn add_image_file(&mut self, path: &std::path::Path, at: Option<[f32; 2]>) -> Result<ItemId, String> {
+        if super::video::is_video_file(path) {
+            return self.add_video_file(path, at);
+        }
         if !is_image_file(path) && is_board_file(path) {
             // A layered document: its picture, flattened (draft layers left out).
             let (doc, _, _) = crate::document_manager::session_store::load_file(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -367,6 +384,26 @@ impl ReferenceView {
         let name = path.file_stem().map_or_else(|| "Image".into(), |s| s.to_string_lossy().into_owned());
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("png").to_string();
         self.add_image(&name, &ext, bytes, at)
+    }
+
+    /// A video, played in a loop (kept by its path, not copied into the board).
+    fn add_video_file(&mut self, path: &std::path::Path, at: Option<[f32; 2]>) -> Result<ItemId, String> {
+        let info = super::video::probe(path)?;
+        self.checkpoint();
+        let name = path.file_stem().map_or_else(|| "Video".into(), |s| s.to_string_lossy().into_owned());
+        let source = Source::Video { name, path: path.to_string_lossy().into_owned() };
+        let size = [info.width as f32, info.height as f32];
+        let id = self.board.add(source, size, at.unwrap_or([self.center.x, self.center.y]));
+        if let Some(rect) = self.rect {
+            let view = rect.size() / self.zoom;
+            let fit = (view.x * 0.8 / size[0]).min(view.y * 0.8 / size[1]);
+            if fit < 1.0 {
+                self.board.find_mut(id).expect("just added").scale = fit;
+            }
+        }
+        self.selection = vec![id];
+        self.tool = BoardTool::Select;
+        Ok(id)
     }
 
     /// A picture from the clipboard.
@@ -512,6 +549,11 @@ impl ReferenceView {
                     Key::P if !cmd => self.tool = BoardTool::Pen,
                     Key::E if !cmd => self.tool = BoardTool::Eraser,
                     Key::V if !cmd => self.tool = BoardTool::Select,
+                    // GIFs and videos.
+                    Key::Space => self.media.toggle(&self.selection),
+                    Key::ArrowLeft => self.media.seek(&self.selection, None, -5000),
+                    Key::ArrowRight => self.media.seek(&self.selection, None, 5000),
+                    Key::Home => self.media.seek(&self.selection, Some(0), 0),
                     _ => {}
                 }
             }
@@ -626,8 +668,12 @@ impl PainterApp {
     /// Picks image files for the board.
     pub(crate) fn add_board_images_dialog(&mut self) {
         if let Some(paths) = crate::files::FileDialog::new()
-            .add_filter("Pictures and documents", &[IMAGE_EXTENSIONS.as_slice(), DOCUMENT_EXTENSIONS.as_slice()].concat())
+            .add_filter(
+                "Pictures, videos and documents",
+                &[IMAGE_EXTENSIONS.as_slice(), super::video::VIDEO_EXTENSIONS.as_slice(), DOCUMENT_EXTENSIONS.as_slice()].concat(),
+            )
             .add_filter("Images", &IMAGE_EXTENSIONS)
+            .add_filter("Videos", &super::video::VIDEO_EXTENSIONS)
             .add_filter("Documents (PSD, Krita, OpenRaster, Painter, Clip Studio)", &DOCUMENT_EXTENSIONS)
             .purpose(crate::files::Purpose::ReferenceImage)
             .pick_files()
@@ -730,6 +776,10 @@ impl PainterApp {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
         self.docs.reference.update_textures(ctx);
+        let r = &mut self.docs.reference;
+        if let Some(msg) = r.media.update(ctx, &r.board) {
+            r.message = Some(msg);
+        }
         self.docs.reference.autosave(false);
         if let Some(msg) = self.docs.reference.message.take() {
             self.status = msg;
@@ -917,8 +967,9 @@ impl PainterApp {
         for item in &r.board.items {
             let corners = item.corners().map(|c| r.to_screen(rect, c));
             let tex = match &item.source {
-                Source::Image { .. } => r.textures.get(&item.id).map(|t| t.texture.id()),
+                Source::Image { .. } => r.media.texture(item).or_else(|| r.textures.get(&item.id).map(|t| t.texture.id())),
                 Source::Document { slot } => r.previews.get(slot).map(|p| p.texture.id()),
+                Source::Video { .. } => r.media.texture(item),
             };
             match tex {
                 Some(tex) => {
@@ -950,6 +1001,17 @@ impl PainterApp {
                     egui::FontId::proportional(11.0),
                     theme::text_dim(),
                 );
+            }
+            // GIFs and videos: how far through the loop, along the bottom edge.
+            if let Some((t, playing)) = r.media.progress(item) {
+                let (a, b) = (corners[3], corners[2]);
+                painter.line_segment([a, b], Stroke::new(3.0_f32, Color32::from_black_alpha(140)));
+                painter.line_segment([a, a + (b - a) * t], Stroke::new(3.0_f32, theme::accent()));
+                if !playing {
+                    let c = corners[0] + (corners[2] - corners[0]) / 2.0;
+                    painter.circle_filled(c, 16.0, Color32::from_black_alpha(140));
+                    painter.text(c, egui::Align2::CENTER_CENTER, "⏸", egui::FontId::proportional(16.0), Color32::WHITE);
+                }
             }
         }
         // Marks over everything.
@@ -1222,6 +1284,18 @@ impl PainterApp {
                 if ui.button("Edit this document").clicked() {
                     ui.close_menu();
                     edit = Some(*slot);
+                }
+                ui.separator();
+            }
+            if r.media.is_moving(first) {
+                let label = if r.media.is_paused(first) { "Play  (Space)" } else { "Pause  (Space)" };
+                if ui.button(label).clicked() {
+                    ui.close_menu();
+                    r.media.toggle(&r.selection.clone());
+                }
+                if ui.button("Restart  (Home)").clicked() {
+                    ui.close_menu();
+                    r.media.seek(&r.selection.clone(), Some(0), 0);
                 }
                 ui.separator();
             }
