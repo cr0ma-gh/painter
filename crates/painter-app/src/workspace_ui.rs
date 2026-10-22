@@ -923,7 +923,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 60] = [
+        let fixed: [FixedCommand; 61] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -937,6 +937,7 @@ impl PainterApp {
             ("file.export_psd", "Export PSD...", C::File, "", &["photoshop"], true),
             ("file.export_kra", "Export Krita (.kra)...", C::File, "", &["krita", "kra"], true),
             ("file.export_ora", "Export OpenRaster (.ora)...", C::File, "", &["openraster", "mypaint", "gimp", "ora"], true),
+            ("file.export_clip", "Export Clip Studio (.clip)...", C::File, "", &["clip studio", "csp", "clip"], true),
             ("file.export_svg", "Export SVG...", C::File, "", &["vector"], true),
             ("file.export_brushes", "Export All Brushes...", C::Brush, "", &[], true),
             ("file.quit", "Quit", C::File, "Ctrl+Q", &["exit", "close"], !cfg!(target_os = "ios")),
@@ -1051,6 +1052,7 @@ impl PainterApp {
             "file.export_psd" => self.export_psd(),
             "file.export_kra" => self.export_layered("kra"),
             "file.export_ora" => self.export_layered("ora"),
+            "file.export_clip" => self.export_clip(),
             "file.export_svg" => self.svg_export = Some(crate::dialogs::SvgExportDialog::default()),
             "file.export_brushes" => self.export_brushes(None),
             "edit.undo" => self.undo(),

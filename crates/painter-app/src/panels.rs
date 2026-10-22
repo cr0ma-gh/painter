@@ -121,6 +121,10 @@ impl PainterApp {
                             ui.close_menu();
                             self.export_layered("ora");
                         }
+                        if ui.button("Clip Studio (.clip)...").clicked() {
+                            ui.close_menu();
+                            self.export_clip();
+                        }
                         if ui.button("Layer / Canvas as SVG...").clicked() {
                             ui.close_menu();
                             self.svg_export = Some(crate::dialogs::SvgExportDialog::default());

@@ -142,7 +142,7 @@ cargo run --release -p painter-app -- drawing.painter
   either; the command bar under the menu is customisable like the tool strip
   (any command from the palette, drag to reorder, right-click to remove,
   separators). File → Quit (Ctrl+Q). The reference board also takes PSD,
-  Krita, OpenRaster and Painter files, shown as their flattened picture.
+  Krita, OpenRaster, Clip Studio and Painter files, shown as their flattened picture.
 - **Several documents:** a tab per open document (`*` marks unsaved changes;
   Ctrl+W closes, Ctrl+Tab / Ctrl+Shift+Tab cycle), each with its own zoom,
   rotation, pan and undo history. Files open and save on worker threads.
@@ -168,6 +168,14 @@ cargo run --release -p painter-app -- drawing.painter
   masks and clipping are baked into the pixels and correction layers left
   out (the status bar says what). Krita filter, vector and fill layers come
   in as a hidden "Krita composite" layer so nothing is lost.
+  Clip Studio `.clip` files open (raster and paper layers, folders, opacity,
+  blend modes, visibility, lock, clipping, offsets, layer masks; canvases in mm
+  or cm come in at their pixel size). Vector, text, 3D and video layers aren't
+  stored as pixels in a `.clip`, so the file's own preview comes in as a hidden
+  "Clip Studio preview" layer and the status bar names what was left out.
+  File → Export → Clip Studio writes a `.clip` into a copy of any file saved by
+  Clip Studio (chosen once, kept as the template): layers, folders, opacity,
+  blend modes, visibility, lock and clipping; masks are applied to the pixels.
   The app asks before closing with unsaved changes.
 - **Transform and crop** (Transform tool / Ctrl+T, Crop tool / C; crate
   `transform-tools`): the layer or selection floats under a gizmo while the

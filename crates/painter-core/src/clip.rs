@@ -141,7 +141,6 @@ pub(crate) fn blend_of(n: i64) -> Option<BlendMode> {
     })
 }
 
-#[allow(dead_code)] // used by the writer
 pub(crate) fn blend_number(mode: BlendMode) -> i64 {
     (0..32).find(|n| blend_of(*n) == Some(mode)).unwrap_or(0)
 }
@@ -421,6 +420,16 @@ pub fn read(data: &[u8]) -> Result<(Document, Vec<String>), String> {
         let mut reader = Reader { db, buffers, canvas, warnings: Vec::new(), next_id: 0, active: None, lost: false };
         let rows = reader.rows()?;
         let first = rows.get(&root).map(|r| r.first_child).ok_or("no root folder")?;
+        // The size in pixels is the root folder's picture's: the canvas may be in mm or cm.
+        if let Some((w, h, _, _)) = rows
+            .get(&root)
+            .filter(|r| r.render_mipmap != 0)
+            .and_then(|r| reader.offscreen(r.render_mipmap))
+            .and_then(|(attribute, _)| offscreen_size(&attribute))
+        {
+            reader.canvas = (w.max(1), h.max(1));
+        }
+        let canvas = reader.canvas;
         let mut layers = reader.chain(&rows, first, 0);
         if reader.lost {
             // Clip Studio's own picture of the whole document, hidden, so nothing is lost.
@@ -473,6 +482,583 @@ pub fn preview(data: &[u8]) -> Option<Vec<u8>> {
     image
 }
 
+// ---- Writing ----
+
+/// Mipmap levels go down by halves while the bigger side stays this long.
+const MIN_MIPMAP_SIDE: u32 = 64;
+
+/// A premultiplied RGBA picture.
+struct Picture {
+    w: u32,
+    h: u32,
+    px: Vec<[u8; 4]>,
+}
+
+impl Picture {
+    fn from_tiles(tiles: &TileStore, w: u32, h: u32) -> Self {
+        let mut px = vec![[0u8; 4]; (w * h) as usize];
+        for (coord, tile) in tiles.iter() {
+            let (ox, oy) = coord.origin();
+            for y in 0..crate::tile::TILE_SIZE {
+                for x in 0..crate::tile::TILE_SIZE {
+                    let (cx, cy) = (ox + x as i32, oy + y as i32);
+                    if cx >= 0 && cy >= 0 && (cx as u32) < w && (cy as u32) < h {
+                        px[(cy as u32 * w + cx as u32) as usize] = tile.pixel(x, y);
+                    }
+                }
+            }
+        }
+        Self { w, h, px }
+    }
+
+    fn from_flat(w: u32, h: u32, rgba: &[u8]) -> Self {
+        Self { w, h, px: rgba.as_chunks::<4>().0.to_vec() }
+    }
+
+    /// Half the size (rounded down), each pixel the average of four.
+    fn half(&self) -> Self {
+        let (w, h) = ((self.w / 2).max(1), (self.h / 2).max(1));
+        let mut px = vec![[0u8; 4]; (w * h) as usize];
+        for y in 0..h {
+            for x in 0..w {
+                let mut sum = [0u32; 4];
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                    let (sx, sy) = ((x * 2 + dx).min(self.w - 1), (y * 2 + dy).min(self.h - 1));
+                    let p = self.px[(sy * self.w + sx) as usize];
+                    for (s, v) in sum.iter_mut().zip(p) {
+                        *s += v as u32;
+                    }
+                }
+                px[(y * w + x) as usize] = sum.map(|v| ((v + 2) / 4) as u8);
+            }
+        }
+        Self { w, h, px }
+    }
+}
+
+/// How many mipmap levels Clip Studio keeps for a picture this size.
+fn mipmap_levels(w: u32, h: u32) -> usize {
+    let (mut w, mut h, mut n) = (w, h, 1);
+    while (w / 2).max(h / 2) >= MIN_MIPMAP_SIDE {
+        (w, h, n) = (w / 2, h / 2, n + 1);
+    }
+    n
+}
+
+/// One "BlockDataBeginChunk" … "BlockDataEndChunk" record.
+fn block_record(index: u32, zlib: Option<&[u8]>) -> Vec<u8> {
+    let size = 104 + zlib.map_or(0, |z| 8 + z.len());
+    let mut r = Vec::with_capacity(size);
+    r.extend((size as u32).to_be_bytes());
+    r.extend(19u32.to_be_bytes());
+    r.extend(utf16be("BlockDataBeginChunk"));
+    for v in [index, BLOCK * BLOCK * 5, BLOCK, BLOCK, zlib.is_some() as u32] {
+        r.extend(v.to_be_bytes());
+    }
+    if let Some(z) = zlib {
+        r.extend((z.len() as u32 + 4).to_be_bytes());
+        r.extend((z.len() as u32).to_le_bytes());
+        r.extend(z);
+    }
+    r.extend(17u32.to_be_bytes());
+    r.extend(utf16be("BlockDataEndChunk"));
+    r
+}
+
+/// A picture as block records, and each record's size.
+fn encode_blocks(p: &Picture) -> (Vec<u8>, Vec<u32>) {
+    let (across, down) = (p.w.div_ceil(BLOCK), p.h.div_ceil(BLOCK));
+    let n = (BLOCK * BLOCK) as usize;
+    let (mut out, mut sizes) = (Vec::new(), Vec::new());
+    for by in 0..down {
+        for bx in 0..across {
+            let mut raw = vec![0u8; n * 5];
+            let mut any = false;
+            for y in 0..BLOCK {
+                for x in 0..BLOCK {
+                    let (sx, sy) = (bx * BLOCK + x, by * BLOCK + y);
+                    if sx >= p.w || sy >= p.h {
+                        continue;
+                    }
+                    let [r, g, b, a] = crate::blend::unpremultiply(p.px[(sy * p.w + sx) as usize]);
+                    if a == 0 {
+                        continue;
+                    }
+                    any = true;
+                    let i = (y * BLOCK + x) as usize;
+                    raw[i] = a;
+                    raw[n + i * 4..n + i * 4 + 4].copy_from_slice(&[b, g, r, 255]);
+                }
+            }
+            let record = if any {
+                let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+                std::io::Write::write_all(&mut z, &raw).expect("in memory");
+                block_record(by * across + bx, Some(&z.finish().expect("in memory")))
+            } else {
+                block_record(by * across + bx, None)
+            };
+            sizes.push(record.len() as u32);
+            out.extend(record);
+        }
+    }
+    (out, sizes)
+}
+
+/// An offscreen's attribute blob for a picture: the template's parameter and
+/// initial-colour sections with this size, and the block sizes.
+fn attribute(template: &[u8], w: u32, h: u32, sizes: &[u32]) -> Result<Vec<u8>, String> {
+    let bad = || "the template's pixel buffers aren't in a known layout".to_string();
+    let field = |i: usize| be32(template, i).map(|v| v as usize).ok_or_else(bad);
+    let (head, plen, ilen) = (field(0)?, field(4)?, field(8)?);
+    let mut param = template.get(head..head + plen).ok_or_else(bad)?.to_vec();
+    let init = template.get(head + plen..head + plen + ilen).ok_or_else(bad)?;
+    let name = utf16be("Parameter");
+    if head != 16 || param.len() < 4 + name.len() + 16 || param[4..4 + name.len()] != name[..] {
+        return Err(bad());
+    }
+    let at = 4 + name.len();
+    for (i, v) in [w, h, w.div_ceil(BLOCK), h.div_ceil(BLOCK)].into_iter().enumerate() {
+        param[at + i * 4..at + i * 4 + 4].copy_from_slice(&v.to_be_bytes());
+    }
+    let mut blocks = Vec::new();
+    blocks.extend(9u32.to_be_bytes());
+    blocks.extend(utf16be("BlockSize"));
+    for v in [12, sizes.len() as u32, 4] {
+        blocks.extend(v.to_be_bytes());
+    }
+    for s in sizes {
+        blocks.extend(s.to_be_bytes());
+    }
+    let mut out = Vec::new();
+    for v in [16, param.len() as u32, init.len() as u32, blocks.len() as u32] {
+        out.extend(v.to_be_bytes());
+    }
+    out.extend(param);
+    out.extend(init);
+    out.extend(blocks);
+    Ok(out)
+}
+
+/// Random hex digits (ids only need to be unique).
+fn random_hex(n: usize) -> String {
+    use std::hash::{BuildHasher, Hasher};
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let mut s = String::new();
+    while s.len() < n {
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u64(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+        h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()));
+        s += &format!("{:016X}", h.finish());
+    }
+    s.truncate(n);
+    s
+}
+
+/// A layer UUID the way Clip Studio writes them (10-4-4-4-10 hex digits).
+fn layer_uuid() -> String {
+    let h = random_hex(32).to_lowercase();
+    format!("{}-{}-{}-{}-{}", &h[..10], &h[10..14], &h[14..18], &h[18..22], &h[22..])
+}
+
+type Value = rusqlite::types::Value;
+
+struct Writer<'a> {
+    db: &'a rusqlite::Connection,
+    doc: &'a Document,
+    /// (id, block records) for each pixel buffer.
+    buffers: Vec<(String, Vec<u8>)>,
+    warnings: Vec<String>,
+    next_layer: i64,
+    next_mipmap: i64,
+    next_info: i64,
+    next_offscreen: i64,
+    next_thumbnail: i64,
+    /// A colour offscreen's attribute blob from the template.
+    color_attribute: Vec<u8>,
+    thumbnails: bool,
+    active: i64,
+}
+
+fn sql(e: rusqlite::Error) -> String {
+    format!("database: {e}")
+}
+
+/// The columns of `table` but `_PW_ID`.
+fn columns(db: &rusqlite::Connection, table: &str) -> Result<Vec<String>, String> {
+    let mut s = db.prepare(&format!("PRAGMA table_info(\"{table}\")")).map_err(sql)?;
+    let names = s.query_map([], |r| r.get::<_, String>(1)).map_err(sql)?.collect::<Result<Vec<_>, _>>().map_err(sql)?;
+    Ok(names.into_iter().filter(|c| c != "_PW_ID").collect())
+}
+
+impl Writer<'_> {
+    /// A copy of the template row kept in `temp.proto_<table>`, with `set` changed.
+    fn insert(&self, table: &str, set: &[(&str, Value)]) -> Result<(), String> {
+        let have = columns(self.db, table)?;
+        let cols = have.iter().map(|c| format!("\"{c}\"")).collect::<Vec<_>>().join(", ");
+        self.db.execute(&format!("INSERT INTO \"{table}\" ({cols}) SELECT {cols} FROM temp.\"proto_{table}\""), []).map_err(sql)?;
+        let row = self.db.last_insert_rowid();
+        let set: Vec<&(&str, Value)> = set.iter().filter(|(c, _)| have.iter().any(|h| h == c)).collect();
+        if !set.is_empty() {
+            let assign = set.iter().enumerate().map(|(i, (c, _))| format!("\"{c}\" = ?{}", i + 1)).collect::<Vec<_>>().join(", ");
+            let values: Vec<&dyn rusqlite::ToSql> = set.iter().map(|(_, v)| v as &dyn rusqlite::ToSql).collect();
+            self.db.execute(&format!("UPDATE \"{table}\" SET {assign} WHERE _PW_ID = {row}"), values.as_slice()).map_err(sql)?;
+        }
+        Ok(())
+    }
+
+    /// A new pixel buffer and its `Offscreen` row; the row's id.
+    fn offscreen(&mut self, layer: i64, picture: &Picture) -> Result<i64, String> {
+        let (records, sizes) = encode_blocks(picture);
+        let id = format!("extrnlid{}", random_hex(32));
+        let off = self.next_offscreen;
+        self.next_offscreen += 1;
+        let attribute = attribute(&self.color_attribute, picture.w, picture.h, &sizes)?;
+        self.insert(
+            "Offscreen",
+            &[
+                ("MainId", Value::Integer(off)),
+                ("LayerId", Value::Integer(layer)),
+                ("Attribute", Value::Blob(attribute)),
+                ("BlockData", Value::Blob(id.clone().into_bytes())),
+            ],
+        )?;
+        self.buffers.push((id, records));
+        Ok(off)
+    }
+
+    /// A picture as a mipmap (every level a pixel buffer) for layer `layer`; its id.
+    fn mipmap(&mut self, layer: i64, picture: Picture) -> Result<i64, String> {
+        let levels = mipmap_levels(picture.w, picture.h);
+        let first = self.next_info;
+        let mut level = picture;
+        for i in 0..levels {
+            let off = self.offscreen(layer, &level)?;
+            let info = self.next_info;
+            self.next_info += 1;
+            let next = if i + 1 < levels { info + 1 } else { 0 };
+            self.insert(
+                "MipmapInfo",
+                &[
+                    ("MainId", Value::Integer(info)),
+                    ("LayerId", Value::Integer(layer)),
+                    ("ThisScale", Value::Real(100.0 / (1u64 << i) as f64)),
+                    ("Offscreen", Value::Integer(off)),
+                    ("NextIndex", Value::Integer(next)),
+                ],
+            )?;
+            if i + 1 < levels {
+                level = level.half();
+            }
+        }
+        let mipmap = self.next_mipmap;
+        self.next_mipmap += 1;
+        self.insert(
+            "Mipmap",
+            &[
+                ("MainId", Value::Integer(mipmap)),
+                ("LayerId", Value::Integer(layer)),
+                ("MipmapCount", Value::Integer(levels as i64)),
+                ("BaseMipmapInfo", Value::Integer(first)),
+            ],
+        )?;
+        Ok(mipmap)
+    }
+
+    /// An empty thumbnail for Clip Studio to redraw; its id, or 0 when the template has none.
+    fn thumbnail(&mut self, layer: i64) -> Result<i64, String> {
+        if !self.thumbnails {
+            return Ok(0);
+        }
+        let side = 512;
+        let off = self.offscreen(layer, &Picture { w: side, h: side, px: vec![[0; 4]; (side * side) as usize] })?;
+        let thumb = self.next_thumbnail;
+        self.next_thumbnail += 1;
+        let (w, h) = self.doc.canvas();
+        self.insert(
+            "LayerThumbnail",
+            &[
+                ("MainId", Value::Integer(thumb)),
+                ("LayerId", Value::Integer(layer)),
+                ("ThumbnailOffscreen", Value::Integer(off)),
+                ("ThumbnailCanvasWidth", Value::Integer(w as i64)),
+                ("ThumbnailCanvasHeight", Value::Integer(h as i64)),
+            ],
+        )?;
+        Ok(thumb)
+    }
+
+    /// Writes `layers` (bottom to top) as siblings; the first one's id, or 0.
+    fn list(&mut self, layers: &[Layer]) -> Result<i64, String> {
+        let mut ids = Vec::new();
+        for layer in layers {
+            if let Some(id) = self.layer(layer)? {
+                ids.push(id);
+            }
+        }
+        for pair in ids.windows(2) {
+            self.db.execute("UPDATE Layer SET LayerNextIndex = ?1 WHERE MainId = ?2", [pair[1], pair[0]]).map_err(sql)?;
+        }
+        Ok(ids.first().copied().unwrap_or(0))
+    }
+
+    fn layer(&mut self, layer: &Layer) -> Result<Option<i64>, String> {
+        let canvas = self.doc.canvas();
+        match &layer.kind {
+            LayerKind::Adjustment(_) => {
+                self.warnings
+                    .push(format!("“{}”: correction layers aren't written to Clip Studio files and were left out", layer.name));
+                Ok(None)
+            }
+            LayerKind::Folder(f) => {
+                if layer.active_mask().is_some() {
+                    self.warnings.push(format!("“{}”: folder masks aren't written to Clip Studio files and were dropped", layer.name));
+                }
+                let id = self.next_layer;
+                self.next_layer += 1;
+                let first = self.list(&f.children)?;
+                // The folder's own picture: its children composited.
+                let inner = Document::from_parts(canvas.0, canvas.1, f.children.clone(), LayerId(0), 1);
+                let flat = crate::io::flatten(&inner);
+                self.row(layer, id, Picture::from_flat(canvas.0, canvas.1, &flat), first, true).map(Some)
+            }
+            kind => {
+                if layer.active_mask().is_some() {
+                    self.warnings.push(format!("“{}”: its mask was applied to the pixels", layer.name));
+                }
+                if !matches!(kind, LayerKind::Raster(_)) {
+                    self.warnings.push(format!("“{}”: saved as pixels", layer.name));
+                }
+                let tiles = crate::interchange::layer_pixels(layer, canvas, true).unwrap_or_default();
+                let id = self.next_layer;
+                self.next_layer += 1;
+                self.row(layer, id, Picture::from_tiles(&tiles, canvas.0, canvas.1), 0, false).map(Some)
+            }
+        }
+    }
+
+    fn row(&mut self, layer: &Layer, id: i64, picture: Picture, first_child: i64, folder: bool) -> Result<i64, String> {
+        let mipmap = self.mipmap(id, picture)?;
+        let thumbnail = self.thumbnail(id)?;
+        let active = layer.id == self.doc.active;
+        if active {
+            self.active = id;
+        }
+        let flag = |b: bool| Value::Integer(b as i64);
+        let zero = || Value::Integer(0);
+        self.insert(
+            "Layer",
+            &[
+                ("MainId", Value::Integer(id)),
+                ("LayerName", Value::Text(layer.name.clone())),
+                ("LayerType", Value::Integer(if folder { 0 } else { 1 })),
+                ("LayerFolder", flag(folder)),
+                ("LayerOpacity", Value::Integer((layer.opacity.clamp(0.0, 1.0) * 256.0).round() as i64)),
+                ("LayerComposite", Value::Integer(blend_number(layer.blend))),
+                ("LayerVisibility", flag(layer.visible)),
+                ("LayerLock", flag(layer.locked)),
+                ("LayerClip", flag(layer.clip)),
+                ("LayerSelect", flag(active)),
+                ("LayerFirstChildIndex", Value::Integer(first_child)),
+                ("LayerNextIndex", zero()),
+                ("LayerOffsetX", zero()),
+                ("LayerOffsetY", zero()),
+                ("LayerRenderOffscrOffsetX", zero()),
+                ("LayerRenderOffscrOffsetY", zero()),
+                ("LayerMaskOffsetX", zero()),
+                ("LayerMaskOffsetY", zero()),
+                ("LayerMaskOffscrOffsetX", zero()),
+                ("LayerMaskOffscrOffsetY", zero()),
+                ("LayerRenderMipmap", Value::Integer(mipmap)),
+                ("LayerLayerMaskMipmap", zero()),
+                ("LayerRenderThumbnail", Value::Integer(thumbnail)),
+                ("LayerLayerMaskThumbnail", zero()),
+                ("LayerUuid", Value::Text(layer_uuid())),
+            ],
+        )?;
+        Ok(id)
+    }
+}
+
+/// The tables with a `LayerId` column (rows that belong to layers).
+fn layer_tables(db: &rusqlite::Connection) -> Result<Vec<String>, String> {
+    let mut s = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").map_err(sql)?;
+    let tables = s.query_map([], |r| r.get::<_, String>(0)).map_err(sql)?.collect::<Result<Vec<_>, _>>().map_err(sql)?;
+    let mut out = Vec::new();
+    for t in tables {
+        if columns(db, &t)?.iter().any(|c| c == "LayerId") {
+            out.push(t);
+        }
+    }
+    Ok(out)
+}
+
+/// The template's database rebuilt for `doc`; returns the pixel buffers to write.
+type Filled = (Vec<(String, Vec<u8>)>, Vec<String>);
+
+fn fill_database(db: &rusqlite::Connection, doc: &Document) -> Result<Filled, String> {
+    let root: i64 =
+        db.query_row("SELECT CanvasRootFolder FROM Canvas LIMIT 1", [], |r| r.get(0)).map_err(|_| "the template has no canvas")?;
+    let has_vector = db.prepare("SELECT VectorNormalStrokeIndex FROM Layer LIMIT 0").is_ok();
+    let raster: i64 = db
+        .query_row(
+            &format!(
+                "SELECT MainId FROM Layer WHERE LayerType = 1 AND COALESCE(LayerFolder, 0) = 0 AND MainId != ?1 {} ORDER BY _PW_ID LIMIT 1",
+                if has_vector { "AND COALESCE(VectorNormalStrokeIndex, 0) = 0" } else { "" }
+            ),
+            [root],
+            |r| r.get(0),
+        )
+        .map_err(|_| "the template needs a raster layer: save a new canvas from Clip Studio and choose that")?;
+    let one = |q: &str, id: i64| -> Result<i64, String> { db.query_row(q, [id], |r| r.get(0)).map_err(sql) };
+    let mipmap = one("SELECT LayerRenderMipmap FROM Layer WHERE MainId = ?1", raster)?;
+    let info = one("SELECT BaseMipmapInfo FROM Mipmap WHERE MainId = ?1", mipmap)?;
+    let off = one("SELECT Offscreen FROM MipmapInfo WHERE MainId = ?1", info)?;
+    let color_attribute: Vec<u8> =
+        db.query_row("SELECT Attribute FROM Offscreen WHERE MainId = ?1", [off], |r| r.get(0)).map_err(sql)?;
+    for (table, filter) in [
+        ("Layer", format!("MainId = {raster}")),
+        ("Mipmap", format!("MainId = {mipmap}")),
+        ("MipmapInfo", format!("MainId = {info}")),
+        ("Offscreen", format!("MainId = {off}")),
+    ] {
+        db.execute(&format!("CREATE TEMP TABLE \"proto_{table}\" AS SELECT * FROM \"{table}\" WHERE {filter} LIMIT 1"), [])
+            .map_err(sql)?;
+    }
+    // Thumbnails are optional: Clip Studio redraws them.
+    let thumbnails: i64 = db
+        .execute(
+            &format!("CREATE TEMP TABLE proto_LayerThumbnail AS SELECT * FROM LayerThumbnail WHERE LayerId = {raster} LIMIT 1"),
+            [],
+        )
+        .and_then(|_| db.query_row("SELECT COUNT(*) FROM temp.proto_LayerThumbnail", [], |r| r.get(0)))
+        .unwrap_or(0);
+
+    // Out with the template's layers and everything hanging off them.
+    db.execute("DELETE FROM Layer WHERE MainId != ?1", [root]).map_err(sql)?;
+    for t in layer_tables(db)? {
+        db.execute(&format!("DELETE FROM \"{t}\""), []).map_err(sql)?;
+    }
+    for t in ["ExternalChunk", "RemovedExternal", "LayerComp"] {
+        let _ = db.execute(&format!("DELETE FROM \"{t}\""), []);
+    }
+    let _ =
+        db.execute("UPDATE LayerCompManager SET FirstLayerCompIndex = 0, LastStateLayerCompIndex = 0, AppliedLayerCompIndex = -1", []);
+
+    let mut w = Writer {
+        db,
+        doc,
+        buffers: Vec::new(),
+        warnings: Vec::new(),
+        next_layer: root + 1,
+        next_mipmap: 1,
+        next_info: 1,
+        next_offscreen: 1,
+        next_thumbnail: 1,
+        color_attribute,
+        thumbnails: thumbnails > 0,
+        active: 0,
+    };
+    let (cw, ch) = doc.canvas();
+    let root_mipmap = w.mipmap(root, Picture::from_flat(cw, ch, &crate::io::flatten(doc)))?;
+    let root_thumbnail = w.thumbnail(root)?;
+    let first = w.list(&doc.layers)?;
+    db.execute(
+        "UPDATE Layer SET LayerFirstChildIndex = ?1, LayerRenderMipmap = ?2, LayerRenderThumbnail = ?3, LayerLayerMaskMipmap = 0 WHERE MainId = ?4",
+        [first, root_mipmap, root_thumbnail, root],
+    )
+    .map_err(sql)?;
+    let active = if w.active != 0 { w.active } else { first };
+    db.execute(
+        "UPDATE Canvas SET CanvasWidth = ?1, CanvasHeight = ?2, CanvasResolution = ?3, CanvasUnit = 0, CanvasCurrentLayer = ?4",
+        rusqlite::params![cw as f64, ch as f64, doc.dpi as f64, active],
+    )
+    .map_err(sql)?;
+
+    // Clip Studio's preview of the whole picture.
+    let (merged, _) = crate::interchange::merged_and_thumbnail(doc, 1)?;
+    let _ = db.execute(
+        "UPDATE CanvasPreview SET ImageType = 1, ImageWidth = ?1, ImageHeight = ?2, ImageData = ?3",
+        rusqlite::params![cw as i64, ch as i64, merged],
+    );
+
+    // The highest ids in use, as Clip Studio keeps them.
+    for (table, max) in [
+        ("Layer", w.next_layer - 1),
+        ("Mipmap", w.next_mipmap - 1),
+        ("MipmapInfo", w.next_info - 1),
+        ("Offscreen", w.next_offscreen - 1),
+        ("LayerThumbnail", w.next_thumbnail - 1),
+    ] {
+        let _ = db.execute("UPDATE ElemScheme SET MaxIndex = ?1 WHERE TableName = ?2", rusqlite::params![max, table]);
+    }
+    Ok((w.buffers, w.warnings))
+}
+
+/// The document written into `template`, a `.clip` saved by Clip Studio
+/// (its canvas settings are kept, its layers replaced); also returns what
+/// couldn't be kept as is.
+pub fn write(doc: &Document, template: &[u8]) -> Result<(Vec<u8>, Vec<String>), String> {
+    let chunks = chunks(template)?;
+    let head = chunks.iter().find(|c| &c.kind == b"Head").ok_or("the template has no header chunk")?;
+    let mut head = template[head.body.clone()].to_vec();
+    if head.len() < 24 {
+        return Err("the template's header chunk is too short".into());
+    }
+    let (db, tmp) = open_database(template, &chunks)?;
+    let filled = fill_database(&db, doc).and_then(|(buffers, warnings)| {
+        // The buffers come first in the file; the database says where each one starts.
+        let mut at = 24 + 16 + head.len() as u64;
+        for (id, records) in &buffers {
+            db.execute("INSERT INTO ExternalChunk (ExternalID, Offset) VALUES (?1, ?2)", rusqlite::params![id.as_bytes(), at as i64])
+                .map_err(sql)?;
+            at += 16 + 8 + id.len() as u64 + 8 + records.len() as u64;
+        }
+        Ok((buffers, warnings, at))
+    });
+    let closed = db.close().map_err(|(_, e)| sql(e));
+    let result = filled.and_then(|(buffers, warnings, database_at)| {
+        closed?;
+        let database = std::fs::read(&tmp).map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        out.extend(b"CSFCHUNK");
+        out.extend([0u8; 8]); // the file size, set below
+        out.extend(24u64.to_be_bytes());
+        head[8..16].copy_from_slice(&database_at.to_be_bytes());
+        let chunk = |out: &mut Vec<u8>, kind: &[u8; 4], body: &[&[u8]]| {
+            out.extend(b"CHNK");
+            out.extend(kind);
+            out.extend((body.iter().map(|b| b.len()).sum::<usize>() as u64).to_be_bytes());
+            for b in body {
+                out.extend(*b);
+            }
+        };
+        chunk(&mut out, b"Head", &[&head]);
+        for (id, records) in &buffers {
+            chunk(
+                &mut out,
+                b"Exta",
+                &[&(id.len() as u64).to_be_bytes(), id.as_bytes(), &(records.len() as u64).to_be_bytes(), records],
+            );
+        }
+        debug_assert_eq!(out.len() as u64, database_at);
+        chunk(&mut out, b"SQLi", &[&database]);
+        chunk(&mut out, b"Foot", &[]);
+        let size = out.len() as u64;
+        out[8..16].copy_from_slice(&size.to_be_bytes());
+        Ok((out, warnings))
+    });
+    let _ = std::fs::remove_file(&tmp);
+    result
+}
+
+/// Writes the document into a copy of the template file at `path`.
+pub fn save_with_template(doc: &Document, template: &Path, path: &Path) -> Result<Vec<String>, String> {
+    let template = std::fs::read(template).map_err(|e| format!("the Clip Studio template: {e}"))?;
+    let (bytes, warnings) = write(doc, &template)?;
+    std::fs::write(path, bytes).map_err(|e| e.to_string())?;
+    Ok(warnings)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -509,5 +1095,117 @@ mod tests {
         assert_eq!(offscreen_size(&attr), Some((2000, 1000, 8, 4)));
         assert_eq!(blend_of(blend_number(BlendMode::Multiply)), Some(BlendMode::Multiply));
         assert!(read(b"nope").is_err());
+    }
+
+    /// A tiny stand-in for a file saved by Clip Studio: a root folder and one
+    /// empty raster layer, with the tables and columns the reader and writer use.
+    fn template() -> Vec<u8> {
+        let path = std::env::temp_dir().join(format!("painter-clip-template-{}.sqlite", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let db = rusqlite::Connection::open(&path).unwrap();
+        let attribute = {
+            let empty = Picture { w: 8, h: 8, px: vec![[0; 4]; 64] };
+            let (_, sizes) = encode_blocks(&empty);
+            let mut param = Vec::new();
+            param.extend(9u32.to_be_bytes());
+            param.extend(utf16be("Parameter"));
+            param.extend([0u8; 16 + 64]);
+            let mut init = Vec::new();
+            init.extend(9u32.to_be_bytes());
+            init.extend(utf16be("InitColor"));
+            init.extend([0u8; 20]);
+            let mut a = Vec::new();
+            for v in [16, param.len() as u32, init.len() as u32, 0] {
+                a.extend(v.to_be_bytes());
+            }
+            a.extend(param);
+            a.extend(init);
+            attribute(&a, 8, 8, &sizes).unwrap()
+        };
+        db.execute_batch(
+            "CREATE TABLE Canvas(_PW_ID INTEGER PRIMARY KEY AUTOINCREMENT, MainId INTEGER, CanvasUnit INTEGER, CanvasWidth REAL, CanvasHeight REAL, CanvasResolution REAL, CanvasRootFolder INTEGER, CanvasCurrentLayer INTEGER);
+             CREATE TABLE Layer(_PW_ID INTEGER PRIMARY KEY AUTOINCREMENT, MainId INTEGER, CanvasId INTEGER, LayerName TEXT, LayerType INTEGER, LayerLock INTEGER, LayerClip INTEGER, LayerOffsetX INTEGER, LayerOffsetY INTEGER, LayerRenderOffscrOffsetX INTEGER, LayerRenderOffscrOffsetY INTEGER, LayerMaskOffsetX INTEGER, LayerMaskOffsetY INTEGER, LayerMaskOffscrOffsetX INTEGER, LayerMaskOffscrOffsetY INTEGER, LayerOpacity INTEGER, LayerComposite INTEGER, LayerFolder INTEGER, LayerVisibility INTEGER, LayerSelect INTEGER, LayerNextIndex INTEGER, LayerFirstChildIndex INTEGER, LayerUuid TEXT, LayerRenderMipmap INTEGER, LayerLayerMaskMipmap INTEGER, LayerRenderThumbnail INTEGER, LayerLayerMaskThumbnail INTEGER, DrawColorEnable INTEGER, DrawColorMainRed INTEGER, DrawColorMainGreen INTEGER, DrawColorMainBlue INTEGER, SpecialRenderType INTEGER);
+             CREATE TABLE Mipmap(_PW_ID INTEGER PRIMARY KEY AUTOINCREMENT, MainId INTEGER, CanvasId INTEGER, LayerId INTEGER, MipmapCount INTEGER, BaseMipmapInfo INTEGER);
+             CREATE TABLE MipmapInfo(_PW_ID INTEGER PRIMARY KEY AUTOINCREMENT, MainId INTEGER, CanvasId INTEGER, LayerId INTEGER, ThisScale REAL, Offscreen INTEGER, NextIndex INTEGER);
+             CREATE TABLE Offscreen(_PW_ID INTEGER PRIMARY KEY AUTOINCREMENT, MainId INTEGER, CanvasId INTEGER, LayerId INTEGER, Attribute BLOB, BlockData BLOB);
+             CREATE TABLE ExternalChunk(ExternalID BLOB, Offset INTEGER);
+             CREATE TABLE ElemScheme(_PW_ID INTEGER PRIMARY KEY AUTOINCREMENT, TableName TEXT, ElemType INTEGER, MaxIndex INTEGER);
+             CREATE TABLE CanvasPreview(_PW_ID INTEGER PRIMARY KEY AUTOINCREMENT, MainId INTEGER, CanvasId INTEGER, ImageType INTEGER, ImageWidth INTEGER, ImageHeight INTEGER, ImageData BLOB);
+             INSERT INTO Canvas VALUES (1, 1, 0, 8, 8, 72, 2, 3);
+             INSERT INTO Layer (MainId, CanvasId, LayerName, LayerType, LayerFolder, LayerOpacity, LayerVisibility, LayerFirstChildIndex) VALUES (2, 1, '', 256, 1, 256, 1, 3);
+             INSERT INTO Layer (MainId, CanvasId, LayerName, LayerType, LayerFolder, LayerOpacity, LayerVisibility, LayerRenderMipmap) VALUES (3, 1, 'Layer 1', 1, 0, 256, 1, 1);
+             INSERT INTO Mipmap (MainId, CanvasId, LayerId, MipmapCount, BaseMipmapInfo) VALUES (1, 1, 3, 1, 1);
+             INSERT INTO MipmapInfo (MainId, CanvasId, LayerId, ThisScale, Offscreen, NextIndex) VALUES (1, 1, 3, 100, 1, 0);
+             INSERT INTO ElemScheme (TableName, MaxIndex) VALUES ('Layer', 3);
+             INSERT INTO CanvasPreview (MainId, CanvasId) VALUES (1, 1);",
+        )
+        .unwrap();
+        db.execute("INSERT INTO Offscreen (MainId, CanvasId, LayerId, Attribute, BlockData) VALUES (1, 1, 3, ?1, X'00')", [attribute])
+            .unwrap();
+        drop(db);
+        let database = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        let mut out = b"CSFCHUNK".to_vec();
+        out.extend([0u8; 8]);
+        out.extend(24u64.to_be_bytes());
+        for (kind, body) in [(b"Head", [0u8; 40].to_vec()), (b"SQLi", database), (b"Foot", Vec::new())] {
+            out.extend(b"CHNK");
+            out.extend(kind);
+            out.extend((body.len() as u64).to_be_bytes());
+            out.extend(body);
+        }
+        out
+    }
+
+    #[test]
+    fn written_files_read_back() {
+        use crate::layer::Folder;
+        let (w, h) = (300, 200);
+        let rect = |c: [u8; 4], x0: usize, x1: usize| {
+            let mut buf = vec![0u8; w * h * 4];
+            for y in 20..180 {
+                for x in x0..x1 {
+                    buf[(y * w + x) * 4..(y * w + x) * 4 + 4].copy_from_slice(&c);
+                }
+            }
+            TileStore::from_rgba(w as u32, h as u32, &buf)
+        };
+        let mut doc = Document::new(w as u32, h as u32);
+        doc.dpi = 350;
+        let id = doc.alloc_id();
+        doc.layers.push(Layer::raster_with(id, "Red", rect([200, 0, 0, 255], 10, 150)));
+        let id = doc.alloc_id();
+        let mut blue = Layer::raster_with(id, "Blue", rect([0, 0, 100, 100], 100, 290));
+        blue.blend = BlendMode::Multiply;
+        blue.opacity = 0.5;
+        blue.clip = true;
+        let id = doc.alloc_id();
+        let mut folder = Layer::folder(id, "Folder");
+        folder.kind = LayerKind::Folder(Folder { children: vec![blue], pass_through: false });
+        doc.layers.push(folder);
+
+        let (bytes, notes) = write(&doc, &template()).unwrap();
+        assert_eq!(notes, vec!["“Paper”: saved as pixels".to_string()]);
+        assert_eq!(be64(&bytes, 8), Some(bytes.len() as u64), "file size in the header");
+        let (back, notes) = read(&bytes).unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!((back.width, back.height, back.dpi), (w as u32, h as u32, 350));
+        let names: Vec<&str> = back.layers.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, ["Paper", "Layer 1", "Red", "Folder"]);
+        let LayerKind::Folder(f) = &back.layers[3].kind else { panic!("not a folder") };
+        let b = &f.children[0];
+        assert_eq!((b.name.as_str(), b.blend, b.clip), ("Blue", BlendMode::Multiply, true));
+        assert!((b.opacity - 0.5).abs() < 0.01);
+        let (a, z) = (crate::io::flatten(&doc), crate::io::flatten(&back));
+        assert!(a.iter().zip(&z).all(|(p, q)| p.abs_diff(*q) <= 1), "same picture");
+    }
+
+    #[test]
+    fn mipmap_levels_match_clip_studio() {
+        // Sizes and level counts seen in files saved by Clip Studio.
+        assert_eq!(mipmap_levels(1600, 1200), 5);
+        assert_eq!(mipmap_levels(2000, 1000), 5);
+        assert_eq!(mipmap_levels(1272, 1076), 5);
+        assert_eq!(mipmap_levels(22208, 8598), 9);
     }
 }

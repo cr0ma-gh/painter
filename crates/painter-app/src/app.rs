@@ -32,6 +32,8 @@ use transform_tools::FloatingSelection;
 pub(crate) const UNDO_LIMIT: usize = 100;
 /// Where a comic page goes in a .painter file (extras/comic.json).
 const COMIC_ENTRY: &str = "comic.json";
+/// The Clip Studio file kept as the .clip export template, in the app's data folder.
+const CLIP_TEMPLATE: &str = "clip-studio-template.clip";
 // v2: the Clip Studio style layout with the Brush Size panel.
 
 /// A stroke in progress. Dabs go two ways: to the GPU for the live preview,
@@ -1281,6 +1283,64 @@ impl PainterApp {
                 }
             }
             Err(err) => format!("Export failed: {err}"),
+        };
+    }
+
+    /// Asks for a `.clip` saved by Clip Studio to use as the export template
+    /// (only its canvas settings are used) and keeps a copy.
+    pub(crate) fn choose_clip_template(&mut self) -> bool {
+        let Some(dir) = crate::files::app_data_dir() else { return false };
+        let Some(source) = crate::files::FileDialog::new()
+            .add_filter("Any Clip Studio file (its layers aren't used)", &[painter_core::clip::EXTENSION])
+            .pick_file()
+        else {
+            return false;
+        };
+        // Check it now rather than at the next export.
+        let check = std::fs::read(&source).map_err(|e| e.to_string()).and_then(|t| {
+            painter_core::clip::write(&painter_core::Document::new(8, 8), &t).map(|_| ())
+        });
+        if let Err(err) = check {
+            self.status = format!("Can't use {} as a Clip Studio template: {err}", source.display());
+            return false;
+        }
+        let _ = std::fs::create_dir_all(&dir);
+        match std::fs::copy(&source, dir.join(CLIP_TEMPLATE)) {
+            Ok(_) => true,
+            Err(err) => {
+                self.status = format!("Couldn't keep the template: {err}");
+                false
+            }
+        }
+    }
+
+    /// Export → Clip Studio: the layers written into the kept template.
+    pub(crate) fn export_clip(&mut self) {
+        self.commit_scenes(true);
+        let Some(template) = crate::files::app_data_dir().map(|d| d.join(CLIP_TEMPLATE)) else { return };
+        if !template.is_file() && !self.choose_clip_template() {
+            if !self.status.starts_with("Can't use") {
+                self.status = "Clip Studio export needs one .clip saved by Clip Studio (any, even an empty canvas) as a template".into();
+            }
+            return;
+        }
+        let Some(path) = crate::files::FileDialog::new()
+            .add_filter("Clip Studio", &[painter_core::clip::EXTENSION])
+            .set_file_name("painting.clip")
+            .save_file()
+        else {
+            return;
+        };
+        self.status = match painter_core::clip::save_with_template(&self.doc.without_drafts(), &template, &path) {
+            Ok(notes) => {
+                crate::files::offer_export(&path);
+                if notes.is_empty() {
+                    format!("Exported {}", path.display())
+                } else {
+                    format!("Exported {} — {}", path.display(), crate::document_manager::session_store::summarize(&notes))
+                }
+            }
+            Err(err) => format!("Clip Studio export failed: {err}"),
         };
     }
 
