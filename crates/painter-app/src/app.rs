@@ -137,6 +137,8 @@ pub struct PainterApp {
     pub(crate) save_as_prompt: Option<crate::dialogs::SaveAsPrompt>,
     /// A file to offer to the system picker once its save finishes (iPad).
     pub(crate) export_after_save: Option<PathBuf>,
+    /// File → Quit asked for: the window closes (unsaved documents are asked about first).
+    pub(crate) quit_requested: bool,
     /// The resampling last used for Image Size (offered again).
     pub(crate) last_resize_filter: transform_tools::Interpolation,
     /// File → Export → SVG, when open.
@@ -289,6 +291,7 @@ impl PainterApp {
             image_size: None,
             save_as_prompt: None,
             export_after_save: None,
+            quit_requested: false,
             last_resize_filter: transform_tools::Interpolation::Nearest,
             curve_target: CurveTarget::Size,
             selected_ruler: None,
@@ -1349,6 +1352,10 @@ impl eframe::App for PainterApp {
         self.workspace_frame(ctx);
         // Outermost: the bands iPadOS draws over (rounded corners, camera).
         self.ios_window.safe_area(ctx, crate::theme::backdrop());
+        // File → Quit: closing the window asks about unsaved documents first.
+        if std::mem::take(&mut self.quit_requested) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         let chrome = self.ws.chrome;
         if chrome.show_menu_bar() {
             self.menu_bar(ctx);

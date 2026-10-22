@@ -23,6 +23,8 @@ const WORKSPACES_KEY: &str = "workspaces_v1";
 const CHROME_KEY: &str = "chrome_v1";
 const THEMES_KEY: &str = "themes_v1";
 const TOOLBAR_KEY: &str = "toolbar_v1";
+const COMMAND_BAR_KEY: &str = "command_bar_v1";
+const BARS_KEY: &str = "bars_v1";
 /// Height of an area's header strip.
 const HEADER: f32 = 22.0;
 /// Rows shown in the command palette.
@@ -46,6 +48,12 @@ pub(crate) struct WorkspaceUi {
     /// Customize Toolbar is open, and its command search.
     pub(crate) toolbar_editing: bool,
     pub(crate) toolbar_search: String,
+    /// The command bar's buttons under the menu (commands and separators).
+    pub(crate) command_bar: Vec<crate::toolbar::Item>,
+    pub(crate) command_bar_editing: bool,
+    pub(crate) command_bar_search: String,
+    /// Which of the tool strip and the command bar are shown.
+    pub(crate) bars: crate::toolbar::Bars,
     /// Workspace tab being renamed, with the text so far.
     renaming: Option<(usize, String)>,
     /// Where settings live when eframe has no storage (iPadOS), and what
@@ -77,6 +85,12 @@ impl WorkspaceUi {
                 .map_or_else(crate::toolbar::default_items, |keys| crate::toolbar::from_keys(&keys)),
             toolbar_editing: false,
             toolbar_search: String::new(),
+            command_bar: get(COMMAND_BAR_KEY)
+                .and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok())
+                .map_or_else(crate::toolbar::default_command_bar, |keys| crate::toolbar::command_bar_from_keys(&keys)),
+            command_bar_editing: false,
+            command_bar_search: String::new(),
+            bars: get(BARS_KEY).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
             renaming: None,
             settings_file,
             written,
@@ -84,12 +98,14 @@ impl WorkspaceUi {
         }
     }
 
-    fn entries(&self) -> [(&'static str, String); 4] {
+    fn entries(&self) -> [(&'static str, String); 6] {
         [
             (WORKSPACES_KEY, self.set.to_json()),
             (CHROME_KEY, serde_json::to_string(&self.chrome).unwrap_or_default()),
             (THEMES_KEY, self.themes.to_json()),
             (TOOLBAR_KEY, serde_json::to_string(&self.toolbar.iter().map(crate::toolbar::Item::key).collect::<Vec<_>>()).unwrap_or_default()),
+            (COMMAND_BAR_KEY, serde_json::to_string(&self.command_bar.iter().map(crate::toolbar::Item::key).collect::<Vec<_>>()).unwrap_or_default()),
+            (BARS_KEY, serde_json::to_string(&self.bars).unwrap_or_default()),
         ]
     }
 
@@ -907,7 +923,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 55] = [
+        let fixed: [FixedCommand; 60] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -923,6 +939,7 @@ impl PainterApp {
             ("file.export_ora", "Export OpenRaster (.ora)...", C::File, "", &["openraster", "mypaint", "gimp", "ora"], true),
             ("file.export_svg", "Export SVG...", C::File, "", &["vector"], true),
             ("file.export_brushes", "Export All Brushes...", C::Brush, "", &[], true),
+            ("file.quit", "Quit", C::File, "Ctrl+Q", &["exit", "close"], !cfg!(target_os = "ios")),
             ("edit.undo", "Undo", C::Edit, "Ctrl+Z", &[], self.history.can_undo()),
             ("edit.redo", "Redo", C::Edit, "Ctrl+Shift+Z", &[], self.history.can_redo()),
             ("edit.image_size", "Image Size...", C::Edit, "", &["resize", "scale", "resample", "pixel art", "nearest", "resolution"], true),
@@ -941,7 +958,11 @@ impl PainterApp {
             ("layer.delete", "Delete Layer", C::Layer, "", &["remove layer"], true),
             ("view.fit", "Fit to Window", C::View, "0", &["zoom"], true),
             ("view.actual", "Actual Pixels (100%)", C::View, "", &["zoom 100"], true),
+            ("view.rotate_left", "Rotate View Left", C::View, ",", &["turn"], true),
+            ("view.rotate_right", "Rotate View Right", C::View, ".", &["turn"], true),
             ("view.reset_rotation", "Reset Rotation", C::View, "", &[], true),
+            ("view.tool_strip", "Show Tool Strip", C::View, "", &["toolbar", "tools", "hide", "left"], true),
+            ("view.command_bar", "Show Command Bar", C::View, "", &["toolbar", "icons", "hide", "top"], true),
             ("view.flip", "Flip View Horizontally", C::View, "", &["mirror", "check the drawing"], true),
             ("view.grid", "Show Grid", C::View, "Ctrl+'", &["guides"], true),
             ("rulers.snap", "Snap to Rulers", C::View, "Ctrl+1", &["perspective", "symmetry", "ruler"], true),
@@ -1050,6 +1071,11 @@ impl PainterApp {
             "layer.delete" => self.delete_active_layer(),
             "view.fit" => self.fit_pending = true,
             "view.actual" => self.view.set_zoom(1.0),
+            "view.rotate_left" => self.view.set_rotation(self.view.rotation - 15f32.to_radians()),
+            "view.rotate_right" => self.view.set_rotation(self.view.rotation + 15f32.to_radians()),
+            "view.tool_strip" => self.ws.bars.tool_strip = !self.ws.bars.tool_strip,
+            "view.command_bar" => self.ws.bars.command_bar = !self.ws.bars.command_bar,
+            "file.quit" => self.quit_requested = true,
             "view.reset_rotation" => self.view.set_rotation(0.0),
             "view.flip" => self.view.flip = !self.view.flip,
             "view.grid" => self.doc.rulers.grid.visible = !self.doc.rulers.grid.visible,

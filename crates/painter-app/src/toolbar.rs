@@ -101,6 +101,10 @@ pub(crate) fn move_item(items: &mut Vec<Item>, from: usize, to: usize) {
 fn command_icon(id: &str) -> Option<Icon> {
     Some(match id {
         "file.new" | "file.new_clipboard" => Icon::New,
+        "file.comic" => Icon::Template,
+        "view.rotate_left" => Icon::RotateLeft,
+        "view.rotate_right" => Icon::RotateRight,
+        "file.quit" => Icon::Close,
         "file.open" => Icon::Open,
         "file.save" => Icon::Save,
         "file.save_as" | "file.export_png" | "file.export_psd" | "file.export_kra" | "file.export_ora" | "file.export_svg" => Icon::SaveAs,
@@ -118,6 +122,7 @@ fn command_icon(id: &str) -> Option<Icon> {
         "view.fit" => Icon::ZoomFit,
         "view.actual" => Icon::ZoomOriginal,
         "view.reset_rotation" => Icon::Reset,
+        "view.tool_strip" | "view.command_bar" => Icon::Menu,
         "view.grid" => Icon::Grid,
         "rulers.snap" => Icon::Path,
         _ => return None,
@@ -146,6 +151,9 @@ impl PainterApp {
 
     /// The tool strip: its items, then the main / sub colour chips.
     pub(crate) fn tool_strip(&mut self, ctx: &egui::Context) {
+        if !self.ws.bars.tool_strip {
+            return;
+        }
         let editing = self.ws.toolbar_editing;
         egui::SidePanel::left("tools")
             .resizable(false)
@@ -159,6 +167,10 @@ impl PainterApp {
                 background.context_menu(|ui| {
                     if ui.button("Customize Toolbar...").clicked() {
                         self.ws.toolbar_editing = true;
+                        ui.close_menu();
+                    }
+                    if ui.button("Hide Tool Strip").on_hover_text("View → Tool Strip shows it again").clicked() {
+                        self.ws.bars.tool_strip = false;
                         ui.close_menu();
                     }
                 });
@@ -395,6 +407,204 @@ impl PainterApp {
         );
         if !open {
             self.ws.toolbar_editing = false;
+        }
+    }
+}
+
+/// The command bar under the menu as it comes.
+pub(crate) fn default_command_bar() -> Vec<Item> {
+    [
+        "file.new",
+        "file.comic",
+        "file.open",
+        "file.save",
+        "sep",
+        "edit.undo",
+        "edit.redo",
+        "sep",
+        "view.fit",
+        "view.actual",
+        "view.rotate_left",
+        "view.rotate_right",
+        "view.reset_rotation",
+        "sep",
+        "file.import_brushes",
+    ]
+    .into_iter()
+    .map(|k| if k == "sep" { Item::Separator } else { Item::Command(k.to_string()) })
+    .collect()
+}
+
+/// The command bar from saved keys (commands and separators only).
+pub(crate) fn command_bar_from_keys(keys: &[String]) -> Vec<Item> {
+    keys.iter().filter_map(|k| Item::parse(k)).filter(|i| matches!(i, Item::Command(_) | Item::Separator)).collect()
+}
+
+/// Which bars are shown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Bars {
+    pub(crate) tool_strip: bool,
+    pub(crate) command_bar: bool,
+}
+
+impl Default for Bars {
+    fn default() -> Self {
+        Self { tool_strip: true, command_bar: true }
+    }
+}
+
+impl PainterApp {
+    /// Icon buttons under the menu: any commands, in any order (customisable
+    /// like the tool strip); hidden from View or its right-click menu.
+    pub(crate) fn command_bar(&mut self, ctx: &egui::Context) {
+        if !self.ws.bars.command_bar {
+            return;
+        }
+        if self.ws.commands.commands().is_empty() {
+            self.refresh_commands();
+        }
+        let editing = self.ws.command_bar_editing;
+        egui::TopBottomPanel::top("commands")
+            .frame(egui::Frame::new().fill(theme::title()).inner_margin(egui::Margin::symmetric(6, 2)))
+            .show(ctx, |ui| {
+                let bar = ui.max_rect();
+                let background = ui.interact(bar, ui.id().with("command_bar_bg"), Sense::click());
+                background.context_menu(|ui| self.command_bar_menu(ui));
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    if editing {
+                        self.command_bar_editing_ui(ui);
+                    } else {
+                        self.command_bar_buttons(ui);
+                    }
+                });
+            });
+        if editing {
+            self.command_bar_editor_window(ctx);
+        }
+    }
+
+    fn command_bar_menu(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Customize Command Bar...").clicked() {
+            self.ws.command_bar_editing = true;
+            ui.close_menu();
+        }
+        if ui.button("Hide Command Bar").on_hover_text("View → Command Bar shows it again").clicked() {
+            self.ws.bars.command_bar = false;
+            ui.close_menu();
+        }
+    }
+
+    fn command_bar_buttons(&mut self, ui: &mut egui::Ui) {
+        let items = self.ws.command_bar.clone();
+        for (i, item) in items.iter().enumerate() {
+            let Item::Command(id) = item else {
+                ui.separator();
+                continue;
+            };
+            let enabled = self.ws.commands.get(id).is_none_or(|c| c.enabled);
+            let response = ui.add_enabled_ui(enabled, |ui| self.command_button(ui, id)).inner;
+            if response.clicked() {
+                let id = id.clone();
+                self.run_command(&id);
+            }
+            response.context_menu(|ui| {
+                if ui.button("Remove from Command Bar").clicked() {
+                    self.ws.command_bar.remove(i);
+                    ui.close_menu();
+                }
+                self.command_bar_menu(ui);
+            });
+        }
+    }
+
+    /// Edit mode: drag the buttons sideways; right-click removes.
+    fn command_bar_editing_ui(&mut self, ui: &mut egui::Ui) {
+        let items = self.ws.command_bar.clone();
+        let mut moved = None;
+        let side = 26.0 * crate::icons::panel_factor(ui);
+        for (i, item) in items.iter().enumerate() {
+            let width = if *item == Item::Separator { 10.0 } else { side };
+            let (rect, response) = ui.allocate_exact_size(Vec2::new(width, side), Sense::click_and_drag());
+            let fill = if response.dnd_hover_payload::<usize>().is_some() {
+                theme::accent()
+            } else if response.hovered() {
+                theme::hover()
+            } else {
+                theme::well()
+            };
+            ui.painter().rect_filled(rect, 3.0, fill);
+            let title = match item {
+                Item::Command(id) => {
+                    let label = self.ws.commands.get(id).map_or_else(|| id.clone(), |c| c.label.clone());
+                    match command_icon(id) {
+                        Some(icon) => icon.paint(ui, rect, 16.0, theme::text()),
+                        None => {
+                            ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, initials(&label), egui::FontId::proportional(10.0), theme::text());
+                        }
+                    }
+                    label
+                }
+                _ => {
+                    ui.painter().vline(rect.center().x, rect.y_range().shrink(4.0), Stroke::new(1.0_f32, theme::text_dim()));
+                    "Separator".into()
+                }
+            };
+            response.dnd_set_drag_payload(i);
+            if let Some(from) = response.dnd_release_payload::<usize>() {
+                moved = Some((*from, i));
+            }
+            response.on_hover_text(format!("{title}: drag to move, right-click to remove")).context_menu(|ui| {
+                if ui.button("Remove").clicked() {
+                    self.ws.command_bar.remove(i);
+                    ui.close_menu();
+                }
+            });
+        }
+        if let Some((from, to)) = moved {
+            move_item(&mut self.ws.command_bar, from, to);
+        }
+    }
+
+    fn command_bar_editor_window(&mut self, ctx: &egui::Context) {
+        let mut open = true;
+        egui::Window::new("Customize Command Bar").open(&mut open).default_pos(egui::pos2(200.0, 90.0)).default_width(300.0).show(ctx, |ui| {
+            ui.small("Drag the bar's buttons to reorder them; right-click one to remove it.");
+            ui.horizontal(|ui| {
+                if ui.button("+ Separator").clicked() {
+                    self.ws.command_bar.push(Item::Separator);
+                }
+                if ui.button("Reset").on_hover_text("Back to the standard command bar").clicked() {
+                    self.ws.command_bar = default_command_bar();
+                }
+                if ui.button("Done").clicked() {
+                    self.ws.command_bar_editing = false;
+                }
+            });
+            ui.separator();
+            ui.label("Add a command");
+            let search = &mut self.ws.command_bar_search;
+            ui.add(egui::TextEdit::singleline(search).hint_text("Search commands").desired_width(f32::INFINITY));
+            let query = search.to_lowercase();
+            let commands: Vec<(String, String)> = self
+                .ws
+                .commands
+                .commands()
+                .iter()
+                .filter(|c| query.is_empty() || c.label.to_lowercase().contains(&query) || c.id.contains(&query))
+                .map(|c| (c.id.clone(), c.label.clone()))
+                .collect();
+            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                for (id, label) in commands {
+                    let on = self.ws.command_bar.contains(&Item::Command(id.clone()));
+                    if ui.add_enabled(!on, egui::Button::new(&label)).on_hover_text(&id).clicked() {
+                        self.ws.command_bar.push(Item::Command(id));
+                    }
+                }
+            });
+        });
+        if !open {
+            self.ws.command_bar_editing = false;
         }
     }
 }

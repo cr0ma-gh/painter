@@ -131,6 +131,13 @@ impl PainterApp {
                             self.export_brushes(None);
                         }
                     });
+                    if !cfg!(target_os = "ios") {
+                        ui.separator();
+                        if ui.add(egui::Button::new("Quit").shortcut_text("Ctrl+Q")).clicked() {
+                            ui.close_menu();
+                            self.quit_requested = true;
+                        }
+                    }
                 });
                 ui.menu_button("Edit", |ui| {
                     let undo = egui::Button::new("Undo").shortcut_text("Ctrl+Z");
@@ -237,6 +244,9 @@ impl PainterApp {
                     ui.small("On the edited layer, inside the selection");
                 });
                 ui.menu_button("View", |ui| {
+                    ui.checkbox(&mut self.ws.bars.tool_strip, "Tool Strip").on_hover_text("The tools on the left");
+                    ui.checkbox(&mut self.ws.bars.command_bar, "Command Bar").on_hover_text("The icon buttons under the menu");
+                    ui.separator();
                     if ui.add(egui::Button::new("Fit to Window").shortcut_text("0")).clicked() {
                         self.fit_pending = true;
                         ui.close_menu();
@@ -340,60 +350,6 @@ impl PainterApp {
                 ui.label(&self.status);
             });
         });
-    }
-
-    /// Icon buttons under the menu: file, history and view commands.
-    pub(crate) fn command_bar(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("commands")
-            .frame(egui::Frame::new().fill(theme::title()).inner_margin(egui::Margin::symmetric(6, 2)))
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    if icon_button(ui, Icon::New, 16.0, false, "New canvas (Ctrl+N)").clicked() {
-                        self.open_new_canvas();
-                    }
-                    if icon_button(ui, Icon::Template, 16.0, false, "New comic page / storyboard").clicked() {
-                        self.comic_wizard = Some(crate::comic_ui::ComicWizard::open());
-                    }
-                    if icon_button(ui, Icon::Open, 16.0, false, "Open (Ctrl+O)").clicked() {
-                        self.open_dialog();
-                    }
-                    if icon_button(ui, Icon::Save, 16.0, false, "Save (Ctrl+S)").clicked() {
-                        self.save();
-                    }
-                    ui.separator();
-                    ui.add_enabled_ui(self.history.can_undo(), |ui| {
-                        if icon_button(ui, Icon::Undo, 16.0, false, "Undo (Ctrl+Z)").clicked() {
-                            self.undo();
-                        }
-                    });
-                    ui.add_enabled_ui(self.history.can_redo(), |ui| {
-                        if icon_button(ui, Icon::Redo, 16.0, false, "Redo (Ctrl+Shift+Z)").clicked() {
-                            self.redo();
-                        }
-                    });
-                    ui.separator();
-                    if icon_button(ui, Icon::ZoomFit, 16.0, false, "Fit to window (0)").clicked() {
-                        self.fit_pending = true;
-                    }
-                    if icon_button(ui, Icon::ZoomOriginal, 16.0, false, "Actual pixels (100%)").clicked() {
-                        self.view.set_zoom(1.0);
-                    }
-                    if icon_button(ui, Icon::RotateLeft, 16.0, false, "Rotate view left (,)").clicked() {
-                        self.view.set_rotation(self.view.rotation - 15f32.to_radians());
-                    }
-                    if icon_button(ui, Icon::RotateRight, 16.0, false, "Rotate view right (.)").clicked() {
-                        self.view.set_rotation(self.view.rotation + 15f32.to_radians());
-                    }
-                    if icon_button(ui, Icon::Reset, 16.0, false, "Reset rotation").clicked() {
-                        self.view.set_rotation(0.0);
-                    }
-                    ui.separator();
-                    if icon_button(ui, Icon::Brushes, 16.0, false, "Import brushes (.sut, .abr, .rustbrush)").clicked() {
-                        self.import_brushes_dialog();
-                    }
-                });
-            });
     }
 
     pub(crate) fn color_panel(&mut self, ui: &mut egui::Ui) {

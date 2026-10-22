@@ -391,10 +391,15 @@ impl PainterApp {
         let shortcut = |mods: Modifiers, key: Key| KeyboardShortcut::new(mods, key);
         let cmd_shift = Modifiers::COMMAND | Modifiers::SHIFT;
         // Shift variants first: shortcut matching ignores an extra Shift.
+        let mut quit_requested = false;
         let pressed = ctx.input_mut(|i| {
             let redo = i.consume_shortcut(&shortcut(cmd_shift, Key::Z)) || i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::Y));
             let save_as = i.consume_shortcut(&shortcut(cmd_shift, Key::S));
             let invert = i.consume_shortcut(&shortcut(cmd_shift, Key::I));
+            let quit = i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::Q));
+            if quit {
+                quit_requested = true;
+            }
             // Before Ctrl+N, which would also match it.
             let new_from_clipboard = i.consume_shortcut(&shortcut(Modifiers::COMMAND | Modifiers::ALT, Key::N));
             [
@@ -411,6 +416,9 @@ impl PainterApp {
             ]
         });
         let [redo, undo, save_as, save, open, new, all, deselect, invert, new_from_clipboard] = pressed;
+        if quit_requested && !cfg!(target_os = "ios") {
+            self.quit_requested = true;
+        }
         // Layers: Ctrl+J duplicates, Ctrl+G groups into a folder (as in Photoshop).
         let (duplicate, group) = ctx.input_mut(|i| {
             (i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::J)), i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::G)))

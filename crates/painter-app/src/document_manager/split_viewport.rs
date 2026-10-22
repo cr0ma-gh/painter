@@ -43,6 +43,14 @@ const HANDLE: f32 = 7.0;
 const SHARP_WHEN_ENLARGED: TextureOptions = TextureOptions { magnification: egui::TextureFilter::Nearest, ..TextureOptions::LINEAR };
 /// Image files the board takes.
 pub(crate) const IMAGE_EXTENSIONS: [&str; 4] = ["png", "jpg", "jpeg", "bmp"];
+/// Documents the board shows as a picture (flattened): Photoshop, Krita,
+/// OpenRaster, Painter projects, Clip Studio.
+pub(crate) const DOCUMENT_EXTENSIONS: [&str; 5] = ["psd", "kra", "ora", "painter", "clip"];
+
+/// Files the board takes: pictures and documents.
+pub(crate) fn is_board_file(path: &std::path::Path) -> bool {
+    is_image_file(path) || path.extension().and_then(|e| e.to_str()).is_some_and(|e| DOCUMENT_EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)))
+}
 
 pub(crate) fn is_image_file(path: &std::path::Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| IMAGE_EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)))
@@ -340,6 +348,21 @@ impl ReferenceView {
     }
 
     pub(crate) fn add_image_file(&mut self, path: &std::path::Path, at: Option<[f32; 2]>) -> Result<ItemId, String> {
+        if !is_image_file(path) && is_board_file(path) {
+            // A layered document: its picture, flattened (draft layers left out).
+            let (doc, _, _) = crate::document_manager::session_store::load_file(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let mut pixels = painter_core::io::flatten(&doc.without_drafts());
+            for px in pixels.as_chunks_mut::<4>().0 {
+                *px = painter_core::blend::unpremultiply(*px);
+            }
+            let mut png = Vec::new();
+            image::RgbaImage::from_raw(doc.width, doc.height, pixels)
+                .ok_or("image size mismatch")?
+                .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                .map_err(|e| e.to_string())?;
+            let name = path.file_name().map_or_else(|| "Document".into(), |s| s.to_string_lossy().into_owned());
+            return self.add_image(&name, "png", png, at);
+        }
         let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let name = path.file_stem().map_or_else(|| "Image".into(), |s| s.to_string_lossy().into_owned());
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("png").to_string();
@@ -585,7 +608,7 @@ impl PainterApp {
         let mut at = r.to_board(rect, pointer);
         let mut rest = Vec::new();
         for path in paths {
-            if !is_image_file(&path) {
+            if !is_board_file(&path) {
                 rest.push(path);
                 continue;
             }
@@ -603,7 +626,9 @@ impl PainterApp {
     /// Picks image files for the board.
     pub(crate) fn add_board_images_dialog(&mut self) {
         if let Some(paths) = crate::files::FileDialog::new()
+            .add_filter("Pictures and documents", &[IMAGE_EXTENSIONS.as_slice(), DOCUMENT_EXTENSIONS.as_slice()].concat())
             .add_filter("Images", &IMAGE_EXTENSIONS)
+            .add_filter("Documents (PSD, Krita, OpenRaster, Painter, Clip Studio)", &DOCUMENT_EXTENSIONS)
             .purpose(crate::files::Purpose::ReferenceImage)
             .pick_files()
         {
@@ -735,7 +760,7 @@ impl PainterApp {
             let mut paste = false;
             let mut add_doc = None;
             ui.menu_button("+", |ui| {
-                if ui.button("Images...").clicked() {
+                if ui.button("Pictures or documents...").on_hover_text("PNG, JPEG, BMP; PSD, Krita, OpenRaster, Painter and Clip Studio files as pictures").clicked() {
                     ui.close_menu();
                     add_images = true;
                 }
@@ -875,7 +900,7 @@ impl PainterApp {
         }
         let layer_hover = response.dnd_hover_payload::<LayerDrag>().is_some();
         let files_hover =
-            response.hovered() && ctx.input(|i| i.raw.hovered_files.iter().any(|f| f.path.as_deref().is_some_and(is_image_file)));
+            response.hovered() && ctx.input(|i| i.raw.hovered_files.iter().any(|f| f.path.as_deref().is_some_and(is_board_file)));
 
         self.board_input(ui, rect, &response, pointer);
         let edit = self.board_context_menu(&response);
@@ -1343,5 +1368,20 @@ mod tests {
         r.key(&key(Key::P, false), None);
         assert_eq!(r.tool, BoardTool::Pen);
         assert!(decode(&png(3, 2), true).is_some_and(|i| i.size == [3, 2] && i.pixels[0].r() == i.pixels[0].g()));
+    }
+
+    #[test]
+    fn documents_land_as_pictures() {
+        let dir = std::env::temp_dir().join(format!("painter-board-docs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("sheet.kra");
+        painter_core::kra::save(&painter_core::Document::new(120, 80), &path).unwrap();
+        let mut r = ReferenceView::default();
+        let id = r.add_image_file(&path, None).unwrap();
+        let item = r.board.find(id).unwrap();
+        assert_eq!(item.size, [120.0, 80.0]);
+        assert!(matches!(&item.source, Source::Image { name, ext, .. } if name == "sheet.kra" && ext == "png"));
+        assert!(is_board_file(std::path::Path::new("a.PSD")) && !is_board_file(std::path::Path::new("a.txt")));
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

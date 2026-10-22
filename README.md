@@ -138,6 +138,11 @@ cargo run --release -p painter-app -- drawing.painter
   them out. Own undo, pan and zoom; kept between launches, and saved to or
   opened from `.refboard` files. Layers dropped on a document's picture are
   copied into that document.
+- **Bars:** View → Tool Strip / Command Bar (or right-click a bar) hides
+  either; the command bar under the menu is customisable like the tool strip
+  (any command from the palette, drag to reorder, right-click to remove,
+  separators). File → Quit (Ctrl+Q). The reference board also takes PSD,
+  Krita, OpenRaster and Painter files, shown as their flattened picture.
 - **Several documents:** a tab per open document (`*` marks unsaved changes;
   Ctrl+W closes, Ctrl+Tab / Ctrl+Shift+Tab cycle), each with its own zoom,
   rotation, pan and undo history. Files open and save on worker threads.
