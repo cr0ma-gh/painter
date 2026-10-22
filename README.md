@@ -41,6 +41,11 @@ cargo run --release -p painter-app -- drawing.painter
   and blend mode for all of them at once (right-click menu too). Draft
   layers stay visible while you work and are left out of PNG, PSD, SVG,
   Krita and OpenRaster exports.
+- **Straight lines:** with any brush (pen, pencil, eraser…) hold Shift and
+  click or drag: the line starts where the last stroke ended (Shift-click
+  point after point to join them) or where you press, follows the pointer as
+  a guide and is drawn on release with the brush's own dynamics; add Ctrl to
+  snap its angle to 15°. Shift snaps the Gradient tool's direction too.
 - **Brushes:** pressure curves for size and density (with an editor),
   per-stroke opacity, per-dab density, spacing, hardness, anti-aliasing,
   stabilisation (weighted average or pulled string), erasers. On vector layers

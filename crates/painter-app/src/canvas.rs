@@ -110,6 +110,7 @@ impl PainterApp {
         let painter = ui.painter_at(rect);
         self.draw_rulers_overlay(&painter, rect);
         self.draw_tool_overlay(&painter, rect);
+        self.draw_line_guide(&painter, rect);
         self.draw_brush_cursor(&painter, rect, &response);
         self.draw_eyedropper(&painter);
         self.transform_hud(ui.ctx(), rect);
@@ -193,14 +194,22 @@ impl PainterApp {
                     self.end_pick();
                 }
                 Event::PointerButton { pos, button: PointerButton::Primary, pressed: true, modifiers, .. }
-                    if !hand && hovering && rect.contains(*pos) && self.stroke.is_none() && self.drag.is_none() =>
+                    if !hand && hovering && rect.contains(*pos) && self.stroke.is_none() && self.drag.is_none() && self.line.is_none() =>
                 {
                     let p = to_doc(&self.view, *pos);
-                    if self.tool == Tool::Brush {
+                    if self.tool == Tool::Brush && modifiers.shift {
+                        // Shift: a straight line (see `crate::lines`).
+                        self.begin_line(self.stroke_point(p));
+                    } else if self.tool == Tool::Brush {
                         self.begin_stroke(self.stroke_point(p));
                     } else {
                         self.tool_press(p, *modifiers);
                     }
+                }
+                Event::PointerMoved(pos) if self.line.is_some() => {
+                    let p = to_doc(&self.view, *pos);
+                    let snap = self.pointer_mods.command || self.pointer_mods.ctrl;
+                    self.move_line(self.stroke_point(p), snap);
                 }
                 Event::PointerMoved(_) if self.stroke.is_some() && !packets.is_empty() => feed_packets(self, &mut packets_fed),
                 Event::PointerMoved(pos) if self.stroke.is_some() => {
@@ -212,6 +221,9 @@ impl PainterApp {
                     self.tool_move(p);
                 }
                 Event::PointerButton { button: PointerButton::Primary, pressed: false, .. } | Event::PointerGone => {
+                    if self.line.is_some() {
+                        self.finish_line();
+                    }
                     if self.stroke.is_some() {
                         feed_packets(self, &mut packets_fed);
                         self.end_stroke();
@@ -228,6 +240,9 @@ impl PainterApp {
             feed_packets(self, &mut packets_fed);
         }
         if !ui.input(|i| i.pointer.primary_down()) {
+            if self.line.is_some() {
+                self.finish_line();
+            }
             if self.stroke.is_some() {
                 self.end_stroke();
             }

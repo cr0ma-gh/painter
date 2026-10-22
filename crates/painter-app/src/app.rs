@@ -56,6 +56,8 @@ pub(crate) struct ActiveStroke {
     /// Ruler snapping and symmetric copies.
     rulers: crate::rulers_ui::StrokeRulers,
     begun: Instant,
+    /// The last point fed (after ruler snapping): where a Shift-click line starts next.
+    last: StrokePoint,
 }
 
 impl ActiveStroke {
@@ -109,6 +111,10 @@ pub struct PainterApp {
     pub(crate) fit_pending: bool,
     pub(crate) canvas_rect: Rect,
     pub(crate) stroke: Option<ActiveStroke>,
+    /// A straight line being placed with Shift (see `crate::lines`).
+    pub(crate) line: Option<crate::lines::LineDraft>,
+    /// The document (tab id) and point where the last stroke ended.
+    pub(crate) last_stroke_end: Option<(u64, StrokePoint)>,
     next_stroke_id: u64,
     pub(crate) drag: Option<ToolDrag>,
     /// Paint into the active layer's mask instead of its pixels.
@@ -232,6 +238,8 @@ impl PainterApp {
             fit_pending: true,
             canvas_rect: Rect::NOTHING,
             stroke: None,
+            line: None,
+            last_stroke_end: None,
             next_stroke_id: 1,
             drag: None,
             edit_mask: false,
@@ -634,6 +642,7 @@ impl PainterApp {
             settings,
             rulers,
             begun: Instant::now(),
+            last: p,
         });
         self.queue_dabs(dabs);
     }
@@ -648,6 +657,7 @@ impl PainterApp {
                     None => return,
                 }
             }
+            stroke.last = p;
             if let Some(points) = &mut stroke.vector_points {
                 points.push(p);
             }
@@ -687,6 +697,8 @@ impl PainterApp {
         let Some(mut stroke) = self.stroke.take() else {
             return;
         };
+        // Where Shift-click lines start from next (in this document).
+        self.last_stroke_end = Some((self.docs.active_id(), stroke.last));
         let tail = stroke.rulers.replicate(stroke.engine.finish());
         if let Some(all) = &mut stroke.vector_erase {
             all.extend_from_slice(&tail);

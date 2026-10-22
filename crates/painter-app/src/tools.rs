@@ -268,6 +268,11 @@ impl PainterApp {
     }
 
     pub(crate) fn tool_move(&mut self, at: Pos2) {
+        // Shift with the gradient: its direction in 15° steps.
+        let at = match &self.drag {
+            Some(drag) if self.tool == Tool::Gradient && self.pointer_mods.shift => crate::lines::snap_angle(drag.start, at, 15.0),
+            _ => at,
+        };
         match self.tool {
             Tool::Transform => self.transform_move(at),
             Tool::Crop => self.crop_move(at),

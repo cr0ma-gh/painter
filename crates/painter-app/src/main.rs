@@ -16,6 +16,7 @@ mod eyedropper;
 mod files;
 mod icons;
 mod layers_ui;
+mod lines;
 mod ios_ui;
 mod modifier_keys;
 mod panels;
