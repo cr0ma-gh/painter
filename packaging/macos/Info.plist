@@ -31,8 +31,14 @@
             <string>Painter project</string>
             <key>CFBundleTypeExtensions</key>
             <array><string>painter</string></array>
+            <key>LSItemContentTypes</key>
+            <array><string>io.github.cr0ma-gh.painter.project</string></array>
+            <key>CFBundleTypeIconFile</key>
+            <string>painter</string>
             <key>CFBundleTypeRole</key>
             <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
         </dict>
         <dict>
             <key>CFBundleTypeName</key>
@@ -41,6 +47,29 @@
             <array><string>psd</string><string>kra</string><string>ora</string><string>clip</string><string>png</string><string>jpg</string><string>jpeg</string></array>
             <key>CFBundleTypeRole</key>
             <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+        </dict>
+    </array>
+    <!-- The .painter type, so Finder knows it (and its Quick Look thumbnails). -->
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>io.github.cr0ma-gh.painter.project</string>
+            <key>UTTypeDescription</key>
+            <string>Painter project</string>
+            <key>UTTypeConformsTo</key>
+            <array><string>public.data</string><string>public.composite-content</string></array>
+            <key>UTTypeIconFile</key>
+            <string>painter</string>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array><string>painter</string></array>
+                <key>public.mime-type</key>
+                <array><string>application/x-painter</string></array>
+            </dict>
         </dict>
     </array>
 </dict>

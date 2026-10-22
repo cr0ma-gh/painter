@@ -118,6 +118,19 @@ pub(crate) fn merged_and_thumbnail(doc: &crate::document::Document, max: u32) ->
     Ok((merged, encode_png(tw, th, thumb.as_raw())?))
 }
 
+/// Just the thumbnail (PNG, at most `max` pixels on a side), drafts left out.
+pub(crate) fn thumbnail_png(doc: &crate::document::Document, max: u32) -> Result<Vec<u8>, String> {
+    let mut flat = crate::io::flatten(&doc.without_drafts());
+    for px in flat.as_chunks_mut::<4>().0 {
+        *px = unpremultiply(*px);
+    }
+    let img = image::RgbaImage::from_raw(doc.width, doc.height, flat).ok_or("image size mismatch")?;
+    let scale = (max as f32 / doc.width.max(doc.height) as f32).min(1.0);
+    let (tw, th) = (((doc.width as f32 * scale).round() as u32).max(1), ((doc.height as f32 * scale).round() as u32).max(1));
+    let thumb = image::imageops::resize(&img, tw, th, image::imageops::FilterType::Triangle);
+    encode_png(tw, th, thumb.as_raw())
+}
+
 /// OpenRaster's `composite-op` for a blend mode, and back.
 pub(crate) fn ora_op(mode: BlendMode) -> &'static str {
     match mode {

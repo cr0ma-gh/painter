@@ -21,6 +21,7 @@ mod dev_shot;
 mod dialogs;
 mod document_manager;
 mod eyedropper;
+mod file_types;
 mod files;
 mod gamut_selector;
 mod history_ui;
@@ -172,6 +173,11 @@ fn linux_x11() -> Option<eframe::EventLoopBuilderHook> {
 }
 
 /// Runs the app until its window closes, opening `file` first if given.
+/// `painter --thumbnail IN OUT SIZE` (see `file_types`): the exit code when those arguments were given.
+pub fn thumbnail_command(args: &[String]) -> Option<i32> {
+    file_types::thumbnail_command(args)
+}
+
 pub fn run(options: eframe::NativeOptions, file: Option<std::path::PathBuf>) -> eframe::Result {
     install_crash_log();
     // iPadOS: the Materials folder appears in Files, ready for Clip Studio materials.

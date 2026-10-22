@@ -194,6 +194,11 @@ pub struct PainterApp {
     pub(crate) dev_shot: Option<crate::dev_shot::DevShot>,
     /// The stroke being followed for a smart shape.
     pub(crate) smart: Option<crate::smart_shape::SmartShape>,
+    /// File → Set Up File Types is open.
+    pub(crate) file_types_open: bool,
+    /// Android: the "open with" intent was looked at.
+    #[cfg(target_os = "android")]
+    pub(crate) android_intent_read: bool,
     /// The ensō for them, once loaded.
     pub(crate) logo: Option<egui::TextureHandle>,
     /// Extended Color Selector state.
@@ -323,6 +328,9 @@ impl PainterApp {
             guide_pull: None,
             dev_shot: crate::dev_shot::DevShot::new(),
             smart: None,
+            file_types_open: false,
+            #[cfg(target_os = "android")]
+            android_intent_read: false,
             logo: None,
             gamut: Default::default(),
             tip_textures: Default::default(),
@@ -1607,13 +1615,28 @@ impl eframe::App for PainterApp {
         self.about_window(ctx);
         self.brush_reset_prompt(ctx);
         self.chip_picker_window(ctx);
+        self.file_types_window(ctx);
         self.close_prompts(ctx);
         if self.doc.selection.is_some() {
             // Marching ants.
             ctx.request_repaint_after(std::time::Duration::from_millis(80));
         }
         #[cfg(target_os = "android")]
-        crate::android::end_frame(ctx);
+        {
+            crate::android::end_frame(ctx);
+            // A file another app opened with Painter: once, after the first frame.
+            if !self.android_intent_read {
+                self.android_intent_read = true;
+                if let Some((name, bytes)) = crate::android::opened_file() {
+                    let dir = crate::files::app_data_dir().unwrap_or_else(std::env::temp_dir).join("opened");
+                    let path = dir.join(crate::android::name_for(&name, &bytes));
+                    match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, &bytes)) {
+                        Ok(()) => self.open_any(path),
+                        Err(e) => self.status = format!("Couldn't open the file: {e}"),
+                    }
+                }
+            }
+        }
     }
 
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {

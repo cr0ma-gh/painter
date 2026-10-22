@@ -69,3 +69,19 @@ icon = "@mipmap/ic_launcher"
 [package.metadata.android.application.activity]
 config_changes = "orientation|screenSize|screenLayout|keyboardHidden|keyboard|density|uiMode"
 launch_mode = "singleTop"
+
+# "Open with" from file managers and other apps: Painter projects, Photoshop,
+# Krita, OpenRaster, Clip Studio and pictures (read once at startup).
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.VIEW"]
+categories = ["android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"]
+data = [
+    { scheme = "content", mime_type = "application/x-painter" },
+    { scheme = "content", mime_type = "image/vnd.adobe.photoshop" },
+    { scheme = "content", mime_type = "application/x-krita" },
+    { scheme = "content", mime_type = "image/openraster" },
+    { scheme = "content", mime_type = "application/zip" },
+    { scheme = "content", mime_type = "application/octet-stream" },
+    { scheme = "content", mime_type = "image/png" },
+    { scheme = "content", mime_type = "image/jpeg" },
+]

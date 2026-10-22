@@ -460,39 +460,99 @@ pub(crate) fn clipboard_file() -> Option<Vec<u8>> {
         if uri.is_null() {
             return Ok(None);
         }
-        let resolver = env.call_object(activity, "getContentResolver", "()Landroid/content/ContentResolver;", &[])?;
-        let stream = env.call_object(env.nonnull(resolver)?, "openInputStream", "(Landroid/net/Uri;)Ljava/io/InputStream;", &[obj(uri)])?;
-        let stream = env.nonnull(stream)?;
-        const CHUNK: usize = 64 * 1024;
-        // SAFETY: NewByteArray(env, length).
-        let buffer = unsafe {
-            let new: extern "system" fn(*mut c_void, i32) -> Obj = env.func(f::NEW_BYTE_ARRAY);
-            new(env.0, CHUNK as i32)
-        };
-        let buffer = env.nonnull(buffer)?;
-        let mut chunk = vec![0u8; CHUNK];
-        let mut bytes = Vec::new();
-        loop {
-            let n = env.call_int(stream, "read", "([B)I", &[obj(buffer)])?;
-            if n < 0 {
-                break;
-            }
-            let n = (n as usize).min(CHUNK);
-            // SAFETY: GetByteArrayRegion(env, array, 0, n, out) into a buffer of CHUNK bytes.
-            unsafe {
-                let get: extern "system" fn(*mut c_void, Obj, i32, i32, *mut u8) = env.func(f::GET_BYTE_ARRAY_REGION);
-                get(env.0, buffer, 0, n as i32, chunk.as_mut_ptr());
-            }
-            env.check()?;
-            bytes.extend_from_slice(&chunk[..n]);
-            if bytes.len() > 256 * 1024 * 1024 {
-                break;
-            }
-        }
-        env.call_void(stream, "close", "()V", &[])?;
-        Ok(Some(bytes))
+        read_uri(env, activity, uri).map(Some)
     })
     .flatten()
+}
+
+/// The file another app asked Painter to open ("Open with", a tap in a file
+/// manager): its name (or a guess) and bytes. Read once, at startup.
+pub(crate) fn opened_file() -> Option<(String, Vec<u8>)> {
+    with_env(|env, activity| {
+        let intent = env.call_object(activity, "getIntent", "()Landroid/content/Intent;", &[])?;
+        if intent.is_null() {
+            return Ok(None);
+        }
+        let action = env.call_object(intent, "getAction", "()Ljava/lang/String;", &[])?;
+        if action.is_null() || env.rust_string(action)? != "android.intent.action.VIEW" {
+            return Ok(None);
+        }
+        let uri = env.call_object(intent, "getData", "()Landroid/net/Uri;", &[])?;
+        if uri.is_null() {
+            return Ok(None);
+        }
+        let segment = env.call_object(uri, "getLastPathSegment", "()Ljava/lang/String;", &[])?;
+        let name = if segment.is_null() { String::new() } else { env.rust_string(segment)? };
+        let bytes = read_uri(env, activity, uri)?;
+        Ok(Some((name, bytes)))
+    })
+    .flatten()
+}
+
+/// Everything behind a content or file URI.
+fn read_uri(env: &Env, activity: Obj, uri: Obj) -> R<Vec<u8>> {
+    let resolver = env.call_object(activity, "getContentResolver", "()Landroid/content/ContentResolver;", &[])?;
+    let stream = env.call_object(env.nonnull(resolver)?, "openInputStream", "(Landroid/net/Uri;)Ljava/io/InputStream;", &[obj(uri)])?;
+    let stream = env.nonnull(stream)?;
+    const CHUNK: usize = 64 * 1024;
+    // SAFETY: NewByteArray(env, length).
+    let buffer = unsafe {
+        let new: extern "system" fn(*mut c_void, i32) -> Obj = env.func(f::NEW_BYTE_ARRAY);
+        new(env.0, CHUNK as i32)
+    };
+    let buffer = env.nonnull(buffer)?;
+    let mut chunk = vec![0u8; CHUNK];
+    let mut bytes = Vec::new();
+    loop {
+        let n = env.call_int(stream, "read", "([B)I", &[obj(buffer)])?;
+        if n < 0 {
+            break;
+        }
+        let n = (n as usize).min(CHUNK);
+        // SAFETY: GetByteArrayRegion(env, array, 0, n, out) into a buffer of CHUNK bytes.
+        unsafe {
+            let get: extern "system" fn(*mut c_void, Obj, i32, i32, *mut u8) = env.func(f::GET_BYTE_ARRAY_REGION);
+            get(env.0, buffer, 0, n as i32, chunk.as_mut_ptr());
+        }
+        env.check()?;
+        bytes.extend_from_slice(&chunk[..n]);
+        if bytes.len() > 256 * 1024 * 1024 {
+            break;
+        }
+    }
+    env.call_void(stream, "close", "()V", &[])?;
+    Ok(bytes)
+}
+
+/// A file name for bytes that came without one, from what they start with.
+pub(crate) fn name_for(name: &str, bytes: &[u8]) -> String {
+    let has_ext = std::path::Path::new(name).extension().is_some_and(|e| e.len() <= 7);
+    if has_ext {
+        return std::path::Path::new(name).file_name().map_or("Opened".into(), |n| n.to_string_lossy().into_owned());
+    }
+    let ext = if bytes.starts_with(b"8BPS") {
+        "psd"
+    } else if bytes.starts_with(b"SQLite format 3") || bytes.starts_with(b"CSFCHUNK") {
+        "clip"
+    } else if bytes.starts_with(b"\x89PNG") {
+        "png"
+    } else if bytes.starts_with(&[0xFF, 0xD8]) {
+        "jpg"
+    } else if bytes.starts_with(b"PK") {
+        // A ZIP: OpenRaster and Krita say so in their first entry.
+        let head = &bytes[..bytes.len().min(256)];
+        let has = |s: &[u8]| head.windows(s.len()).any(|w| w == s);
+        if has(b"image/openraster") {
+            "ora"
+        } else if has(b"application/x-krita") {
+            "kra"
+        } else {
+            "painter"
+        }
+    } else {
+        "png"
+    };
+    format!("Opened.{ext}")
 }
 
 /// The clipboard's text, if any.

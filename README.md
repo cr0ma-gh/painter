@@ -200,6 +200,15 @@ cargo run --release -p painter-app -- drawing.painter
   Settings' tip preview show the tip as the pen would stamp it now (shape,
   image tip, pressure, tilt, lean). Ctrl + Alt and a sideways move of the pen
   or mouse resizes the brush.
+- **In the file manager** (File → Set Up File Types on Windows and Linux; built
+  into the app on macOS and Android): `.painter` projects open in Painter and
+  show their picture as the thumbnail (every project carries a 256 px
+  `thumbnail.png`), and PSD, Krita, OpenRaster and Clip Studio files list
+  Painter under "Open with" without changing their default app. Windows: per
+  user (no administrator), an Explorer thumbnail provider (crate
+  `painter-shell`, carried inside `painter.exe`); Linux: MIME type, desktop
+  entry and a thumbnailer (`painter --thumbnail IN OUT SIZE`); macOS: the
+  document type and a Quick Look thumbnail extension; Android: "Open with".
 - **Files:** `.painter` projects, PSD import/export, PNG open/import/export,
   File â New from Clipboard (Ctrl+Alt+N) makes a document the size of a
   picture copied in another app (a screenshot, a browser image) or of the

@@ -23,7 +23,12 @@ jobs:
       - name: Tests
         run: cargo test --workspace
       - name: Release build
-        run: cargo build --release -p painter-app
+        shell: pwsh
+        run: |
+          # The Explorer thumbnail provider first: painter.exe carries it.
+          cargo build --release -p painter-shell
+          $env:PAINTER_SHELL_DLL = "$PWD\target\release\painter_shell.dll"
+          cargo build --release -p painter-app
       - uses: actions/upload-artifact@v4
         with:
           name: painter-windows

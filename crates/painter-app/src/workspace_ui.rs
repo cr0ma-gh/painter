@@ -931,13 +931,14 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 65] = [
+        let fixed: [FixedCommand; 66] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
             ("file.open", "Open...", C::File, "Ctrl+O", &["load"], true),
             ("file.save", "Save", C::File, "Ctrl+S", &[], true),
             ("file.save_as", "Save As...", C::File, "Ctrl+Shift+S", &[], true),
+            ("file.types", "Set Up File Types...", C::File, "", &["file association", "thumbnails", "explorer", "open with", "default app"], true),
             ("file.import_png", "Import PNG as Layer...", C::File, "", &["image", "picture"], true),
             ("file.scan", "Import from Scanner or Camera...", C::File, "", &["scan", "wia", "camera", "photo", "document"], true),
             ("file.import_brushes", "Import Brushes...", C::Brush, "", &["sut", "abr", "clip studio", "photoshop", "krita", "kpp", "bundle", "mypaint", "myb", "gimp", "gbr"], true),
@@ -1058,6 +1059,7 @@ impl PainterApp {
             "file.open" => self.open_dialog(),
             "file.save" => self.save(),
             "file.save_as" => self.save_as(),
+            "file.types" => self.file_types_open = true,
             "file.import_png" => self.import_png_layer(),
             "file.scan" => self.scanner = Some(crate::dialogs::ScannerDialog::open()),
             "file.import_brushes" => self.import_brushes_dialog(),

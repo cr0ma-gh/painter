@@ -138,6 +138,13 @@ impl PainterApp {
                             self.export_brushes(None);
                         }
                     });
+                    if cfg!(any(windows, target_os = "linux")) {
+                        ui.separator();
+                        if ui.button("Set Up File Types...").on_hover_text("Thumbnails and Open with in the file manager").clicked() {
+                            ui.close_menu();
+                            self.file_types_open = true;
+                        }
+                    }
                     if !cfg!(target_os = "ios") {
                         ui.separator();
                         if ui.add(egui::Button::new("Quit").shortcut_text("Ctrl+Q")).clicked() {

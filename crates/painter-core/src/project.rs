@@ -36,6 +36,24 @@ use crate::vector;
 pub const EXTENSION: &str = "painter";
 const FORMAT_VERSION: u32 = 1;
 const DOCUMENT_ENTRY: &str = "document.json";
+/// The picture file managers show for the file.
+pub const THUMBNAIL_ENTRY: &str = "thumbnail.png";
+pub const THUMBNAIL_SIZE: u32 = 256;
+
+/// The thumbnail (PNG bytes) a Painter project, Krita or OpenRaster file
+/// carries: what file managers show for it.
+pub fn embedded_thumbnail(bytes: &[u8]) -> Option<Vec<u8>> {
+    let mut zip = ZipArchive::new(Cursor::new(bytes)).ok()?;
+    for name in [THUMBNAIL_ENTRY, "Thumbnails/thumbnail.png", "preview.png", "mergedimage.png"] {
+        if let Ok(mut entry) = zip.by_name(name) {
+            let mut out = Vec::new();
+            if entry.read_to_end(&mut out).is_ok() && !out.is_empty() {
+                return Some(out);
+            }
+        }
+    }
+    None
+}
 const EXTRAS_PREFIX: &str = "extras/";
 
 /// Extra named payloads saved alongside the document (see the module docs).
@@ -184,6 +202,12 @@ pub fn from_bytes_with(bytes: &[u8]) -> Result<(Document, Extras), ProjectError>
 
 fn write_to<W: Write + Seek>(doc: &Document, extras: &Extras, writer: W) -> Result<(), ProjectError> {
     let mut zip = ZipWriter::new(writer);
+    // First and uncompressed: file-manager thumbnailers (Windows, Linux, macOS
+    // Quick Look) read it straight from the start of the file.
+    if let Ok(thumb) = crate::interchange::thumbnail_png(doc, THUMBNAIL_SIZE) {
+        zip.start_file(THUMBNAIL_ENTRY, SimpleFileOptions::default().compression_method(CompressionMethod::Stored))?;
+        zip.write_all(&thumb)?;
+    }
     let packed = SimpleFileOptions::default().compression_method(CompressionMethod::Zstd);
     let mut planes: Vec<(String, &TileStore)> = Vec::new();
 
@@ -494,5 +518,26 @@ mod tests {
     #[test]
     fn rejects_garbage() {
         assert!(from_bytes(b"not a zip").is_err());
+    }
+}
+
+#[cfg(test)]
+mod thumbnail_tests {
+    use super::*;
+
+    #[test]
+    fn projects_start_with_an_uncompressed_thumbnail() {
+        let doc = Document::new(800, 400);
+        let bytes = to_bytes(&doc).unwrap();
+        // The first local file header: stored (method 0), named thumbnail.png.
+        assert_eq!(&bytes[0..4], b"PK\x03\x04");
+        assert_eq!(u16::from_le_bytes([bytes[8], bytes[9]]), 0, "stored");
+        let name_len = u16::from_le_bytes([bytes[26], bytes[27]]) as usize;
+        assert_eq!(&bytes[30..30 + name_len], THUMBNAIL_ENTRY.as_bytes());
+        let png = embedded_thumbnail(&bytes).expect("a thumbnail");
+        let (w, h, _) = crate::interchange::decode_png(&png).unwrap();
+        assert_eq!((w, h), (256, 128));
+        // And the project still opens.
+        assert_eq!(from_bytes(&bytes).unwrap().canvas(), (800, 400));
     }
 }

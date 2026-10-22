@@ -2475,6 +2475,7 @@ dependencies = [
  "painter-render",
  "painter-scanner-io",
  "painter-scene-3d",
+ "painter-shell",
  "painter-transform-tools",
  "painter-ui-workspace",
  "painter-vector-export",
@@ -2556,6 +2557,16 @@ dependencies = [
  "serde",
  "serde_json",
  "zstd",
+]
+
+[[package]]
+name = "painter-shell"
+version = "0.3.0"
+dependencies = [
+ "flate2",
+ "image",
+ "windows",
+ "windows-core",
 ]
 
 [[package]]

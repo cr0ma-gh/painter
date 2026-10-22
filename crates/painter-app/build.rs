@@ -15,12 +15,30 @@ fn main() {
     if os == "windows" && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
         windows_icon();
     }
+    shell_dll();
     if os != "ios" {
         return;
     }
     cc::Build::new().file("native/ios_files.m").file("native/ios_ui.m").file("native/ios_scan.m").flag("-fobjc-arc").compile("painter_ios");
     for framework in ["UIKit", "Foundation", "UniformTypeIdentifiers", "VisionKit"] {
         println!("cargo:rustc-link-lib=framework={framework}");
+    }
+}
+
+/// Explorer thumbnails (Windows): `PAINTER_SHELL_DLL` names the built
+/// `painter_shell.dll` (crate `painter-shell`, built first). It's carried
+/// inside the app, which installs it for the user (File → Set Up File Types);
+/// without it the app builds as usual and offers associations only.
+fn shell_dll() {
+    println!("cargo::rustc-check-cfg=cfg(shell_dll)");
+    println!("cargo:rerun-if-env-changed=PAINTER_SHELL_DLL");
+    let Ok(path) = std::env::var("PAINTER_SHELL_DLL") else { return };
+    println!("cargo:rerun-if-changed={path}");
+    let out = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("painter_shell.dll");
+    if std::fs::copy(&path, &out).is_ok() {
+        println!("cargo:rustc-cfg=shell_dll");
+    } else {
+        println!("cargo:warning=PAINTER_SHELL_DLL={path} couldn't be read: no Explorer thumbnails in this build");
     }
 }
 

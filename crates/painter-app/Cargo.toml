@@ -55,6 +55,9 @@ libloading.workspace = true
 windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_Media_MediaFoundation",
+    "Win32_Security",
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Variant",
@@ -63,3 +66,7 @@ windows = { version = "0.58", features = [
 [target.'cfg(any(windows, target_os = "macos", target_os = "linux"))'.dependencies]
 # Pasting pictures onto the reference board (already used by egui for text).
 arboard = { version = "3.7", default-features = false, features = ["image-data"] }
+
+[dev-dependencies]
+# The thumbnail provider's class id, checked against the app's copy.
+painter-shell = { path = "../painter-shell" }
