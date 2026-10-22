@@ -763,6 +763,120 @@ fn fit_within(pixels: &[u8], w: u32, h: u32, max_w: u32, max_h: u32) -> (Vec<u8>
     (out.into_raw(), fw, fh)
 }
 
+/// Edit → Image Size: the whole document resampled to a new pixel size.
+pub(crate) struct ImageSizeDialog {
+    width: u32,
+    height: u32,
+    keep_ratio: bool,
+    filter: transform_tools::Interpolation,
+    /// The resolution follows, so the page keeps its size on paper.
+    keep_print_size: bool,
+}
+
+impl ImageSizeDialog {
+    pub(crate) fn open(canvas: (u32, u32), filter: transform_tools::Interpolation) -> Self {
+        Self { width: canvas.0, height: canvas.1, keep_ratio: true, filter, keep_print_size: false }
+    }
+}
+
+impl PainterApp {
+    pub(crate) fn image_size_window(&mut self, ctx: &egui::Context) {
+        let Some(mut dialog) = self.image_size.take() else { return };
+        let (cw, ch) = self.doc.canvas();
+        let mut open = true;
+        let mut apply = false;
+        egui::Window::new("Image Size").collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
+            ui.label(format!("Now {cw} × {ch} px, {} dpi", self.doc.dpi));
+            ui.separator();
+            let max = painter_core::MAX_CANVAS_SIZE;
+            let (w0, h0) = (dialog.width, dialog.height);
+            egui::Grid::new("image_size_grid").num_columns(2).show(ui, |ui| {
+                ui.label("Width");
+                ui.add(egui::DragValue::new(&mut dialog.width).range(1..=max).suffix(" px"));
+                ui.end_row();
+                ui.label("Height");
+                ui.add(egui::DragValue::new(&mut dialog.height).range(1..=max).suffix(" px"));
+                ui.end_row();
+                ui.label("Scale");
+                let mut percent = dialog.width as f32 / cw as f32 * 100.0;
+                if ui.add(egui::DragValue::new(&mut percent).range(1.0..=10_000.0).suffix(" %").max_decimals(1)).changed() {
+                    dialog.width = ((cw as f32 * percent / 100.0).round() as u32).clamp(1, max);
+                }
+                ui.end_row();
+            });
+            // Keep the proportions: the other side follows the one edited.
+            if dialog.keep_ratio {
+                if dialog.width != w0 {
+                    dialog.height = ((dialog.width as f64 * ch as f64 / cw as f64).round() as u32).clamp(1, max);
+                } else if dialog.height != h0 {
+                    dialog.width = ((dialog.height as f64 * cw as f64 / ch as f64).round() as u32).clamp(1, max);
+                }
+            }
+            ui.horizontal(|ui| {
+                for (label, k) in [("50%", 0.5), ("200%", 2.0), ("300%", 3.0), ("400%", 4.0)] {
+                    if ui.small_button(label).clicked() {
+                        dialog.width = ((cw as f64 * k).round() as u32).clamp(1, max);
+                        dialog.height = ((ch as f64 * k).round() as u32).clamp(1, max);
+                    }
+                }
+            });
+            ui.checkbox(&mut dialog.keep_ratio, "Keep proportions");
+            ui.separator();
+            egui::ComboBox::from_label("Resampling").selected_text(filter_label(dialog.filter)).show_ui(ui, |ui| {
+                for f in transform_tools::Interpolation::ALL {
+                    ui.selectable_value(&mut dialog.filter, f, filter_label(f));
+                }
+            });
+            if dialog.filter == transform_tools::Interpolation::Nearest {
+                let whole = |n: u32, d: u32| n.is_multiple_of(d) || d.is_multiple_of(n);
+                if !(whole(dialog.width, cw) && whole(dialog.height, ch)) {
+                    ui.colored_label(
+                        Color32::from_rgb(240, 190, 90),
+                        "Not a whole multiple (×2, ×3, ½…): some pixels become wider than others",
+                    );
+                }
+            }
+            ui.checkbox(&mut dialog.keep_print_size, "Keep the size on paper (the resolution changes)");
+            if dialog.keep_print_size {
+                let dpi = (self.doc.dpi as f32 * dialog.width as f32 / cw as f32).round();
+                ui.small(format!("{dpi} dpi"));
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                let same = (dialog.width, dialog.height) == (cw, ch);
+                if ui.add_enabled(!same, egui::Button::new("Resize")).clicked() {
+                    apply = true;
+                }
+            });
+        });
+        if apply {
+            self.commit_scenes(true);
+            self.checkpoint();
+            transform_tools::resize_document(&mut self.doc, dialog.width, dialog.height, dialog.filter, dialog.keep_print_size);
+            self.resync_gpu();
+            self.fit_pending = true;
+            self.last_resize_filter = dialog.filter;
+            self.status = format!(
+                "Resized to {} × {} px ({}; Ctrl+Z restores it)",
+                self.doc.width,
+                self.doc.height,
+                filter_label(dialog.filter)
+            );
+        } else if open {
+            self.image_size = Some(dialog);
+        }
+    }
+}
+
+fn filter_label(f: transform_tools::Interpolation) -> &'static str {
+    match f {
+        transform_tools::Interpolation::Nearest => "Nearest neighbour (keep pixels)",
+        transform_tools::Interpolation::Bilinear => "Bilinear (smooth)",
+        transform_tools::Interpolation::Bicubic => "Bicubic (smooth, sharper)",
+        transform_tools::Interpolation::Lanczos3 => "Lanczos3 (sharpest)",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

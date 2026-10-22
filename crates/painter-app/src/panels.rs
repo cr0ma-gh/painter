@@ -144,6 +144,11 @@ impl PainterApp {
                         ui.close_menu();
                     }
                     ui.separator();
+                    if ui.button("Image Size...").on_hover_text("Resize the whole image; Nearest neighbour keeps pixels sharp").clicked() {
+                        ui.close_menu();
+                        self.image_size = Some(crate::dialogs::ImageSizeDialog::open(self.doc.canvas(), self.last_resize_filter));
+                    }
+                    ui.separator();
                     let clear = egui::Button::new("Clear Selected").shortcut_text("Del");
                     if ui.add_enabled(self.doc.selection.is_some(), clear).clicked() {
                         self.clear_selected();

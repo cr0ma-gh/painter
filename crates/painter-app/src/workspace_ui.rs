@@ -907,7 +907,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 54] = [
+        let fixed: [FixedCommand; 55] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -925,6 +925,7 @@ impl PainterApp {
             ("file.export_brushes", "Export All Brushes...", C::Brush, "", &[], true),
             ("edit.undo", "Undo", C::Edit, "Ctrl+Z", &[], self.history.can_undo()),
             ("edit.redo", "Redo", C::Edit, "Ctrl+Shift+Z", &[], self.history.can_redo()),
+            ("edit.image_size", "Image Size...", C::Edit, "", &["resize", "scale", "resample", "pixel art", "nearest", "resolution"], true),
             ("edit.clear", "Clear Selected", C::Edit, "Del", &["delete", "erase"], has_sel),
             ("select.all", "Select All", C::Select, "Ctrl+A", &[], true),
             ("select.none", "Deselect", C::Select, "Ctrl+D", &["clear selection"], has_sel),
@@ -1032,6 +1033,7 @@ impl PainterApp {
             "file.export_svg" => self.svg_export = Some(crate::dialogs::SvgExportDialog::default()),
             "file.export_brushes" => self.export_brushes(None),
             "edit.undo" => self.undo(),
+            "edit.image_size" => self.image_size = Some(crate::dialogs::ImageSizeDialog::open(self.doc.canvas(), self.last_resize_filter)),
             "edit.redo" => self.redo(),
             "edit.clear" => self.clear_selected(),
             "select.all" => self.select_all(),

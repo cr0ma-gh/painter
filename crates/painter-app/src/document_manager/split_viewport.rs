@@ -39,6 +39,8 @@ const AUTOSAVE_FILE: &str = "reference-board.refboard";
 const AUTOSAVE_EVERY: Duration = Duration::from_secs(3);
 /// Screen size of the corner and turn handles.
 const HANDLE: f32 = 7.0;
+/// Smooth when shrunk, square pixels when enlarged (pixel art stays sharp).
+const SHARP_WHEN_ENLARGED: TextureOptions = TextureOptions { magnification: egui::TextureFilter::Nearest, ..TextureOptions::LINEAR };
 /// Image files the board takes.
 pub(crate) const IMAGE_EXTENSIONS: [&str; 4] = ["png", "jpg", "jpeg", "bmp"];
 
@@ -440,7 +442,7 @@ impl ReferenceView {
         for (id, grey, source, image) in done {
             match image {
                 Some(image) => {
-                    let texture = ctx.load_texture(format!("board-{id}"), image, TextureOptions::LINEAR);
+                    let texture = ctx.load_texture(format!("board-{id}"), image, SHARP_WHEN_ENLARGED);
                     self.textures.insert(id, Texture { texture, grey, source });
                 }
                 None => self.message = Some("A picture on the reference board couldn't be decoded".into()),
@@ -663,7 +665,7 @@ impl PainterApp {
             Err(_) => false,
         });
         for (slot, key, doc_size, image) in finished {
-            let texture = ctx.load_texture(format!("reference-{slot}"), image, TextureOptions::LINEAR);
+            let texture = ctx.load_texture(format!("reference-{slot}"), image, SHARP_WHEN_ENLARGED);
             // The document may have been resized.
             for item in r.board.items.iter_mut().filter(|i| i.source == Source::Document { slot }) {
                 item.size = [doc_size.x, doc_size.y];

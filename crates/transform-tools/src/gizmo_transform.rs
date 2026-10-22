@@ -301,6 +301,26 @@ impl TransformGizmo {
         }
     }
 
+    /// The HUD with whole-pixel placement for nearest-neighbour scaling: each
+    /// axis scaled by a whole multiple (×2, ×3…) or a whole fraction (½, ⅓…),
+    /// turned by quarter turns, and the top-left corner on the pixel grid, so
+    /// every source pixel becomes a square block of the same size.
+    pub fn whole_pixel_hud(&self) -> Hud {
+        let mut hud = self.hud();
+        let snap = |percent: f64| {
+            let s = (percent / 100.0).abs().max(1e-4);
+            let s = if s >= 1.0 { s.round() } else { 1.0 / (1.0 / s).round() };
+            s.copysign(percent) * 100.0
+        };
+        hud.scale = hud.scale.map(snap);
+        hud.rotation = (hud.rotation / 90.0).round() * 90.0;
+        let quarter = (hud.rotation / 90.0).round().rem_euclid(2.0) == 1.0;
+        let (w, h) = (self.source[2] * (hud.scale[0] / 100.0).abs(), self.source[3] * (hud.scale[1] / 100.0).abs());
+        let (w, h) = if quarter { (h, w) } else { (w, h) };
+        hud.position = [(hud.position[0] - w / 2.0).round() + w / 2.0, (hud.position[1] - h / 2.0).round() + h / 2.0];
+        hud
+    }
+
     /// Applies HUD edits (affine modes; the corner and warp modes only take
     /// the interpolation and position).
     pub fn set_hud(&mut self, hud: Hud) {
@@ -536,5 +556,29 @@ mod tests {
         // Bottom edge moved right by 20, top edge left by 20 (shear about the centre).
         assert!(close(m.apply([50.0, 100.0]), [70.0, 100.0]), "{:?}", m.apply([50.0, 100.0]));
         assert!(close(m.apply([50.0, 0.0]), [30.0, 0.0]));
+    }
+
+    #[test]
+    fn whole_pixels_snap_scale_turn_and_position() {
+        // A 5 × 3 pixel sprite at (10, 20), scaled roughly ×2.4, turned 80°, slightly off the grid.
+        let mut g = TransformGizmo::new([10.0, 20.0, 5.0, 3.0]);
+        let mut hud = g.hud();
+        hud.scale = [240.0, 230.0];
+        hud.rotation = 80.0;
+        hud.position = [30.3, 40.7];
+        g.set_hud(hud);
+        let snapped = g.whole_pixel_hud();
+        assert_eq!(snapped.scale, [200.0, 200.0], "whole multiples");
+        assert_eq!(snapped.rotation, 90.0);
+        // Turned a quarter: 6 wide, 10 tall, top-left on whole pixels.
+        let left = snapped.position[0] - 3.0;
+        let top = snapped.position[1] - 5.0;
+        assert!((left - left.round()).abs() < 1e-9 && (top - top.round()).abs() < 1e-9);
+        assert!((snapped.position[0] - 30.3).abs() <= 0.5 && (snapped.position[1] - 40.7).abs() <= 0.5);
+        // Shrinking: whole fractions.
+        hud.scale = [45.0, 30.0];
+        g.set_hud(hud);
+        let s = g.whole_pixel_hud().scale;
+        assert!((s[0] - 50.0).abs() < 1e-9 && (s[1] - 100.0 / 3.0).abs() < 1e-9);
     }
 }

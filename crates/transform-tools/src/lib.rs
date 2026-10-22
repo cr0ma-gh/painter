@@ -20,6 +20,7 @@ pub mod crop;
 pub mod gizmo_transform;
 pub mod matrix;
 pub mod resample;
+pub mod resize;
 pub mod warp;
 
 pub use commit::{commit, render_floating, Placement};
@@ -27,4 +28,5 @@ pub use crop::{AspectRatio, BoxHandle, CropBox, CropPlan, FloatingSelection, Pas
 pub use gizmo_transform::{GizmoHandle, Hud, Modifiers, TransformAction, TransformGizmo, TransformMode};
 pub use matrix::{AffineParams, Mat3, Point};
 pub use resample::{resample, Image, Interpolation};
+pub use resize::{resize_document, resize_image};
 pub use warp::{MeshWarp, WarpMesh};

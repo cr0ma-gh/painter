@@ -125,6 +125,10 @@ pub struct PainterApp {
     pub(crate) new_canvas_last: Option<crate::print_ui::NewCanvas>,
     /// File → Import → From Scanner, when open.
     pub(crate) scanner: Option<ScannerDialog>,
+    /// Edit → Image Size, when open.
+    pub(crate) image_size: Option<crate::dialogs::ImageSizeDialog>,
+    /// The resampling last used for Image Size (offered again).
+    pub(crate) last_resize_filter: transform_tools::Interpolation,
     /// File → Export → SVG, when open.
     pub(crate) svg_export: Option<SvgExportDialog>,
     /// The open transform (Transform tool), if any.
@@ -169,6 +173,9 @@ pub struct PainterApp {
     pub(crate) docs: crate::document_manager::DocManager,
     /// Resolution of the document the clipboard was copied from.
     pub(crate) clipboard_dpi: u32,
+    /// Transform with nearest neighbour keeps whole pixels (scale ×n or 1/n,
+    /// quarter turns, position on the pixel grid).
+    pub(crate) whole_pixels: bool,
     pub(crate) curve_target: CurveTarget,
     /// The ruler selected in the Ruler tool, and what it's dragging.
     pub(crate) selected_ruler: Option<usize>,
@@ -266,6 +273,9 @@ impl PainterApp {
             ws,
             docs: Default::default(),
             clipboard_dpi: painter_core::DEFAULT_DPI,
+            whole_pixels: true,
+            image_size: None,
+            last_resize_filter: transform_tools::Interpolation::Nearest,
             curve_target: CurveTarget::Size,
             selected_ruler: None,
             ruler_drag: None,
@@ -1337,6 +1347,7 @@ impl eframe::App for PainterApp {
         }
         self.new_canvas_window(ctx);
         self.scanner_window(ctx);
+        self.image_size_window(ctx);
         self.svg_export_window(ctx);
         self.comic_wizard_window(ctx);
         self.areas(ctx);

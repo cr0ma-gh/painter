@@ -162,7 +162,13 @@ cargo run --release -p painter-app -- drawing.painter
 - **Transform and crop** (Transform tool / Ctrl+T, Crop tool / C; crate
   `transform-tools`): the layer or selection floats under a gizmo while the
   document stays untouched, with a live GPU preview and a HUD (mode, X/Y,
-  W/H %, rotation, interpolation, Apply / Cancel / Reset). The engine:
+  W/H %, rotation, interpolation, Apply / Cancel / Reset). With Nearest
+  neighbour, "Whole pixels" keeps pixel art crisp: scale snaps to ×2, ×3… or
+  ½, ⅓…, rotation to quarter turns and the position to the pixel grid (½ ×1
+  ×2 ×3 ×4 buttons). Edit → Image Size resizes the whole document (layers,
+  masks, selection, vector strokes) with Nearest neighbour (keeps pixels),
+  bilinear, bicubic or Lanczos3, optionally keeping the size on paper. The
+  engine:
   homographies (scale / rotate / skew about a pivot, 4-corner perspective and
   free distort), a Catmull-Rom mesh warp, a toolkit-independent gizmo (8 scale
   handles, rotation handle with 15° snapping, pivot, corner nodes, mesh points,

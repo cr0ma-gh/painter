@@ -610,9 +610,33 @@ impl PainterApp {
                                         }
                                     },
                                 );
+                                // Pixel art: whole multiples, quarter turns, the pixel grid.
+                                let pixel = hud.interpolation == Interpolation::Nearest && session.gizmo.mode == TransformMode::ScaleRotate;
+                                if pixel {
+                                    ui.checkbox(&mut self.whole_pixels, "Whole pixels").on_hover_text(
+                                        "Scale by ×2, ×3… or ½, ⅓…, turn by quarter turns and stay on the pixel grid, so every pixel stays a square block",
+                                    );
+                                    for (label, k) in [("½", 0.5), ("×1", 1.0), ("×2", 2.0), ("×3", 3.0), ("×4", 4.0)] {
+                                        if ui.small_button(label).on_hover_text(format!("Scale to {}%", k * 100.0)).clicked() {
+                                            hud.scale = [k * 100.0; 2];
+                                        }
+                                    }
+                                }
                                 if hud != before {
                                     session.gizmo.set_hud(hud);
                                     changed = true;
+                                }
+                                if pixel && self.whole_pixels {
+                                    let (now, snapped) = (session.gizmo.hud(), session.gizmo.whole_pixel_hud());
+                                    let off = (now.position[0] - snapped.position[0]).abs()
+                                        + (now.position[1] - snapped.position[1]).abs()
+                                        + (now.scale[0] - snapped.scale[0]).abs()
+                                        + (now.scale[1] - snapped.scale[1]).abs()
+                                        + (now.rotation - snapped.rotation).abs();
+                                    if off > 1e-6 {
+                                        session.gizmo.set_hud(snapped);
+                                        changed = true;
+                                    }
                                 }
                                 if changed {
                                     session.revision += 1;
