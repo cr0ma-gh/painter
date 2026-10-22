@@ -15,7 +15,8 @@ use crate::mesh::{Mesh, Vertex};
 use crate::scene::{Light, LightKind, Scene3D, SceneObject};
 
 const MAGIC: &[u8; 4] = b"P3DS";
-const FORMAT: u32 = 1;
+/// 2: textures (after the meshes, raw RGBA).
+const FORMAT: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
 struct Header {
@@ -25,6 +26,14 @@ struct Header {
     selected: Option<usize>,
     meshes: Vec<MeshFile>,
     objects: Vec<ObjectFile>,
+    #[serde(default)]
+    textures: Vec<TextureFile>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct TextureFile {
+    width: u32,
+    height: u32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -74,6 +83,8 @@ struct ObjectFile {
     scale: [f32; 3],
     visible: bool,
     color: [f32; 3],
+    #[serde(default)]
+    texture: Option<usize>,
 }
 
 impl Scene3D {
@@ -85,6 +96,15 @@ impl Scene3D {
             index.entry(Arc::as_ptr(&o.mesh) as usize).or_insert_with(|| {
                 meshes.push(&o.mesh);
                 meshes.len() - 1
+            });
+        }
+        // Distinct textures, the same way.
+        let mut tex_index: HashMap<usize, usize> = HashMap::new();
+        let mut textures: Vec<&Arc<crate::texture::Texture>> = Vec::new();
+        for t in self.objects.iter().filter_map(|o| o.texture.as_ref()) {
+            tex_index.entry(Arc::as_ptr(t) as usize).or_insert_with(|| {
+                textures.push(t);
+                textures.len() - 1
             });
         }
         let cam = &self.camera;
@@ -118,6 +138,7 @@ impl Scene3D {
             ambient: self.ambient,
             selected: self.selected,
             meshes: meshes.iter().map(|m| MeshFile { name: m.name.clone(), vertices: m.vertices.len(), indices: m.indices.len() }).collect(),
+            textures: textures.iter().map(|t| TextureFile { width: t.width, height: t.height }).collect(),
             objects: self
                 .objects
                 .iter()
@@ -131,6 +152,7 @@ impl Scene3D {
                         scale: o.transform.scale.to_array(),
                         visible: o.visible,
                         color: o.color,
+                        texture: o.texture.as_ref().map(|t| tex_index[&(Arc::as_ptr(t) as usize)]),
                     }
                 })
                 .collect(),
@@ -150,6 +172,9 @@ impl Scene3D {
             for i in &m.indices {
                 out.extend_from_slice(&i.to_le_bytes());
             }
+        }
+        for t in textures {
+            out.extend_from_slice(&t.rgba);
         }
         out
     }
@@ -185,6 +210,13 @@ impl Scene3D {
             }
             meshes.push(Arc::new(Mesh::from_buffers(&m.name, vertices, indices)));
         }
+        let mut textures = Vec::with_capacity(header.textures.len());
+        for t in &header.textures {
+            let len = (t.width as usize).checked_mul(t.height as usize).and_then(|n| n.checked_mul(4)).ok_or("texture too big")?;
+            let data = bytes.get(at..at + len).ok_or("truncated texture data")?;
+            at += len;
+            textures.push(Arc::new(crate::texture::Texture::from_rgba(t.width, t.height, data.to_vec()).ok_or("bad texture size")?));
+        }
         // Renormalised only when off, so saved values come back bit-exact.
         let quat = |r: [f32; 4]| {
             let q = Quat { w: r[0], x: r[1], y: r[2], z: r[3] };
@@ -214,6 +246,7 @@ impl Scene3D {
                 transform: Transform { location: Vec3::from_array(o.location), rotation: quat(o.rotation), scale: Vec3::from_array(o.scale) },
                 visible: o.visible,
                 color: o.color,
+                texture: o.texture.and_then(|i| textures.get(i).cloned()),
             });
         }
         let lights = header
@@ -256,6 +289,7 @@ mod tests {
                 transform: Transform { location: vec3(x, 1.0, 0.5), rotation: Quat::from_euler_xyz([0.3, 0.0, 1.0]), scale: vec3(1.0, 2.0, 1.0) },
                 visible: name == "a",
                 color: CLAY,
+                texture: None,
             });
         }
         scene.selected = Some(1);
@@ -263,6 +297,8 @@ mod tests {
         scene.camera.toggle_projection();
         scene.lights.push(Light { kind: LightKind::Point { position: vec3(1.0, 2.0, 3.0), range: 9.0 }, color: [1.0, 0.5, 0.2], intensity: 2.0 });
         scene.ambient = 0.4;
+        let tex = crate::texture::Texture::from_rgba(2, 1, vec![1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
+        scene.objects[1].texture = Some(Arc::new(tex.clone()));
 
         let bytes = scene.to_bytes();
         let back = Scene3D::from_bytes(&bytes).unwrap();
@@ -278,6 +314,8 @@ mod tests {
         assert!((back.camera.forward() - scene.camera.forward()).length() < 1e-5);
         assert_eq!(back.lights, scene.lights);
         assert_eq!(back.ambient, 0.4);
+        assert_eq!(back.objects[1].texture.as_deref(), Some(&tex));
+        assert!(back.objects[0].texture.is_none());
         // One copy of the cube: header + 24 vertices × 32 + 36 indices × 4.
         assert!(bytes.len() < 2 * (24 * 32 + 36 * 4) + 2000);
 

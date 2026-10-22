@@ -32,7 +32,7 @@ fn scene(layer: painter_core::LayerId, far_first: bool, size: (u32, u32)) -> Sce
     let cube = Arc::new(Mesh::cube());
     let near = Transform { location: vec3(0.0, -1.0, 0.0), ..Transform::default() };
     let far = Transform { location: vec3(0.0, 2.0, 0.0), scale: vec3(3.0, 3.0, 3.0), ..Transform::default() };
-    let draw = |t: Transform, color| SceneDraw { mesh: cube.clone(), model: t.matrix().0, color, selected: false };
+    let draw = |t: Transform, color| SceneDraw { mesh: cube.clone(), model: t.matrix().0, color, selected: false, texture: None };
     let mut draws = vec![draw(near, [1.0, 0.1, 0.1]), draw(far, [0.1, 0.1, 1.0])];
     if far_first {
         draws.reverse();
@@ -99,4 +99,26 @@ fn canvas_shows_the_scene_as_the_layer() {
     let centre = &rgba[(32 * 96 + 48) * 4..][..4];
     assert!(centre[0] > 200 && centre[2] < 60, "the red cube over the white paper: {centre:?}");
     assert_eq!(&rgba[..4], &[255, 255, 255, 255], "paper where the scene is empty");
+}
+
+#[test]
+fn textures_paint_over_the_colour() {
+    let Some((device, queue, _turn)) = gpu() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    let size = (96, 64);
+    let mut renderer = SceneRenderer::new(device);
+    let mut preview = scene(painter_core::LayerId(1), false, size);
+    let green = scene_3d::texture::Texture::from_rgba(1, 1, vec![0, 255, 0, 255]).unwrap();
+    preview.draws[0].texture = Some(Arc::new(green));
+    let rgba = renderer.render_to_rgba(device, queue, &preview, size);
+    let centre = &rgba[(32 * 96 + 48) * 4..][..4];
+    assert!(centre[1] > 200 && centre[0] < 60, "the texture covers the red: {centre:?}");
+    // A half-transparent texture lets the colour through.
+    let half = scene_3d::texture::Texture::from_rgba(1, 1, vec![0, 255, 0, 128]).unwrap();
+    preview.draws[0].texture = Some(Arc::new(half));
+    let rgba = renderer.render_to_rgba(device, queue, &preview, size);
+    let centre = &rgba[(32 * 96 + 48) * 4..][..4];
+    assert!(centre[0] > 90 && centre[1] > 90, "mixed: {centre:?}");
 }

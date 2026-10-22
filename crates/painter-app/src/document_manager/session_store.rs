@@ -222,6 +222,7 @@ impl PainterApp {
         self.dirty = s.dirty;
         self.edit_mask = s.edit_mask;
         self.stroke = None;
+        self.model_paint = None;
         self.drag = None;
         self.scene_drag = None;
         self.selected_ruler = None;
@@ -244,6 +245,8 @@ impl PainterApp {
         }
         self.crop = None;
         self.frame.cancel();
+        // The paint layer belongs to this tab's model.
+        self.stop_model_paint();
         self.commit_scenes(true);
         true
     }

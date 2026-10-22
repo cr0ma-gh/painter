@@ -17,15 +17,21 @@ struct Object {
     model: mat4x4<f32>,
     // Base colour (rgb) and how much to brighten the selected object (a).
     color: vec4<f32>,
+    // x: 1 when the texture is painted over the colour.
+    params: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> globals: Globals;
 @group(1) @binding(0) var<uniform> object: Object;
+// Premultiplied colour over the base colour through the UVs (v up).
+@group(1) @binding(1) var paint: texture_2d<f32>;
+@group(1) @binding(2) var paint_sampler: sampler;
 
 struct VertexOut {
     @builtin(position) position: vec4<f32>,
     @location(0) world: vec3<f32>,
     @location(1) normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
 };
 
 @vertex
@@ -36,6 +42,7 @@ fn vs_main(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @lo
     out.world = world.xyz;
     // Fine for the uniform-ish scales of reference models.
     out.normal = (object.model * vec4<f32>(normal, 0.0)).xyz;
+    out.uv = uv;
     return out;
 }
 
@@ -53,6 +60,8 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
         // Two-sided: reference meshes are often open or have flipped faces.
         light += globals.light_color[i].rgb * abs(dot(n, normalize(to_light)));
     }
-    let rgb = clamp(object.color.rgb * light + vec3<f32>(object.color.a), vec3<f32>(0.0), vec3<f32>(1.0));
+    let painted = textureSample(paint, paint_sampler, vec2<f32>(input.uv.x, 1.0 - input.uv.y)) * object.params.x;
+    let base = object.color.rgb * (1.0 - painted.a) + painted.rgb;
+    let rgb = clamp(base * light + vec3<f32>(object.color.a), vec3<f32>(0.0), vec3<f32>(1.0));
     return vec4<f32>(rgb, 1.0);
 }

@@ -16,7 +16,7 @@ fn main() {
     let mut scene = if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("obj")) {
         let mesh = scene_3d::mesh::load_obj(&std::fs::read_to_string(path).unwrap(), "obj").unwrap();
         let mut s = Scene3D::default();
-        s.objects.push(SceneObject { name: "obj".into(), mesh: std::sync::Arc::new(mesh), transform: Default::default(), visible: true, color: scene_3d::scene::CLAY });
+        s.objects.push(SceneObject { name: "obj".into(), mesh: std::sync::Arc::new(mesh), transform: Default::default(), visible: true, color: scene_3d::scene::CLAY, texture: None });
         s.camera.frame(&s.bounds().unwrap());
         s
     } else {

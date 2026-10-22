@@ -43,6 +43,14 @@ pub(crate) struct SceneLayer {
     blend_camera: Option<BlendCamera>,
 }
 
+impl SceneLayer {
+    /// Marks the scene changed while its document is parked: drawn again and
+    /// copied into the layer's pixels once the document is shown.
+    pub(crate) fn touch(&mut self) {
+        self.commit_at = Some(Instant::now());
+    }
+}
+
 /// What a canvas drag on a 3D layer does.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum SceneDrag {
@@ -67,7 +75,12 @@ pub(crate) fn load_model(path: &std::path::Path) -> Result<(Scene3D, Option<Blen
         "obj" => {
             let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
             let name = path.file_stem().map_or("model".into(), |s| s.to_string_lossy().into_owned());
-            Ok((Scene3D::from_mesh(load_obj(&text, &name)?), None))
+            let mut scene = Scene3D::from_mesh(load_obj(&text, &name)?);
+            // The material's image, when the OBJ comes with one.
+            if let (Some(o), Some(t)) = (scene.objects.first_mut(), crate::texture_paint::obj_texture(path, &text)) {
+                o.texture = Some(std::sync::Arc::new(t));
+            }
+            Ok((scene, None))
         }
         "blend" => {
             let file = BlendFile::open(path).map_err(|e| e.to_string())?;
@@ -87,12 +100,21 @@ pub(crate) fn load_model(path: &std::path::Path) -> Result<(Scene3D, Option<Blen
 impl PainterApp {
     /// The active layer's scene, when the active layer is a 3D layer.
     pub(crate) fn active_scene(&self) -> Option<&SceneLayer> {
-        self.scenes.get(&self.doc.active)
+        self.scenes.get(&self.scene_target())
+    }
+
+    /// The 3D layer being worked on: the active layer, or while painting on a
+    /// model (the paint layer active), the model's layer.
+    pub(crate) fn scene_target(&self) -> LayerId {
+        match &self.model_paint {
+            Some(p) if p.overlay == self.doc.active => p.scene_layer,
+            _ => self.doc.active,
+        }
     }
 
     /// The 3D tool is on and the active layer is 3D: the canvas navigates the scene.
     pub(crate) fn scene_navigation_active(&self) -> bool {
-        self.tool == Tool::Scene3D && self.active_scene().is_some()
+        (self.tool == Tool::Scene3D || self.scene_target() != self.doc.active) && self.active_scene().is_some()
     }
 
     /// Marks a scene changed: redraw now, copy into the pixels shortly.
@@ -303,7 +325,7 @@ impl PainterApp {
     /// Middle-button navigation and the wheel. Called instead of canvas
     /// panning / zooming while [`Self::scene_navigation_active`].
     pub(crate) fn scene_navigate(&mut self, ui: &egui::Ui, rect: Rect, response: &egui::Response) {
-        let id = self.doc.active;
+        let id = self.scene_target();
         let (delta, mods, scroll, middle) =
             ui.input(|i| (i.pointer.delta(), i.modifiers, i.raw_scroll_delta.y, i.pointer.middle_down()));
         let canvas_h = self.doc.canvas().1 as f32;
@@ -346,7 +368,7 @@ impl PainterApp {
 
     /// Keys for the 3D tool; consumed so they don't trigger other tools.
     pub(crate) fn scene_shortcuts(&mut self, ctx: &egui::Context) {
-        if !self.scene_navigation_active() {
+        if !self.scene_navigation_active() || self.tool != Tool::Scene3D {
             return;
         }
         let id = self.doc.active;
@@ -462,7 +484,7 @@ impl PainterApp {
     }
 
     pub(crate) fn draw_scene_overlay(&self, painter: &egui::Painter, rect: Rect) {
-        if !self.scene_navigation_active() {
+        if !self.scene_navigation_active() || self.tool != Tool::Scene3D {
             return;
         }
         let Some(layer) = self.active_scene() else {
@@ -538,7 +560,7 @@ impl PainterApp {
     // ---- panel --------------------------------------------------------------------------
 
     pub(crate) fn scene_panel(&mut self, ui: &mut egui::Ui) {
-        let id = self.doc.active;
+        let id = self.scene_target();
         if !self.scenes.contains_key(&id) {
             ui.label("The active layer isn't a 3D layer.");
             if ui.button("New 3D layer from a model…").on_hover_text(".blend (Blender 3.4+) or .obj").clicked() {
@@ -817,6 +839,7 @@ impl PainterApp {
             self.recomposite = true;
             self.status = "3D layer flattened to pixels".into();
         }
+        self.texture_panel(ui, id);
     }
 }
 
@@ -837,6 +860,7 @@ fn preview(id: LayerId, layer: &SceneLayer, (w, h): (u32, u32)) -> ScenePreview 
                 model: o.transform.matrix().0,
                 color: o.color,
                 selected: scene.selected == Some(i),
+                texture: o.texture.clone(),
             })
             .collect(),
         lights: scene

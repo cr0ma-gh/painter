@@ -176,6 +176,14 @@ pub struct PainterApp {
     /// The GPU, for reading 3D renders back into layer pixels.
     pub(crate) render_state: Option<eframe::egui_wgpu::RenderState>,
     pub(crate) scene_renderer: Option<painter_render::SceneRenderer>,
+    /// Painting on a model through a layer over its 3D layer.
+    pub(crate) model_paint: Option<crate::texture_paint::ModelPaint>,
+    /// Texture documents (by tab) and the models they paint.
+    pub(crate) texture_links: crate::texture_paint::TextureLinks,
+    /// The document's pixels changed since the last frame.
+    pub(crate) doc_touched: bool,
+    /// Size of new textures.
+    pub(crate) new_texture_size: u32,
     pub(crate) allow_close: bool,
     pub(crate) status: String,
     pub(crate) file_path: Option<PathBuf>,
@@ -281,6 +289,10 @@ impl PainterApp {
             gizmo: Gizmo::default(),
             render_state: cc.wgpu_render_state.clone(),
             scene_renderer: None,
+            model_paint: None,
+            texture_links: Default::default(),
+            doc_touched: false,
+            new_texture_size: 1024,
             allow_close: false,
             status: "Ready".into(),
             file_path: None,
@@ -378,6 +390,7 @@ impl PainterApp {
         self.scene_undo.clear();
         self.scene_redo.clear();
         self.selected_panel = None;
+        self.model_paint = None;
         self.selected_ruler = None;
         self.stroke = None;
         self.drag = None;
@@ -1408,6 +1421,8 @@ impl eframe::App for PainterApp {
         self.ws.autosave();
         self.sync_tool_sessions();
         self.prune_scenes();
+        self.model_paint_tick();
+        self.texture_documents_tick(ctx);
         self.commit_scenes(false);
         self.scene_repaint(ctx);
         self.workspace_frame(ctx);

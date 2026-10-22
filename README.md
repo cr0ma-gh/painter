@@ -222,9 +222,18 @@ cargo run --release -p painter-app -- drawing.painter
   focal length, sensor fit, lens shift, clipping; the render frame fitted to
   the canvas) and gets a perspective ruler on the vanishing points of the
   scene's X, Y and Z axes, usable from any layer; the 3D panel can go back to
-  the Blender camera or rebuild the ruler from the current view. The
+  the Blender camera or rebuild the ruler from the current view.
+  **Texture painting** (3D panel → Texture painting): each object can have a
+  colour texture (new, loaded from an image, or an OBJ material's `map_Kd`),
+  saved with the project and exportable as PNG. *Paint on model* puts a
+  “Paint on model” layer over the 3D layer where every tool works; after each
+  stroke its paint is projected onto the texture through the camera (only
+  surfaces in view, fading on those seen edge-on, no cracks at UV seams), and
+  middle drag or the wheel still turn the model. *Edit texture (UV)* opens the
+  texture as its own document with the mesh's UV layout over it and a live
+  3D preview; the model follows as you paint. Undo covers both. The
   render is copied into the layer's pixels, so it saves and exports; the scene
-  itself isn't saved in `.painter` files yet. The engine: `.blend`
+  (textures included) is saved in `.painter` files. The engine: `.blend`
   reading (Blender 3.4 – 5.x, plain or zstd-compressed: blocks, the SDNA
   struct catalogue, mesh objects with UVs and transforms), an OBJ reader,
   GPU-ready meshes, a viewport camera with Blender-style navigation (orbit

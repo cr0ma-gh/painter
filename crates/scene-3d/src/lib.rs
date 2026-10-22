@@ -7,6 +7,7 @@
 //! - [`camera`]: the viewport camera with Blender-style navigation.
 //! - [`gizmo`]: object transforms, picking, translate / rotate / scale.
 //! - [`scene`]: what a 3D layer holds (objects, camera, lights).
+//! - [`texture`]: painted textures and projection painting onto them.
 //! - [`persist`]: a scene as bytes for project files.
 //!
 //! Written from the `.blend` format's public description and from how
@@ -21,3 +22,4 @@ pub mod math;
 pub mod mesh;
 pub mod persist;
 pub mod scene;
+pub mod texture;

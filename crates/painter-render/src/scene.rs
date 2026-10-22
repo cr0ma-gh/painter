@@ -10,6 +10,7 @@ use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 use painter_core::LayerId;
 use scene_3d::mesh::Mesh;
+use scene_3d::texture::Texture;
 use wgpu::util::DeviceExt;
 
 use crate::gpu::{self, Target, CANVAS_FORMAT, TARGET_USAGE};
@@ -26,6 +27,8 @@ pub struct SceneDraw {
     pub color: [f32; 3],
     /// Highlight the selected object a little.
     pub selected: bool,
+    /// Painted over the colour through the UVs.
+    pub texture: Option<Arc<Texture>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -61,6 +64,8 @@ struct Globals {
 struct ObjectUniform {
     model: [[f32; 4]; 4],
     color: [f32; 4],
+    /// x: 1 when textured.
+    params: [f32; 4],
 }
 
 struct MeshBuffers {
@@ -84,6 +89,11 @@ pub struct SceneRenderer {
     object_layout: wgpu::BindGroupLayout,
     /// GPU buffers by mesh address, uploaded once.
     meshes: HashMap<usize, MeshBuffers>,
+    /// Uploaded textures by address; dropped once the texture is (painting makes new ones).
+    textures: HashMap<usize, (std::sync::Weak<Texture>, wgpu::TextureView)>,
+    /// Bound when an object has no texture (made on the first draw).
+    blank: Option<wgpu::TextureView>,
+    sampler: wgpu::Sampler,
 }
 
 impl SceneRenderer {
@@ -95,7 +105,19 @@ impl SceneRenderer {
             })
         };
         let globals_layout = uniform("scene globals");
-        let object_layout = uniform("scene object");
+        let object_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("scene object"),
+            entries: &[
+                gpu::uniform_entry(0, wgpu::ShaderStages::VERTEX_FRAGMENT),
+                gpu::texture_entry(1),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
         let shader = gpu::shader(device, "scene", include_str!("shaders/scene.wgsl"));
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("scene"),
@@ -131,7 +153,15 @@ impl SceneRenderer {
             multiview: None,
             cache: None,
         });
-        Self { pipeline, globals_layout, object_layout, meshes: HashMap::new() }
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("scene texture"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        Self { pipeline, globals_layout, object_layout, meshes: HashMap::new(), textures: HashMap::new(), blank: None, sampler }
     }
 
     pub(crate) fn target(device: &wgpu::Device, size: (u32, u32)) -> SceneTarget {
@@ -196,12 +226,47 @@ impl SceneRenderer {
             })
         };
         let globals_group = uniform("scene globals", bytemuck::bytes_of(&globals), &self.globals_layout);
+        // Textures: drop the ones no longer alive, upload new ones.
+        self.textures.retain(|_, (weak, _)| weak.strong_count() > 0);
+        if self.blank.is_none() {
+            self.blank = Some(upload_texture(device, encoder, &Texture::new(1, 1)));
+        }
+        for t in scene.draws.iter().filter_map(|d| d.texture.as_ref()) {
+            let key = Arc::as_ptr(t) as usize;
+            if let std::collections::hash_map::Entry::Vacant(slot) = self.textures.entry(key) {
+                slot.insert((Arc::downgrade(t), upload_texture(device, encoder, t)));
+            }
+        }
         let objects: Vec<wgpu::BindGroup> = scene
             .draws
             .iter()
             .map(|d| {
-                let o = ObjectUniform { model: d.model, color: [d.color[0], d.color[1], d.color[2], if d.selected { 0.08 } else { 0.0 }] };
-                uniform("scene object", bytemuck::bytes_of(&o), &self.object_layout)
+                let o = ObjectUniform {
+                    model: d.model,
+                    color: [d.color[0], d.color[1], d.color[2], if d.selected { 0.08 } else { 0.0 }],
+                    params: [d.texture.is_some() as u8 as f32, 0.0, 0.0, 0.0],
+                };
+                let view = d
+                    .texture
+                    .as_ref()
+                    .and_then(|t| self.textures.get(&(Arc::as_ptr(t) as usize)))
+                    .map(|(_, v)| v)
+                    .or(self.blank.as_ref())
+                    .expect("blank texture made above");
+                let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("scene object"),
+                    contents: bytemuck::bytes_of(&o),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                });
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("scene object"),
+                    layout: &self.object_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry { binding: 0, resource: buffer.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(view) },
+                        wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                    ],
+                })
             })
             .collect();
         for d in &scene.draws {
@@ -247,6 +312,46 @@ impl SceneRenderer {
     }
 }
 
+/// A texture on the GPU (premultiplied, so filtering doesn't darken painted edges),
+/// copied in through `encoder`.
+fn upload_texture(device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, t: &Texture) -> wgpu::TextureView {
+    let size = wgpu::Extent3d { width: t.width, height: t.height, depth_or_array_layers: 1 };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("scene texture"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: CANVAS_FORMAT,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let row = t.width * 4;
+    let padded = row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let mut data = vec![0u8; (padded * t.height) as usize];
+    for y in 0..t.height as usize {
+        let src = &t.rgba[y * row as usize..(y + 1) * row as usize];
+        let dst = &mut data[y * padded as usize..y * padded as usize + row as usize];
+        for (d, s) in dst.as_chunks_mut::<4>().0.iter_mut().zip(src.as_chunks::<4>().0) {
+            let a = s[3] as u32;
+            for c in 0..3 {
+                d[c] = ((s[c] as u32 * a + 127) / 255) as u8;
+            }
+            d[3] = s[3];
+        }
+    }
+    let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("scene texture data"), contents: &data, usage: wgpu::BufferUsages::COPY_SRC });
+    encoder.copy_buffer_to_texture(
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(t.height) },
+        },
+        texture.as_image_copy(),
+        size,
+    );
+    texture.create_view(&wgpu::TextureViewDescriptor::default())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,6 +359,6 @@ mod tests {
     #[test]
     fn uniforms_match_wgsl() {
         assert_eq!(std::mem::size_of::<Globals>(), 208);
-        assert_eq!(std::mem::size_of::<ObjectUniform>(), 80);
+        assert_eq!(std::mem::size_of::<ObjectUniform>(), 96);
     }
 }

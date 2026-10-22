@@ -81,6 +81,9 @@ impl PainterApp {
         }
         self.canvas_input(ui, rect, &response);
 
+        if !self.uploads.is_empty() {
+            self.doc_touched = true;
+        }
         let stroke = self.take_stroke_preview();
         if self.gpu_ready {
             let time = self.started.elapsed().as_secs_f32();

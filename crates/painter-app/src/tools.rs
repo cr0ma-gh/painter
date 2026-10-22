@@ -335,6 +335,7 @@ impl PainterApp {
         self.draw_crop_overlay(painter, rect);
         self.draw_comic_overlay(painter, rect);
         self.draw_scene_overlay(painter, rect);
+        self.draw_uv_overlay(painter, rect);
         let Some(drag) = &self.drag else {
             return;
         };

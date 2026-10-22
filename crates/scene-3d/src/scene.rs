@@ -28,6 +28,8 @@ pub struct SceneObject {
     pub visible: bool,
     /// Base colour (linear-ish 0..1); reference models are usually plain clay.
     pub color: [f32; 3],
+    /// Colour painted over the base colour through the UVs (see [`crate::texture`]).
+    pub texture: Option<Arc<crate::texture::Texture>>,
 }
 
 /// Clay grey for imported objects.
@@ -72,7 +74,7 @@ impl Scene3D {
     /// One OBJ model as a scene.
     pub fn from_mesh(mesh: Mesh) -> Self {
         let mut scene = Scene3D::default();
-        scene.objects.push(SceneObject { name: mesh.name.clone(), mesh: Arc::new(mesh), transform: Transform::default(), visible: true, color: CLAY });
+        scene.objects.push(SceneObject { name: mesh.name.clone(), mesh: Arc::new(mesh), transform: Transform::default(), visible: true, color: CLAY, texture: None });
         if let Some(bounds) = scene.bounds() {
             scene.camera.frame(&bounds);
         }
@@ -90,6 +92,7 @@ impl Scene3D {
                     transform: Transform::from_blender(o.location, o.rotation, o.scale),
                     visible: true,
                     color: CLAY,
+                    texture: None,
                 });
             }
         }
@@ -145,6 +148,7 @@ mod tests {
                 transform: Transform { location: vec3(x, 0.0, 0.0), ..Transform::default() },
                 visible: true,
                 color: CLAY,
+                texture: None,
             });
         }
         let bounds = scene.bounds().unwrap();
