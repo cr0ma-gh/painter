@@ -100,7 +100,7 @@ pub(crate) fn move_item(items: &mut Vec<Item>, from: usize, to: usize) {
 /// An icon for well-known commands; others show their initials.
 fn command_icon(id: &str) -> Option<Icon> {
     Some(match id {
-        "file.new" => Icon::New,
+        "file.new" | "file.new_clipboard" => Icon::New,
         "file.open" => Icon::Open,
         "file.save" => Icon::Save,
         "file.save_as" | "file.export_png" | "file.export_psd" | "file.export_kra" | "file.export_ora" | "file.export_svg" => Icon::SaveAs,

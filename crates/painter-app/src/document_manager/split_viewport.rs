@@ -344,33 +344,14 @@ impl ReferenceView {
         self.add_image(&name, &ext, bytes, at)
     }
 
-    /// A picture from the clipboard (desktop only).
+    /// A picture from the clipboard.
     fn paste(&mut self, at: Option<[f32; 2]>) -> Result<ItemId, String> {
-        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
-        {
-            let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-            if let Ok(img) = clipboard.get_image() {
-                let (w, h) = (img.width as u32, img.height as u32);
-                let mut png = Vec::new();
-                image::RgbaImage::from_raw(w, h, img.bytes.into_owned())
-                    .ok_or("clipboard image of the wrong size")?
-                    .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
-                    .map_err(|e| e.to_string())?;
-                return self.add_image("Pasted", "png", png, at);
-            }
-            // A copied image file's path.
-            if let Ok(text) = clipboard.get_text() {
-                let path = PathBuf::from(text.trim().trim_matches('"'));
-                if is_image_file(&path) && path.is_file() {
-                    return self.add_image_file(&path, at);
-                }
-            }
-            Err("No picture in the clipboard".into())
+        if let Some(img) = crate::clipboard_image::read() {
+            return self.add_image("Pasted", "png", img.to_png()?, at);
         }
-        #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-        {
-            let _ = at;
-            Err("Pasting pictures isn't available here; use + → Images".into())
+        match crate::clipboard_image::copied_image_path() {
+            Some(path) => self.add_image_file(&path, at),
+            None => Err("No picture in the clipboard".into()),
         }
     }
 

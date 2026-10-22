@@ -149,6 +149,9 @@ cargo run --release -p painter-app -- drawing.painter
 - **Tablet:** WinTab (pressure, tilt, automatic switch on the eraser end) with
   a fallback to Windows Ink.
 - **Files:** `.painter` projects, PSD import/export, PNG open/import/export,
+  File → New from Clipboard (Ctrl+Alt+N) makes a document the size of a
+  picture copied in another app (a screenshot, a browser image) or of the
+  selection copied in Painter (at its resolution),
   Krita `.kra` and OpenRaster `.ora` (MyPaint, GIMP, Krita…) open, Save As and
   Export: layers, folders (pass-through or not), opacity, blend modes,
   visibility, lock, offsets and Krita transparency masks are read; on save,

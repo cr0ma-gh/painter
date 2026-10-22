@@ -33,6 +33,14 @@ impl PainterApp {
                         self.open_new_canvas();
                         ui.close_menu();
                     }
+                    if ui
+                        .add(egui::Button::new("New from Clipboard").shortcut_text("Ctrl+Alt+N"))
+                        .on_hover_text("A document the size of the copied picture or selection")
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.new_from_clipboard();
+                    }
                     if ui.button("New Comic Page / Storyboard...").clicked() {
                         self.comic_wizard = Some(crate::comic_ui::ComicWizard::open());
                         ui.close_menu();

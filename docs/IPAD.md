@@ -60,6 +60,8 @@ one-year signatures and TestFlight.
 - The iOS status bar is hidden and swipes from the screen edges go to
   Painter first, so the menu bar at the top can be tapped; swipe a second
   time to open the Notification or Control Center.
+- **New from Clipboard** (File menu): a document the size of a picture
+  copied in another app; pasting pictures on the reference board works too.
 - **Scanning:** File → Import → From Scanner or Camera → Scan with camera
   opens the iPad's document camera: it finds the sheet and straightens it,
   and you can take several pages. Pick the paper size (it gives the pages

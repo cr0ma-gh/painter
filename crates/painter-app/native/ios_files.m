@@ -96,3 +96,29 @@ char *painter_take_picked(void) {
 }
 
 void painter_free_string(char *s) { free(s); }
+
+// The picture on the system pasteboard as PNG (malloc'd, `*len` bytes; free
+// with painter_free_string), or NULL when there's none.
+char *painter_clipboard_png(size_t *len) {
+    __block NSData *png = nil;
+    void (^read)(void) = ^{
+        UIImage *image = UIPasteboard.generalPasteboard.image;
+        if (!image) return;
+        // Drawn again at one pixel per pixel, upright.
+        CGSize size = CGSizeMake(image.size.width * image.scale, image.size.height * image.scale);
+        UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat preferredFormat];
+        format.scale = 1;
+        format.opaque = NO;
+        UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:size format:format];
+        png = [renderer PNGDataWithActions:^(UIGraphicsImageRendererContext *ctx) {
+            [image drawInRect:CGRectMake(0, 0, size.width, size.height)];
+        }];
+    };
+    if (NSThread.isMainThread) read(); else dispatch_sync(dispatch_get_main_queue(), read);
+    if (!png || png.length == 0) return NULL;
+    char *out = malloc(png.length);
+    if (!out) return NULL;
+    memcpy(out, png.bytes, png.length);
+    *len = png.length;
+    return out;
+}

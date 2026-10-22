@@ -390,6 +390,8 @@ impl PainterApp {
             let redo = i.consume_shortcut(&shortcut(cmd_shift, Key::Z)) || i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::Y));
             let save_as = i.consume_shortcut(&shortcut(cmd_shift, Key::S));
             let invert = i.consume_shortcut(&shortcut(cmd_shift, Key::I));
+            // Before Ctrl+N, which would also match it.
+            let new_from_clipboard = i.consume_shortcut(&shortcut(Modifiers::COMMAND | Modifiers::ALT, Key::N));
             [
                 redo,
                 i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::Z)),
@@ -400,9 +402,10 @@ impl PainterApp {
                 i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::A)),
                 i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::D)),
                 invert,
+                new_from_clipboard,
             ]
         });
-        let [redo, undo, save_as, save, open, new, all, deselect, invert] = pressed;
+        let [redo, undo, save_as, save, open, new, all, deselect, invert, new_from_clipboard] = pressed;
         // Layers: Ctrl+J duplicates, Ctrl+G groups into a folder (as in Photoshop).
         let (duplicate, group) = ctx.input_mut(|i| {
             (i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::J)), i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::G)))
@@ -426,7 +429,9 @@ impl PainterApp {
         if open {
             self.open_dialog();
         }
-        if new {
+        if new_from_clipboard {
+            self.new_from_clipboard();
+        } else if new {
             self.open_new_canvas();
         }
         if all {

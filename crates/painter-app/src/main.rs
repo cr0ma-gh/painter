@@ -4,6 +4,7 @@ mod adjust_ui;
 mod advanced_tool;
 mod app;
 mod brush_library;
+mod clipboard_image;
 mod color_panels;
 mod search_layer;
 mod canvas;

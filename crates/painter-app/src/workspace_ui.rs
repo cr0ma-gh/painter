@@ -907,8 +907,9 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 53] = [
+        let fixed: [FixedCommand; 54] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
+            ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
             ("file.open", "Open...", C::File, "Ctrl+O", &["load"], true),
             ("file.save", "Save", C::File, "Ctrl+S", &[], true),
@@ -1016,6 +1017,7 @@ impl PainterApp {
         let index = |prefix: &str| id.strip_prefix(prefix).and_then(|n| n.parse::<usize>().ok());
         match id {
             "file.new" => self.open_new_canvas(),
+            "file.new_clipboard" => self.new_from_clipboard(),
             "file.comic" => self.comic_wizard = Some(crate::comic_ui::ComicWizard::open()),
             "file.open" => self.open_dialog(),
             "file.save" => self.save(),

@@ -18,7 +18,7 @@
 use std::sync::Arc;
 
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke, Vec2};
-use painter_core::{Layer, LayerId, LayerKind, SelectionOp, TileStore};
+use painter_core::{Document, Layer, LayerId, LayerKind, SelectionOp, TileStore};
 use painter_render::{plane_uploads, Plane, TransformGeometry, TransformPreview};
 use transform_tools::crop::{apply_crop as crop_canvas, copy, erase_selected, paste_tiles};
 use transform_tools::{
@@ -376,6 +376,44 @@ impl PainterApp {
         self.clipboard = Some(floating);
         self.clipboard_dpi = self.doc.dpi;
         Some(label)
+    }
+
+    /// File → New from Clipboard (Ctrl+Alt+N): a new document the size of
+    /// what's in the clipboard, holding it on its first layer. A picture
+    /// copied in another app comes first (72 dpi, like a picture without a
+    /// resolution), then a copied image file's path (opened), then Painter's
+    /// own copied selection at its document's resolution.
+    pub(crate) fn new_from_clipboard(&mut self) {
+        let (width, height, pixels, dpi, what) = if let Some(img) = crate::clipboard_image::read() {
+            (img.width, img.height, img.premultiplied(), 72, "picture")
+        } else if let Some(path) = crate::clipboard_image::copied_image_path() {
+            self.open_path(path);
+            return;
+        } else if let Some(floating) = &self.clipboard {
+            (floating.width, floating.height, floating.rgba.clone(), self.clipboard_dpi, "selection")
+        } else {
+            self.status = "The clipboard has no picture: copy one (or a selection) first".into();
+            return;
+        };
+        if width > painter_core::MAX_CANVAS_SIZE || height > painter_core::MAX_CANVAS_SIZE {
+            self.status = format!(
+                "The copied {what} is {width} × {height} px; canvases go up to {} px a side",
+                painter_core::MAX_CANVAS_SIZE
+            );
+            return;
+        }
+        let mut doc = Document::new(width, height);
+        doc.dpi = dpi;
+        if let Some(layer) = doc.active_layer_mut() {
+            layer.name = "Pasted".into();
+            if let Some(tiles) = layer.tiles_mut() {
+                *tiles = TileStore::from_rgba(width, height, &pixels);
+            }
+        }
+        self.set_document(doc, None);
+        let active = self.docs.active;
+        self.docs.slots[active].name = Some(format!("Clipboard {width}×{height}"));
+        self.status = format!("New {width} × {height} px document from the copied {what} ({dpi} dpi)");
     }
 
     /// Ctrl+V (centred in the view) / Ctrl+Shift+V (in place): a new layer.
