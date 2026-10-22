@@ -72,7 +72,7 @@ jobs:
         continue-on-error: true
         env:
           WGPU_BACKEND: gl
-        run: cargo test -p painter-render --test gpu_parity -- --nocapture --test-threads 1 tiles_read_their_own_texels composite_matches_cpu_flatten
+        run: cargo test -p painter-render --tests -- --test-threads 1
       - name: Build and package
         run: bash packaging/linux/build-appimage.sh
       - uses: actions/upload-artifact@v4

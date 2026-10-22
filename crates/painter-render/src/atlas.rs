@@ -17,6 +17,10 @@ use painter_core::{LayerId, TileCoord, TILE_SIZE};
 use crate::gpu::CANVAS_FORMAT;
 
 pub(crate) const PAGE_SIZE: u32 = 2048;
+/// Pages the atlas starts with. Two, not one: OpenGL (wgpu's GL backend, used
+/// on Android's Mali GPUs) makes a one-layer texture a plain 2D texture, and
+/// shaders reading it as an array (`texture_2d_array`) then read nothing.
+const FIRST_PAGES: u32 = 2;
 const TILES_PER_ROW: u32 = PAGE_SIZE / TILE_SIZE;
 const TILES_PER_PAGE: u32 = TILES_PER_ROW * TILES_PER_ROW;
 
@@ -44,8 +48,8 @@ pub(crate) struct Atlas {
 
 impl Atlas {
     pub fn new(device: &wgpu::Device) -> Self {
-        let (texture, view) = Self::create(device, 1);
-        Self { texture, view, pages: 1, free: Vec::new(), next: 0, shared: HashMap::new(), shared_slots: HashMap::new() }
+        let (texture, view) = Self::create(device, FIRST_PAGES);
+        Self { texture, view, pages: FIRST_PAGES, free: Vec::new(), next: 0, shared: HashMap::new(), shared_slots: HashMap::new() }
     }
 
     fn create(device: &wgpu::Device, pages: u32) -> (wgpu::Texture, wgpu::TextureView) {
