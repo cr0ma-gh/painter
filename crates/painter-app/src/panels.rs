@@ -722,6 +722,9 @@ impl PainterApp {
                     }
                 });
                 ui.label("Shift: add · Alt: subtract · Shift+Alt: intersect. Click to deselect.");
+                if matches!(shape, crate::tools::SelectShape::Magnetic | crate::tools::SelectShape::Object) {
+                    self.magnetic_panel(ui, shape);
+                }
                 if shape == crate::tools::SelectShape::Magic {
                     // Auto Select reads the same boundaries as the fill bucket.
                     let magic = &mut self.tools.magic;

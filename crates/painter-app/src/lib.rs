@@ -31,6 +31,7 @@ mod history_ui;
 mod icons;
 mod layers_ui;
 mod lines;
+mod magnetic;
 mod ios_ui;
 mod modifier_keys;
 mod panels;

@@ -47,10 +47,14 @@ pub enum SelectShape {
     Lasso,
     /// Clip Studio's Auto Select (a magic wand): the area a fill would cover.
     Magic,
+    /// Photoshop's magnetic lasso: a lasso that snaps to edges.
+    Magnetic,
+    /// Photoshop's object selection: what stands out inside a dragged rectangle.
+    Object,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 19] = [
+    pub const ALL: [Tool; 21] = [
         Tool::Brush,
         Tool::Stamp(StampKind::Clone),
         Tool::Stamp(StampKind::Pattern),
@@ -62,7 +66,9 @@ impl Tool {
         Tool::Select(SelectShape::Rect),
         Tool::Select(SelectShape::Ellipse),
         Tool::Select(SelectShape::Lasso),
+        Tool::Select(SelectShape::Magnetic),
         Tool::Select(SelectShape::Magic),
+        Tool::Select(SelectShape::Object),
         Tool::Transform,
         Tool::Crop,
         Tool::Frame,
@@ -81,6 +87,8 @@ impl Tool {
             Tool::Select(SelectShape::Ellipse) => Icon::EllipseSelect,
             Tool::Select(SelectShape::Lasso) => Icon::FreeSelect,
             Tool::Select(SelectShape::Magic) => Icon::MagicSelect,
+            Tool::Select(SelectShape::Magnetic) => Icon::MagneticLasso,
+            Tool::Select(SelectShape::Object) => Icon::ObjectSelect,
             Tool::Transform => Icon::Transform,
             Tool::Crop => Icon::Crop,
             Tool::Frame => Icon::Grid,
@@ -127,6 +135,8 @@ impl Tool {
             Tool::Select(SelectShape::Ellipse) => "Ellipse Selection",
             Tool::Select(SelectShape::Lasso) => "Lasso Selection",
             Tool::Select(SelectShape::Magic) => "Auto Select",
+            Tool::Select(SelectShape::Magnetic) => "Magnetic Lasso",
+            Tool::Select(SelectShape::Object) => "Object Selection",
             Tool::Transform => "Transform",
             Tool::Crop => "Crop / Resize Canvas",
             Tool::Frame => "Panel Frames",
@@ -151,6 +161,8 @@ impl Tool {
             Tool::Select(SelectShape::Ellipse) => "Shift+M",
             Tool::Select(SelectShape::Lasso) => "L",
             Tool::Select(SelectShape::Magic) => "W",
+            Tool::Select(SelectShape::Magnetic) => "Shift+L",
+            Tool::Select(SelectShape::Object) => "Shift+W",
             Tool::Transform => "Ctrl+T",
             Tool::Crop => "Shift+C",
             Tool::Frame => "U",
@@ -174,6 +186,8 @@ impl Tool {
             Tool::Select(SelectShape::Ellipse) => "Ellipse selection (Shift+M)",
             Tool::Select(SelectShape::Lasso) => "Lasso selection (L)",
             Tool::Select(SelectShape::Magic) => "Auto select (W): click an area to select what a fill would cover",
+            Tool::Select(SelectShape::Magnetic) => "Magnetic lasso (Shift+L): click, then move along an outline; Enter or a click on the start closes",
+            Tool::Select(SelectShape::Object) => "Object selection (Shift+W): drag a rectangle round an object",
             Tool::Transform => "Transform the layer or selection (Ctrl+T). Enter applies, Esc cancels",
             Tool::Crop => "Crop / resize the canvas (Shift+C). Enter applies, Esc cancels",
             Tool::Frame => "Panel frames (U): draw rectangles or polygons, divide panels, reshape them",
@@ -266,6 +280,8 @@ pub struct ToolOptions {
     pub shapes: crate::shape_tool::ShapeOptions,
     /// The stamps' options and patterns.
     pub stamps: crate::stamp_tool::StampOptions,
+    /// The magnetic lasso's and object selection's options.
+    pub magnetic: crate::magnetic::MagneticOptions,
 }
 
 impl Default for ToolOptions {
@@ -283,6 +299,7 @@ impl Default for ToolOptions {
             pencil_only: cfg!(target_os = "ios"),
             shapes: Default::default(),
             stamps: Default::default(),
+            magnetic: Default::default(),
         }
     }
 }
@@ -312,6 +329,11 @@ impl PainterApp {
             Tool::Select(SelectShape::Magic) => {
                 let op = self.selection_op_for(modifiers);
                 self.magic_select_at(at, op);
+            }
+            Tool::Select(SelectShape::Magnetic) => {
+                let op = self.selection_op_for(modifiers);
+                let double = self.egui_ctx.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary));
+                self.magnetic_press(at, op, double);
             }
             Tool::Gradient | Tool::Select(_) => {
                 let op = self.selection_op_for(modifiers);
@@ -393,8 +415,9 @@ impl PainterApp {
                 let mask = match shape {
                     SelectShape::Rect => selection::rect_mask(a, b, canvas),
                     SelectShape::Ellipse => selection::ellipse_mask(a, b, canvas),
-                    // Auto Select works on the press.
-                    SelectShape::Magic => return,
+                    // Auto Select and the magnetic lasso work on presses.
+                    SelectShape::Magic | SelectShape::Magnetic => return,
+                    SelectShape::Object => return self.select_object(a, b, drag.op),
                     SelectShape::Lasso => {
                         let points: Vec<[f32; 2]> = drag.points.iter().map(|p| [p.x, p.y]).collect();
                         selection::polygon_mask(&points, canvas)
@@ -436,7 +459,7 @@ impl PainterApp {
                 painter.circle_stroke(to_screen(s), 4.0, Stroke::new(1.5_f32, Color32::WHITE));
                 painter.circle_filled(to_screen(c), 3.0, Color32::WHITE);
             }
-            Tool::Select(SelectShape::Rect) => {
+            Tool::Select(SelectShape::Rect | SelectShape::Object) => {
                 let corners = [s, Pos2::new(c.x, s.y), c, Pos2::new(s.x, c.y)];
                 outline(corners.into_iter().map(to_screen).collect(), true);
             }
@@ -579,6 +602,12 @@ impl PainterApp {
         }
         if key(Key::L, false) {
             self.tool = Tool::Select(SelectShape::Lasso);
+        }
+        if key(Key::L, true) {
+            self.tool = Tool::Select(SelectShape::Magnetic);
+        }
+        if key(Key::W, true) {
+            self.tool = Tool::Select(SelectShape::Object);
         }
         if key(Key::I, false) {
             self.tool = Tool::Eyedropper;

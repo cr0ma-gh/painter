@@ -211,6 +211,8 @@ pub struct PainterApp {
     pub(crate) shape: crate::shape_tool::ShapeDraft,
     /// Where the clone stamp copies from.
     pub(crate) clone_source: crate::stamp_tool::CloneSource,
+    /// The magnetic lasso in progress.
+    pub(crate) magnetic: crate::magnetic::MagneticLasso,
     /// Decoded pictures of file object layers' files.
     pub(crate) file_objects: crate::file_object::FileObjectCache,
     /// A layer being renamed in its row (double-click): id, text, field just opened.
@@ -364,6 +366,7 @@ impl PainterApp {
             vector_edit: Default::default(),
             shape: Default::default(),
             clone_source: Default::default(),
+            magnetic: Default::default(),
             file_objects: Default::default(),
             layer_rename: None,
             updater: Default::default(),

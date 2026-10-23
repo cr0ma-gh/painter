@@ -36,6 +36,8 @@ fn tool_key(t: Tool) -> &'static str {
         Tool::Select(SelectShape::Ellipse) => "select_ellipse",
         Tool::Select(SelectShape::Lasso) => "select_lasso",
         Tool::Select(SelectShape::Magic) => "select_magic",
+        Tool::Select(SelectShape::Magnetic) => "select_magnetic",
+        Tool::Select(SelectShape::Object) => "select_object",
         other => other.id(),
     }
 }

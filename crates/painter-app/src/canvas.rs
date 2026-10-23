@@ -86,6 +86,7 @@ impl PainterApp {
         self.smart_tick(ui.ctx());
         self.pose_grab_keys(ui.ctx());
         self.shape_keys(ui.ctx());
+        self.magnetic_keys(ui.ctx());
 
         if !self.uploads.is_empty() {
             self.doc_touched = true;
@@ -124,6 +125,7 @@ impl PainterApp {
         self.draw_vector_edit(&painter, rect);
         self.draw_shape_draft(&painter, rect);
         self.draw_stamp_overlay(&painter, rect);
+        self.draw_magnetic(&painter, rect);
         self.draw_brush_cursor(&painter, rect, &response);
         self.draw_eyedropper(&painter);
         self.transform_hud(ui.ctx(), rect);
@@ -248,6 +250,11 @@ impl PainterApp {
                 Event::PointerMoved(pos) if self.drag.is_some() => {
                     let p = to_doc(&self.view, *pos);
                     self.tool_move(p);
+                }
+                // The magnetic lasso follows the pointer between clicks.
+                Event::PointerMoved(pos) if self.magnetic.active() => {
+                    let p = to_doc(&self.view, *pos);
+                    self.magnetic_move(p);
                 }
                 // A polygon's next side follows the pointer between clicks.
                 Event::PointerMoved(pos) if self.tool == Tool::Shape && !self.shape.corners.is_empty() => {

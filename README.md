@@ -137,7 +137,10 @@ cargo run --release -p painter-app -- drawing.painter
   button.
 - **Tools:** rectangle, ellipse and lasso selections and Auto Select (W, a
   magic wand reading the same boundaries as the fill: tolerance, gap closing,
-  reference layers) (new, add, subtract, intersect); fill bucket (tolerance, contiguous, gap closing up to 40 px, reads the edited layer, all layers or
+  reference layers), the magnetic lasso (Shift+L: the path snaps to the
+  outlines and drops anchors as you go) and object selection (Shift+W: drag
+  a rectangle round something and what stands out from the background is
+  selected; colour-based, no AI) (new, add, subtract, intersect); fill bucket (tolerance, contiguous, gap closing up to 40 px, reads the edited layer, all layers or
   layers marked as reference, anti-halo expansion under the lines or inset; ~0.2 s on a 600 dpi A4 page);
   gradient tool; clear selected area. Eyedropper (I): the colour shown on the canvas or only the current
   layer's, one pixel or averaged over 3Ã3 to 11Ã11; also while Alt is held

@@ -25,6 +25,7 @@ pub mod psd;
 pub mod raster;
 pub mod rulers;
 pub mod selection;
+pub mod smart_select;
 pub mod smoothing;
 pub mod source_stroke;
 pub mod stroke;

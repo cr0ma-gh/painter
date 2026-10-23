@@ -37,7 +37,7 @@ fn tiles_across(canvas: (u32, u32)) -> (i32, i32) {
 }
 
 /// Builds a mask from a per-pixel coverage function over a pixel bounding box.
-fn mask_from_fn(canvas: (u32, u32), bbox: [i32; 4], coverage: impl Fn(i32, i32) -> f32) -> TileStore {
+pub fn mask_from_fn(canvas: (u32, u32), bbox: [i32; 4], coverage: impl Fn(i32, i32) -> f32) -> TileStore {
     let mut out = TileStore::new();
     let x0 = bbox[0].max(0);
     let y0 = bbox[1].max(0);
