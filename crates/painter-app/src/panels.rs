@@ -518,7 +518,7 @@ impl PainterApp {
                 let total = self.brushes.len();
                 for &i in &indices {
                     let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 38.0), Sense::click());
-                    let selected = i == self.brush && self.tool == Tool::Brush;
+                    let selected = i == self.brush && self.tool.paints();
                     let fill = if selected {
                         theme::selected()
                     } else if response.hovered() {
@@ -576,7 +576,12 @@ impl PainterApp {
             });
         });
         if let Some(i) = picked {
+            // The stamps and the history brush stay in hand: the click picks their tip.
+            let tool = self.tool;
             self.select_brush(i);
+            if matches!(tool, Tool::Stamp(_)) {
+                self.tool = tool;
+            }
         }
         match menu {
             Some((i, 0)) => self.reset_brush(i),
@@ -800,6 +805,12 @@ impl PainterApp {
             Tool::Shape => {
                 widgets::group_header(ui, Icon::Shapes, "Shape");
                 self.shape_panel(ui);
+            }
+            Tool::Stamp(kind) => {
+                widgets::group_header(ui, self.tool.icon(), self.tool.name());
+                self.stamp_panel(ui, kind);
+                ui.separator();
+                self.brush_settings(ui);
             }
             Tool::Hand => {
                 widgets::group_header(ui, Icon::Move, "Hand");

@@ -77,6 +77,14 @@ cargo run --release -p painter-app -- drawing.painter
   with the current brush, filled with the main colour, or both. Shift makes
   squares and circles (lines in 15° steps), Alt draws from the centre;
   polygons close on the first corner, a double-click or Enter.
+- **Clone stamp, pattern stamp, history brush** (S, Shift+S, Y, as in
+  Photoshop), painting with the current brush's tip and dynamics: the clone
+  stamp copies from where you Alt-clicked (from the layer or all layers;
+  aligned or restarting each stroke); the pattern stamp lays a built-in or
+  your own pattern (Edit → Define Pattern, kept for next time), in its colours
+  or the main colour; the history brush paints back the state picked with the
+  brush button in the History panel (the oldest one otherwise), erased pixels
+  included.
 - **Shortcuts:** hold E for the eraser until you let go (a tap switches);
   double-click the main or sub colour chip for a picker (wheel, RGB, hex).
 - **History** (Window → Panels → History, as in Clip Studio): every undo step

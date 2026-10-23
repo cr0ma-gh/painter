@@ -123,6 +123,7 @@ impl PainterApp {
         self.draw_smart_shape(&painter, rect);
         self.draw_vector_edit(&painter, rect);
         self.draw_shape_draft(&painter, rect);
+        self.draw_stamp_overlay(&painter, rect);
         self.draw_brush_cursor(&painter, rect, &response);
         self.draw_eyedropper(&painter);
         self.transform_hud(ui.ctx(), rect);
@@ -221,6 +222,10 @@ impl PainterApp {
                     } else if self.tool == Tool::Brush {
                         self.begin_stroke(self.stroke_point(p));
                         self.smart_begin(self.stroke_point(p), *pos);
+                    } else if self.tool == Tool::Stamp(crate::stamp_tool::StampKind::Clone) && modifiers.alt {
+                        self.set_clone_source(p);
+                    } else if self.tool.paints() {
+                        self.begin_stroke(self.stroke_point(p));
                     } else {
                         self.tool_press(p, *modifiers);
                     }
@@ -287,7 +292,7 @@ impl PainterApp {
                 (true, false, _) => CursorIcon::Grab,
                 (_, _, Tool::Fill) => CursorIcon::Cell,
                 // The brush outline alone, when the crosshair is turned off.
-                (_, _, Tool::Brush) if !self.ws.chrome.brush_crosshair => CursorIcon::None,
+                (_, _, Tool::Brush | Tool::Stamp(_)) if !self.ws.chrome.brush_crosshair => CursorIcon::None,
                 _ => CursorIcon::Crosshair,
             };
             ui.ctx().set_cursor_icon(icon);

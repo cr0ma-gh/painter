@@ -60,6 +60,8 @@ pub(crate) struct ActiveStroke {
     begun: Instant,
     /// The last point fed (after ruler snapping): where a Shift-click line starts next.
     last: StrokePoint,
+    /// Stamps and the history brush: colours from a source, merged as the stroke goes.
+    source: Option<crate::stamp_tool::SourceStroke>,
 }
 
 impl ActiveStroke {
@@ -207,6 +209,8 @@ pub struct PainterApp {
     pub(crate) vector_edit: crate::vector_edit::VectorEditState,
     /// The Shape tool's drag or polygon in progress.
     pub(crate) shape: crate::shape_tool::ShapeDraft,
+    /// Where the clone stamp copies from.
+    pub(crate) clone_source: crate::stamp_tool::CloneSource,
     /// Decoded pictures of file object layers' files.
     pub(crate) file_objects: crate::file_object::FileObjectCache,
     /// A layer being renamed in its row (double-click): id, text, field just opened.
@@ -359,6 +363,7 @@ impl PainterApp {
             pose_chain: 2,
             vector_edit: Default::default(),
             shape: Default::default(),
+            clone_source: Default::default(),
             file_objects: Default::default(),
             layer_rename: None,
             updater: Default::default(),
@@ -724,10 +729,26 @@ impl PainterApp {
         let rulers = self.stroke_rulers([p.x, p.y]);
         let alpha_locked = matches!(plane, Plane::Color(_)) && !is_vector && self.doc.active_layer().is_some_and(|l| l.alpha_locked);
         let before = self.plane_tiles(plane).cloned().unwrap_or_default();
+        let source = match self.tool {
+            Tool::Stamp(kind) => {
+                if is_vector {
+                    self.status = format!("The {} paints on raster layers and masks", self.tool.name());
+                    return;
+                }
+                let Some(source) = self.stamp_source(kind, plane, &before, egui::Pos2::new(p.x, p.y)) else {
+                    return;
+                };
+                Some(source)
+            }
+            _ => None,
+        };
         self.checkpoint();
         let mut settings = self.current_brush().clone();
+        if source.is_some() {
+            settings.mode = BrushMode::Paint;
+        }
         // The transparent colour: any brush erases, with its own tip and dynamics.
-        if self.transparent && matches!(plane, Plane::Color(_)) {
+        if self.transparent && matches!(plane, Plane::Color(_)) && source.is_none() {
             settings.mode = BrushMode::Erase;
         }
         let color = if matches!(plane, Plane::Mask(_)) {
@@ -765,6 +786,7 @@ impl PainterApp {
             rulers,
             begun: Instant::now(),
             last: p,
+            source,
         });
         self.queue_dabs(dabs);
     }
@@ -800,6 +822,12 @@ impl PainterApp {
         }
         // Symmetry rulers: every dab once per copy.
         let dabs = stroke.rulers.replicate(dabs);
+        if stroke.source.is_some() {
+            let mut stroke = self.stroke.take().expect("stroke in progress");
+            self.stamp_from_source(&mut stroke, &dabs);
+            self.stroke = Some(stroke);
+            return;
+        }
         if let Some(all) = &mut stroke.vector_erase {
             all.extend_from_slice(&dabs);
         }
@@ -825,6 +853,11 @@ impl PainterApp {
         // Where Shift-click lines start from next (in this document).
         self.last_stroke_end = Some((self.docs.active_id(), stroke.last));
         let tail = stroke.rulers.replicate(stroke.engine.finish());
+        if stroke.source.is_some() {
+            // Merged as it went: only the last dabs are left.
+            self.stamp_from_source(&mut stroke, &tail);
+            return;
+        }
         if let Some(all) = &mut stroke.vector_erase {
             all.extend_from_slice(&tail);
         }
@@ -882,7 +915,8 @@ impl PainterApp {
 
     /// The in-progress stroke's new dabs for this frame's GPU preview.
     pub(crate) fn take_stroke_preview(&mut self) -> Option<StrokePreview> {
-        let stroke = self.stroke.as_mut()?;
+        // Source strokes update the layer's tiles directly.
+        let stroke = self.stroke.as_mut().filter(|s| s.source.is_none())?;
         Some(StrokePreview {
             id: stroke.id,
             plane: stroke.plane,
@@ -894,6 +928,36 @@ impl PainterApp {
             alpha_locked: stroke.alpha_locked,
             respect_selection: stroke.respect_selection,
         })
+    }
+
+    /// Stamps `dabs` of a source stroke and merges the tiles they touch into its plane.
+    fn stamp_from_source(&mut self, stroke: &mut ActiveStroke, dabs: &[Dab]) {
+        let Some(src) = stroke.source.as_mut() else { return };
+        if dabs.is_empty() {
+            return;
+        }
+        let canvas = self.doc.canvas();
+        let mut touched = std::collections::BTreeSet::new();
+        for dab in dabs {
+            painter_core::raster::stamp_dab(&mut src.stamped.buffer, dab, [1.0; 3], &stroke.settings, canvas, &mut touched);
+        }
+        src.stamped.dirty.extend(touched.iter().copied());
+        let selection = if stroke.respect_selection { self.doc.selection.clone() } else { None };
+        let Some(tiles) = self.plane_tiles_mut(stroke.plane) else { return };
+        let s = &stroke.settings;
+        painter_core::source_stroke::commit_source_stroke(
+            tiles,
+            &stroke.before,
+            &src.stamped.buffer,
+            &touched,
+            &src.source,
+            src.merge,
+            s.opacity,
+            s.blend,
+            stroke.alpha_locked,
+            selection.as_ref(),
+        );
+        self.upload_tiles(stroke.plane, touched);
     }
 
     // ---- fill, gradient, clear -----------------------------------------------

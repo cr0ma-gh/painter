@@ -172,7 +172,7 @@ impl PainterApp {
     }
 
     /// Fills and / or outlines `shape` on the edited layer (one undo step each).
-    fn draw_shape(&mut self, shape: &Shape) {
+    pub(crate) fn draw_shape(&mut self, shape: &Shape) {
         let style = self.tools.shapes.style;
         let canvas = self.doc.canvas();
         if matches!(style, ShapeStyle::Fill | ShapeStyle::Both) {

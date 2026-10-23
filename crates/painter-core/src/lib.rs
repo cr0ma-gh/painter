@@ -26,6 +26,7 @@ pub mod raster;
 pub mod rulers;
 pub mod selection;
 pub mod smoothing;
+pub mod source_stroke;
 pub mod stroke;
 pub mod tile;
 pub mod tip;

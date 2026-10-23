@@ -130,11 +130,13 @@ pub struct History {
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
     limit: usize,
+    /// The state the history brush paints from (its name and layers), when chosen.
+    source: Option<(String, Vec<Layer>)>,
 }
 
 impl History {
     pub fn new(limit: usize) -> Self {
-        Self { undo: Vec::new(), redo: Vec::new(), limit: limit.max(1) }
+        Self { undo: Vec::new(), redo: Vec::new(), limit: limit.max(1), source: None }
     }
 
     /// Records the state *before* an edit.
@@ -222,9 +224,39 @@ impl History {
         self.undo.drain(..extra);
     }
 
+    /// The layers at state `k` (after `k` of the listed steps; 0 = the oldest kept).
+    /// `doc` is the current state.
+    pub fn state_layers(&self, k: usize, doc: &Document) -> Option<Vec<Layer>> {
+        let current = self.undo.len();
+        match k.cmp(&current) {
+            std::cmp::Ordering::Less => Some(self.undo[k].layers.clone()),
+            std::cmp::Ordering::Equal => Some(doc.layers.clone()),
+            std::cmp::Ordering::Greater => self.redo.get(self.redo.len().checked_sub(k - current)?).map(|s| s.layers.clone()),
+        }
+    }
+
+    /// Makes `layers` (a state called `label`) what the history brush paints from.
+    pub fn set_source(&mut self, label: &str, layers: Vec<Layer>) {
+        self.source = Some((label.to_string(), layers));
+    }
+
+    /// What the history brush paints from: the chosen state, else the oldest kept.
+    pub fn source(&self) -> Option<(&str, &[Layer])> {
+        match &self.source {
+            Some((label, layers)) => Some((label.as_str(), layers.as_slice())),
+            None => self.undo.first().map(|s| ("Opened", s.layers.as_slice())),
+        }
+    }
+
+    /// The name of the history brush's chosen state, if one was chosen.
+    pub fn source_label(&self) -> Option<&str> {
+        self.source.as_ref().map(|(l, _)| l.as_str())
+    }
+
     pub fn clear(&mut self) {
         self.undo.clear();
         self.redo.clear();
+        self.source = None;
     }
 }
 

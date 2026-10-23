@@ -8,6 +8,7 @@ use painter_core::{BrushMode, BrushSettings};
 
 use crate::app::PainterApp;
 use crate::icons::Icon;
+use crate::stamp_tool::StampKind;
 
 /// Holding a tool key this long makes the switch temporary (released: back to the tool before).
 pub(crate) const SPRING_HOLD: std::time::Duration = std::time::Duration::from_millis(300);
@@ -34,6 +35,8 @@ pub enum Tool {
     VectorEdit,
     /// Rectangles, ellipses, lines and polygons, outlined with the brush or filled.
     Shape,
+    /// The clone and pattern stamps and the history brush: the brush's tip, colours from elsewhere.
+    Stamp(crate::stamp_tool::StampKind),
     Hand,
 }
 
@@ -47,8 +50,11 @@ pub enum SelectShape {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 16] = [
+    pub const ALL: [Tool; 19] = [
         Tool::Brush,
+        Tool::Stamp(StampKind::Clone),
+        Tool::Stamp(StampKind::Pattern),
+        Tool::Stamp(StampKind::History),
         Tool::Fill,
         Tool::Gradient,
         Tool::Shape,
@@ -83,6 +89,9 @@ impl Tool {
             Tool::Eyedropper => Icon::ColorPicker,
             Tool::VectorEdit => Icon::Curve,
             Tool::Shape => Icon::Shapes,
+            Tool::Stamp(StampKind::Clone) => Icon::Clone,
+            Tool::Stamp(StampKind::Pattern) => Icon::PatternStamp,
+            Tool::Stamp(StampKind::History) => Icon::HistoryBrush,
             Tool::Hand => Icon::Move,
         }
     }
@@ -102,6 +111,9 @@ impl Tool {
             Tool::Eyedropper => "eyedropper",
             Tool::VectorEdit => "vector_edit",
             Tool::Shape => "shape",
+            Tool::Stamp(StampKind::Clone) => "clone",
+            Tool::Stamp(StampKind::Pattern) => "pattern_stamp",
+            Tool::Stamp(StampKind::History) => "history_brush",
             Tool::Hand => "hand",
         }
     }
@@ -123,6 +135,9 @@ impl Tool {
             Tool::Eyedropper => "Eyedropper",
             Tool::VectorEdit => "Vector Points",
             Tool::Shape => "Shape",
+            Tool::Stamp(StampKind::Clone) => "Clone Stamp",
+            Tool::Stamp(StampKind::Pattern) => "Pattern Stamp",
+            Tool::Stamp(StampKind::History) => "History Brush",
             Tool::Hand => "Hand (pan)",
         }
     }
@@ -143,6 +158,9 @@ impl Tool {
             Tool::Eyedropper => "I",
             Tool::VectorEdit => "O",
             Tool::Shape => "R",
+            Tool::Stamp(StampKind::Clone) => "S",
+            Tool::Stamp(StampKind::Pattern) => "Shift+S",
+            Tool::Stamp(StampKind::History) => "Y",
             Tool::Hand => "H",
         })
     }
@@ -164,6 +182,9 @@ impl Tool {
             Tool::Eyedropper => "Eyedropper (I): pick a colour from the canvas or the current layer. Alt with a brush, or hold a finger still on an iPad",
             Tool::VectorEdit => "Vector points (O): pick a vector line, drag its control points to reshape it, drag the line to move it",
             Tool::Shape => "Shapes (R): rectangles, ellipses, lines and polygons. Shift constrains, Alt draws from the centre",
+            Tool::Stamp(StampKind::Clone) => "Clone stamp (S): Alt-click where to copy from, then paint with the current brush's tip",
+            Tool::Stamp(StampKind::Pattern) => "Pattern stamp (Shift+S): paint a pattern with the current brush's tip",
+            Tool::Stamp(StampKind::History) => "History brush (Y): paint back an earlier state (pick it in the History panel)",
             Tool::Hand => "Pan the canvas (H, or hold Space)",
         }
     }
@@ -243,6 +264,8 @@ pub struct ToolOptions {
     pub pencil_only: bool,
     /// The Shape tool's kind and style.
     pub shapes: crate::shape_tool::ShapeOptions,
+    /// The stamps' options and patterns.
+    pub stamps: crate::stamp_tool::StampOptions,
 }
 
 impl Default for ToolOptions {
@@ -259,6 +282,7 @@ impl Default for ToolOptions {
             smart_shape: true,
             pencil_only: cfg!(target_os = "ios"),
             shapes: Default::default(),
+            stamps: Default::default(),
         }
     }
 }
@@ -310,7 +334,7 @@ impl PainterApp {
                 self.eyedrop_at(at);
                 self.drag = Some(ToolDrag { start: at, current: at, points: vec![at], op: SelectionOp::Replace });
             }
-            Tool::Brush | Tool::Hand => {}
+            Tool::Brush | Tool::Stamp(_) | Tool::Hand => {}
         }
     }
 
@@ -567,6 +591,15 @@ impl PainterApp {
         }
         if key(Key::R, false) {
             self.tool = Tool::Shape;
+        }
+        if key(Key::S, false) {
+            self.tool = Tool::Stamp(StampKind::Clone);
+        }
+        if key(Key::S, true) {
+            self.tool = Tool::Stamp(StampKind::Pattern);
+        }
+        if key(Key::Y, false) {
+            self.tool = Tool::Stamp(StampKind::History);
         }
         if key(Key::X, false) {
             std::mem::swap(&mut self.color, &mut self.sub_color);

@@ -29,12 +29,30 @@ impl PainterApp {
                 self.history.set_limit(limit);
             }
         });
+        let source = self.history.source().map(|(l, _)| l.to_string());
+        if let Some(label) = &source {
+            ui.horizontal(|ui| {
+                ui.add(crate::icons::Icon::HistoryBrush.image(14.0, theme::text_dim()));
+                ui.label(RichText::new(format!("History brush: “{label}”")).small().color(theme::text_dim()));
+            });
+        }
         ui.separator();
+        let mut brush_from = None;
         egui::ScrollArea::vertical().auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
-            let row = |ui: &mut egui::Ui, k: usize, label: &str, dim: bool| -> bool {
-                let text = RichText::new(label);
-                let text = if dim { text.color(theme::text_dim()) } else { text };
-                ui.add_sized([ui.available_width(), 20.0], egui::SelectableLabel::new(k == current, text)).clicked()
+            // A row: the brush button (paint from this state) and the step.
+            let mut row = |ui: &mut egui::Ui, k: usize, label: &str, dim: bool| -> bool {
+                ui.horizontal(|ui| {
+                    let chosen = self.history.source_label() == Some(label);
+                    let tint = if chosen { theme::accent() } else { theme::text_dim() };
+                    let brush = ui.add(egui::ImageButton::new(crate::icons::Icon::HistoryBrush.image(14.0, tint)).frame(false));
+                    if brush.on_hover_text("Paint from this state with the History Brush (Y)").clicked() {
+                        brush_from = Some((k, label.to_string()));
+                    }
+                    let text = RichText::new(label);
+                    let text = if dim { text.color(theme::text_dim()) } else { text };
+                    ui.add_sized([ui.available_width(), 20.0], egui::SelectableLabel::new(k == current, text)).clicked()
+                })
+                .inner
             };
             if row(ui, 0, "Opened", false) {
                 target = Some(0);
@@ -46,6 +64,12 @@ impl PainterApp {
                 }
             }
         });
+        if let Some((k, label)) = brush_from {
+            if let Some(layers) = self.history.state_layers(k, &self.doc) {
+                self.history.set_source(&label, layers);
+                self.tool = crate::tools::Tool::Stamp(crate::stamp_tool::StampKind::History);
+            }
+        }
         if let Some(k) = target {
             self.go_to_history(k);
         }

@@ -61,6 +61,11 @@ impl PainterApp {
                     self.add_file_object(std::path::Path::new(path));
                     continue;
                 }
+                // `dev.stamp_demo`: the clone and pattern stamps and the history brush at work.
+                if c == "dev.stamp_demo" {
+                    self.stamp_demo();
+                    continue;
+                }
                 // `dev.shape_demo`: a filled rounded rectangle, an outlined ellipse and a line.
                 if c == "dev.shape_demo" {
                     self.shape_demo();

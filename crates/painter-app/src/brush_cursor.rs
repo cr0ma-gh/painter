@@ -14,7 +14,6 @@ use eframe::egui::{self, Color32, Mesh, Pos2, Rect, Shape, Stroke, Vec2};
 use painter_core::{BrushSettings, Dab, StrokeEngine, StrokePoint, TipBitmap, TipShape};
 
 use crate::app::PainterApp;
-use crate::tools::Tool;
 
 /// Textures of image tips for the cursor, by bitmap.
 #[derive(Default)]
@@ -111,7 +110,7 @@ impl PainterApp {
     pub(crate) fn brush_resize(&mut self, pointer: Option<Pos2>) -> bool {
         let mods = self.pointer_mods;
         let held = mods.ctrl && mods.alt && !mods.shift;
-        if self.tool != Tool::Brush || !held || self.stroke.is_some() || self.line.is_some() {
+        if !self.tool.paints() || !held || self.stroke.is_some() || self.line.is_some() {
             self.size_drag = None;
             return false;
         }
@@ -130,7 +129,7 @@ impl PainterApp {
 
     /// The brush's tip at the pointer, as the pen would stamp it now.
     pub(crate) fn draw_brush_cursor(&mut self, painter: &egui::Painter, rect: Rect, response: &egui::Response) {
-        if self.tool != Tool::Brush {
+        if !self.tool.paints() {
             return;
         }
         let doc_size = self.doc_size();

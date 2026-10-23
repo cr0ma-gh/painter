@@ -15,6 +15,7 @@ mod color_panels;
 mod search_layer;
 mod shape_tool;
 mod smart_shape;
+mod stamp_tool;
 mod canvas;
 mod comic_ui;
 mod curve;
