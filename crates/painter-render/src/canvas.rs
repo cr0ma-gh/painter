@@ -57,6 +57,9 @@ pub struct ViewUniform {
     flip: f32,
     /// 1 per colour channel hidden (red, green, blue; the 4th is padding).
     hidden: [f32; 4],
+    /// CMYK documents' ink channels shown (C, M, Y, K), when `ink_view.x` is 1.
+    inks: [f32; 4],
+    ink_view: [f32; 4],
 }
 
 impl ViewUniform {
@@ -75,6 +78,13 @@ impl ViewUniform {
     pub fn with_channels(self, visible: [bool; 3]) -> Self {
         let h = |v: bool| if v { 0.0 } else { 1.0 };
         Self { hidden: [h(visible[0]), h(visible[1]), h(visible[2]), 0.0], ..self }
+    }
+
+    /// A CMYK document showing some of its inks (C, M, Y, K): one alone as
+    /// grey (white: no ink), several mixed. Needs [`CanvasFrame::ink_lut`].
+    pub fn with_inks(self, shown: [bool; 4]) -> Self {
+        let f = |v: bool| if v { 1.0 } else { 0.0 };
+        Self { inks: shown.map(f), ink_view: [1.0, 0.0, 0.0, 0.0], ..self }
     }
 
     /// Draws animated marching ants along the selection edge.
@@ -100,6 +110,9 @@ pub struct CanvasFrame {
     /// 3D layers: their planes come from these scenes, rendered on the GPU.
     pub scenes: Vec<ScenePreview>,
     pub view: ViewUniform,
+    /// RGB → CMYK table of a CMYK document (`painter_core::cmyk::Proofer::lut`)
+    /// and a key that changes with it; uploaded when the key changes.
+    pub ink_lut: Option<(u64, std::sync::Arc<Vec<u8>>)>,
 }
 
 #[repr(C)]
@@ -206,6 +219,9 @@ pub struct GpuCanvas {
     dummy: Target,
     /// An all-empty plane index.
     no_index: wgpu::TextureView,
+    /// The CMYK ink table (a 3D texture) and the key of what it holds.
+    ink_lut: (wgpu::TextureView, u64),
+    lut_sampler: wgpu::Sampler,
 
     epoch: u64,
     size: (u32, u32),
@@ -265,6 +281,22 @@ impl GpuCanvas {
                 gpu::uniform_entry(2, wgpu::ShaderStages::VERTEX_FRAGMENT),
                 gpu::texture_array_entry(3),
                 gpu::index_entry(4),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D3,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
         let composite_shader = gpu::shader(
@@ -328,6 +360,13 @@ impl GpuCanvas {
             thumb_buffer: uniform("thumbnail view"),
             dummy: Target::new(device, (1, 1), wgpu::TextureUsages::TEXTURE_BINDING, "dummy"),
             no_index: index_texture(device, (1, 1), "empty index").create_view(&wgpu::TextureViewDescriptor::default()),
+            ink_lut: (ink_lut_texture(device, 1).create_view(&wgpu::TextureViewDescriptor::default()), 0),
+            lut_sampler: device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("ink table"),
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                ..Default::default()
+            }),
             epoch: 0,
             size: (0, 0),
             residency: Residency::new(device),
@@ -358,6 +397,22 @@ impl GpuCanvas {
         encoder: &mut wgpu::CommandEncoder,
         frame: &CanvasFrame,
     ) {
+        // A CMYK document's ink table, when it changed.
+        if let Some((key, lut)) = &frame.ink_lut {
+            if *key != self.ink_lut.1 {
+                let n = painter_core::cmyk::LUT_SIZE as u32;
+                if lut.len() == (n * n * n * 4) as usize {
+                    let texture = ink_lut_texture(device, n);
+                    queue.write_texture(
+                        texture.as_image_copy(),
+                        lut,
+                        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(n * 4), rows_per_image: Some(n) },
+                        wgpu::Extent3d { width: n, height: n, depth_or_array_layers: n },
+                    );
+                    self.ink_lut = (texture.create_view(&wgpu::TextureViewDescriptor::default()), *key);
+                }
+            }
+        }
         // Anything other than new dabs invalidates the stroke-time caches.
         let mut content_changed = frame.recomposite || !frame.uploads.is_empty() || frame.selection != self.selection;
         if frame.epoch != self.epoch || frame.doc_size != self.size || self.chains.is_empty() {
@@ -454,6 +509,8 @@ impl GpuCanvas {
                 wgpu::BindGroupEntry { binding: 2, resource: uniform.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&self.residency.atlas.view) },
                 wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(selection_index) },
+                wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&self.ink_lut.0) },
+                wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::Sampler(&self.lut_sampler) },
             ],
         })
     }
@@ -902,14 +959,28 @@ impl GpuCanvas {
     }
 }
 
+/// An `n`³ RGBA8 3D texture for the CMYK ink table.
+fn ink_lut_texture(device: &wgpu::Device, n: u32) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("ink table"),
+        size: wgpu::Extent3d { width: n, height: n, depth_or_array_layers: n },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D3,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn uniform_layouts_match_wgsl() {
-        // WGSL `View` and `Params` structs are 64 and 80 bytes.
-        assert_eq!(std::mem::size_of::<ViewUniform>(), 64);
+        // WGSL `View` and `Params` structs are 96 and 80 bytes.
+        assert_eq!(std::mem::size_of::<ViewUniform>(), 96);
         assert_eq!(std::mem::size_of::<CompositeParams>(), 80);
     }
 }

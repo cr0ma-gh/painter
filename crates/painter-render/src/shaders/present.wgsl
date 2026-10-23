@@ -17,6 +17,8 @@ struct View {
     show_selection: f32,
     flip: f32,
     hidden: vec4<f32>,
+    inks: vec4<f32>,
+    ink_view: vec4<f32>,
 };
 
 @group(0) @binding(0) var canvas: texture_2d<f32>;
@@ -24,6 +26,8 @@ struct View {
 @group(0) @binding(2) var<uniform> view: View;
 @group(0) @binding(3) var atlas: texture_2d_array<f32>;
 @group(0) @binding(4) var selection_index: texture_2d<u32>;
+@group(0) @binding(5) var ink_lut: texture_3d<f32>;
+@group(0) @binding(6) var ink_sampler: sampler;
 
 struct VertexOut {
     @builtin(position) position: vec4<f32>,
@@ -74,6 +78,23 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
         rgb = vec3<f32>(dot(rgb, shown));
     } else if (count < 2.5) {
         rgb = rgb * shown;
+    }
+    // CMYK: the shown inks, from the profile's table (texel centres at i / (n - 1)).
+    if (view.ink_view.x > 0.5) {
+        let n = f32(textureDimensions(ink_lut).x);
+        let at = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)) * ((n - 1.0) / n) + vec3<f32>(0.5 / n);
+        let ink = textureSampleLevel(ink_lut, ink_sampler, at, 0.0) * view.inks;
+        let inks = view.inks.x + view.inks.y + view.inks.z + view.inks.w;
+        if (inks < 0.5) {
+            rgb = vec3<f32>(1.0);
+        } else if (inks < 1.5) {
+            // One ink alone: grey, white where there's none.
+            rgb = vec3<f32>(1.0 - (ink.x + ink.y + ink.z + ink.w));
+        } else if (inks < 3.5) {
+            // Some inks: printed one over the other.
+            let k = 1.0 - ink.w;
+            rgb = vec3<f32>((1.0 - ink.x) * k, (1.0 - ink.y) * k, (1.0 - ink.z) * k);
+        }
     }
 
     if (view.show_selection > 0.5) {

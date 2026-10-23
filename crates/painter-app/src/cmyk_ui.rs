@@ -28,6 +28,9 @@ pub(crate) struct CmykDialog {
 pub(crate) struct ProoferCache {
     key: Option<(usize, CmykIntent, bool, painter_core::color_profile::ColorProfile)>,
     pub proofer: Option<Proofer>,
+    /// Its RGB → CMYK table for showing ink channels, with a key that changes with it.
+    pub lut: Option<(u64, Arc<Vec<u8>>)>,
+    built: u64,
 }
 
 /// Profiles copied in with Load Profile, kept with Painter's settings.
@@ -125,6 +128,7 @@ impl PainterApp {
 
     /// Keeps the proofer in step with the document's CMYK setup. Every frame.
     pub(crate) fn update_proofer(&mut self) {
+        self.sync_channels();
         let key = match (&self.doc.cmyk, self.doc.mode) {
             (Some(c), ColorMode::Cmyk) => Some((Arc::as_ptr(&c.icc) as usize, c.intent, c.black_point, self.doc.profile)),
             _ => None,
@@ -143,6 +147,10 @@ impl PainterApp {
             },
             _ => None,
         };
+        // The ink table for the Channels view (about 36 000 conversions, once per setup).
+        self.proofer.built += 1;
+        let built = self.proofer.built;
+        self.proofer.lut = self.proofer.proofer.as_ref().map(|p| (built, Arc::new(p.lut())));
     }
 
     /// Edit → Mode → CMYK Color: converts the document with the dialog's setup.

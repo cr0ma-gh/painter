@@ -127,11 +127,10 @@ impl PainterApp {
                     self.color = egui::Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8).into();
                     continue;
                 }
-                // `dev.channel:N`: show and edit only red (0), green (1) or blue (2).
-                if let Some(c) = c.strip_prefix("dev.channel:").and_then(|n| n.parse::<usize>().ok()).filter(|c| *c < 3) {
-                    self.channels.edit = [false; 3];
-                    self.channels.edit[c] = true;
-                    self.channels.visible = self.channels.edit;
+                // `dev.channel:N`: show and edit only channel N of the mode (red, cyan…).
+                if let Some(c) = c.strip_prefix("dev.channel:").and_then(|n| n.parse::<usize>().ok()).filter(|c| *c < 4) {
+                    self.sync_channels();
+                    self.channels.solo(c);
                     continue;
                 }
                 // `dev.select_demo`: the magnetic lasso and object selection.

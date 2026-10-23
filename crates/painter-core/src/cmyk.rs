@@ -59,6 +59,9 @@ pub struct CmykSetup {
     pub black_point: bool,
 }
 
+/// Entries per side of [`Proofer::lut`].
+pub const LUT_SIZE: usize = 33;
+
 /// A CMYK profile found on this computer.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProfileFile {
@@ -270,6 +273,47 @@ impl Proofer {
         }
     }
 
+    /// RGB → CMYK as a 3D table of [`LUT_SIZE`]³ entries (red fastest, then
+    /// green, then blue), each C, M, Y, K as bytes: for showing ink channels
+    /// on the GPU.
+    pub fn lut(&self) -> Vec<u8> {
+        let n = LUT_SIZE;
+        let step = |i: usize| ((i * 255) as f32 / (n - 1) as f32).round() as u8;
+        let rgb: Vec<[u8; 3]> = (0..n * n * n).map(|i| [step(i % n), step(i / n % n), step(i / (n * n))]).collect();
+        self.cmyk_many(&rgb).into_iter().flatten().collect()
+    }
+
+    /// After an edit: in the pixels that changed, only the inks in `edit`
+    /// (C, M, Y, K) take the new amounts; the others keep the ones from `before`.
+    pub fn keep_inks(&self, tiles: &mut TileStore, before: &TileStore, coords: &[crate::tile::TileCoord], edit: [bool; 4]) {
+        if edit == [true; 4] {
+            return;
+        }
+        for &coord in coords {
+            let Some(mut tile) = tiles.get(coord).map(|t| (**t).clone()) else { continue };
+            let old = before.get(coord);
+            let px = tile.bytes_mut().as_chunks_mut::<4>().0;
+            let changed: Vec<usize> =
+                (0..px.len()).filter(|&i| px[i][3] > 0 && old.is_none_or(|o| o.bytes().as_chunks::<4>().0[i] != px[i])).collect();
+            if changed.is_empty() {
+                continue;
+            }
+            let rgb = |p: [u8; 4]| {
+                let s = unpremultiply(p);
+                [s[0], s[1], s[2]]
+            };
+            let now: Vec<[u8; 3]> = changed.iter().map(|&i| rgb(px[i])).collect();
+            let was: Vec<[u8; 3]> = changed.iter().map(|&i| old.map_or([255; 3], |o| rgb(o.bytes().as_chunks::<4>().0[i]))).collect();
+            let (now, was) = (self.cmyk_many(&now), self.cmyk_many(&was));
+            for (k, &i) in changed.iter().enumerate() {
+                let ink: [u8; 4] = std::array::from_fn(|c| if edit[c] { now[k][c] } else { was[k][c] });
+                let c = self.rgb_of(ink);
+                px[i] = premultiply([c[0], c[1], c[2], px[i][3]]);
+            }
+            tiles.insert(coord, tile);
+        }
+    }
+
     /// Every colour of a layer tree made printable: pixels, vector lines and
     /// texts (drawn again), fills, gradients and tones.
     pub fn proof_layers(&self, layers: &mut [Layer], canvas: (u32, u32)) {
@@ -338,5 +382,16 @@ mod tests {
         assert!(proofer.cmyk([0, 0, 0])[3] > 100);
         assert!(proofer.cmyk([255, 255, 255]).iter().all(|&v| v < 10));
         assert!(cmyk_profile_name(&crate::color_profile::ColorProfile::Srgb.icc()).is_none(), "an RGB profile isn't CMYK");
+        // The table: white is the first-to-last corner, needs no ink.
+        let lut = proofer.lut();
+        assert_eq!(lut.len(), LUT_SIZE.pow(3) * 4);
+        assert!(lut[lut.len() - 4..].iter().all(|&v| v < 10), "white: {:?}", &lut[lut.len() - 4..]);
+        // Painting dark blue over white with only magenta editable: no cyan, yellow or black arrives.
+        let white = TileStore::from_rgba(64, 64, &[255, 255, 255, 255].repeat(64 * 64));
+        let mut tiles = TileStore::from_rgba(64, 64, &[20, 30, 120, 255].repeat(64 * 64));
+        proofer.keep_inks(&mut tiles, &white, &[crate::tile::TileCoord::new(0, 0)], [false, true, false, false]);
+        let p = tiles.pixel(5, 5);
+        let ink = proofer.cmyk([p[0], p[1], p[2]]);
+        assert!(ink[0] < 40 && ink[2] < 40 && ink[3] < 40 && ink[1] > 100, "{}: {p:?} → {ink:?}", p.len());
     }
 }

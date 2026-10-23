@@ -50,6 +50,7 @@ fn frame(doc: &Document, upload: bool, stroke: Option<StrokePreview>) -> CanvasF
         transform: None,
         scenes: Vec::new(),
         view: ViewUniform::new(size, size, [0.0, 0.0], 1.0, 0.0, 8.0),
+        ink_lut: None,
     }
 }
 

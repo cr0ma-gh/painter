@@ -1,13 +1,18 @@
-//! The Channels panel (Window → Panels → Channels), as in Photoshop:
-//! - RGB, Red, Green, Blue: the eye shows or hides a channel on the canvas
-//!   (one alone shows as grey); clicking a channel makes painting, fills and
-//!   stamps change only that one (Shift-click adds or removes channels);
-//!   RGB goes back to all of them;
-//! - saved selections (alpha channels): save the selection under a name, load
+//! The Channels panel (Window → Panels → Channels), as in Photoshop. The
+//! channels are the document's colour mode's:
+//! - RGB: Red, Green, Blue; CMYK: Cyan, Magenta, Yellow, Black (shown from the
+//!   press profile's inks: one alone as grey, white where there's no ink);
+//!   Grayscale: Gray; Bitmap: Bitmap.
+//! - The eye shows or hides a channel on the canvas; clicking a channel makes
+//!   painting, fills and stamps change only that one (Shift-click adds or
+//!   removes channels; Ctrl-click loads it as a selection); the composite row
+//!   (RGB, CMYK) goes back to all of them.
+//! - Saved selections (alpha channels): save the selection under a name, load
 //!   it back (replacing, adding or subtracting), rename, delete. They're saved
 //!   with the project.
 
 use eframe::egui::{self, Color32, RichText};
+use painter_core::color_mode::ColorMode;
 use painter_core::{selection, SavedChannel, SelectionOp, TileCoord, TileStore};
 use painter_render::Plane;
 
@@ -16,33 +21,108 @@ use crate::icons::Icon;
 use crate::theme;
 
 pub(crate) struct ChannelState {
-    /// Red, green, blue shown on the canvas.
-    pub visible: [bool; 3],
-    /// Red, green, blue that edits change.
-    pub edit: [bool; 3],
+    /// The mode these channels are of; they reset when it changes.
+    mode: ColorMode,
+    /// The mode's channels shown on the canvas (the first `channel_count` count).
+    pub visible: [bool; 4],
+    /// The mode's channels that edits change.
+    pub edit: [bool; 4],
     /// The saved channel whose name is being edited.
     renaming: Option<usize>,
 }
 
 impl Default for ChannelState {
     fn default() -> Self {
-        Self { visible: [true; 3], edit: [true; 3], renaming: None }
+        Self { mode: ColorMode::Rgb, visible: [true; 4], edit: [true; 4], renaming: None }
     }
 }
 
-const NAMES: [&str; 3] = ["Red", "Green", "Blue"];
-const SWATCHES: [Color32; 3] = [Color32::from_rgb(220, 60, 60), Color32::from_rgb(60, 180, 80), Color32::from_rgb(70, 110, 230)];
+/// A mode's composite row (if it has one) and its channels with their swatches.
+fn channels_of(mode: ColorMode) -> (Option<&'static str>, &'static [(&'static str, Color32)]) {
+    const RGB: [(&str, Color32); 3] =
+        [("Red", Color32::from_rgb(220, 60, 60)), ("Green", Color32::from_rgb(60, 180, 80)), ("Blue", Color32::from_rgb(70, 110, 230))];
+    const CMYK: [(&str, Color32); 4] = [
+        ("Cyan", Color32::from_rgb(0, 174, 239)),
+        ("Magenta", Color32::from_rgb(236, 0, 140)),
+        ("Yellow", Color32::from_rgb(255, 230, 0)),
+        ("Black", Color32::from_rgb(20, 20, 20)),
+    ];
+    const GRAY: [(&str, Color32); 1] = [("Gray", Color32::from_rgb(150, 150, 150))];
+    const BITMAP: [(&str, Color32); 1] = [("Bitmap", Color32::from_rgb(0, 0, 0))];
+    match mode {
+        ColorMode::Rgb => (Some("RGB"), &RGB),
+        ColorMode::Cmyk => (Some("CMYK"), &CMYK),
+        ColorMode::Grayscale => (None, &GRAY),
+        ColorMode::Bitmap => (None, &BITMAP),
+    }
+}
+
+impl ChannelState {
+    fn count(&self) -> usize {
+        channels_of(self.mode).1.len()
+    }
+
+    /// Every channel shown and edited.
+    fn all(&self) -> bool {
+        let n = self.count();
+        self.visible[..n].iter().all(|v| *v) && self.edit[..n].iter().all(|v| *v)
+    }
+
+    fn reset(&mut self) {
+        self.visible = [true; 4];
+        self.edit = [true; 4];
+    }
+
+    /// Only channel `c`, shown and edited.
+    pub(crate) fn solo(&mut self, c: usize) {
+        self.edit = [false; 4];
+        self.edit[c] = true;
+        self.visible = self.edit;
+    }
+
+    /// RGB channels for the canvas view (all of them in other modes).
+    pub(crate) fn rgb_view(&self) -> [bool; 3] {
+        if self.mode == ColorMode::Rgb { [self.visible[0], self.visible[1], self.visible[2]] } else { [true; 3] }
+    }
+
+    /// The inks to show in a CMYK document, when not all of them.
+    pub(crate) fn ink_view(&self) -> Option<[bool; 4]> {
+        (self.mode == ColorMode::Cmyk && self.visible != [true; 4]).then_some(self.visible)
+    }
+}
 
 impl PainterApp {
-    /// After an edit of `coords` on `plane`: the colour channels not being
-    /// edited go back to `before`.
+    /// The channels follow the document's colour mode. Every frame.
+    pub(crate) fn sync_channels(&mut self) {
+        if self.channels.mode != self.doc.mode {
+            self.channels.mode = self.doc.mode;
+            self.channels.reset();
+        }
+    }
+
+    /// After an edit of `coords` on `plane`: the channels not being edited
+    /// go back to `before` (RGB values, or CMYK inks through the press profile).
     pub(crate) fn restrict_channels(&mut self, plane: Plane, before: &TileStore, coords: impl IntoIterator<Item = TileCoord>) {
-        let edit = self.channels.edit;
-        if edit == [true; 3] || !matches!(plane, Plane::Color(_)) {
+        if self.channels.all() || !matches!(plane, Plane::Color(_)) {
             return;
         }
-        if let Some(tiles) = self.plane_tiles_mut(plane) {
-            painter_core::channels::keep_channels(tiles, before, coords, edit);
+        let edit = self.channels.edit;
+        let coords: Vec<TileCoord> = coords.into_iter().collect();
+        match self.doc.mode {
+            ColorMode::Rgb => {
+                if let Some(tiles) = self.plane_tiles_mut(plane) {
+                    painter_core::channels::keep_channels(tiles, before, coords, [edit[0], edit[1], edit[2]]);
+                }
+            }
+            ColorMode::Cmyk => {
+                // Out while the tiles are borrowed; back below.
+                let proofer = self.proofer.proofer.take();
+                if let (Some(p), Some(tiles)) = (&proofer, self.plane_tiles_mut(plane)) {
+                    p.keep_inks(tiles, before, &coords, edit);
+                }
+                self.proofer.proofer = proofer;
+            }
+            ColorMode::Grayscale | ColorMode::Bitmap => {}
         }
     }
 
@@ -65,67 +145,91 @@ impl PainterApp {
         self.combine_selection(mask, op);
     }
 
-    /// The visible image's red, green or blue → the selection (bright = selected).
+    /// Channel `c` of the visible image → the selection, as it shows in grey
+    /// (bright = selected: much red, or little cyan ink…).
     pub(crate) fn load_colour_channel(&mut self, c: usize, op: SelectionOp) {
         let (w, h) = self.doc.canvas();
         let rgba = painter_core::io::flatten(&self.doc);
-        let mask = selection::mask_from_fn((w, h), [0, 0, w as i32 - 1, h as i32 - 1], |x, y| {
-            let px = &rgba[((y as u32 * w + x as u32) * 4) as usize..][..4];
-            // Over white, like the canvas shows it.
-            (px[c] as f32 + 255.0 - px[3] as f32) / 255.0
-        });
+        // Over white, like the canvas shows it.
+        let rgb: Vec<[u8; 3]> = rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| {
+                let white = 255 - p[3];
+                [p[0].saturating_add(white), p[1].saturating_add(white), p[2].saturating_add(white)]
+            })
+            .collect();
+        let grey: Vec<u8> = match (self.doc.mode, &self.proofer.proofer) {
+            (ColorMode::Cmyk, Some(p)) => p.cmyk_many(&rgb).iter().map(|k| 255 - k[c.min(3)]).collect(),
+            (ColorMode::Rgb, _) => rgb.iter().map(|p| p[c.min(2)]).collect(),
+            _ => rgb.iter().map(|p| painter_core::color_mode::luma(*p)).collect(),
+        };
+        let mask = selection::mask_from_fn((w, h), [0, 0, w as i32 - 1, h as i32 - 1], |x, y| grey[(y as u32 * w + x as u32) as usize] as f32 / 255.0);
         self.combine_selection(mask, op);
     }
 
     pub(crate) fn channels_panel(&mut self, ui: &mut egui::Ui) {
-        let all = self.channels.visible == [true; 3] && self.channels.edit == [true; 3];
+        self.sync_channels();
+        let (composite, list) = channels_of(self.doc.mode);
+        let n = list.len();
+        let all = self.channels.all();
         let shift = ui.input(|i| i.modifiers.shift);
         let ctrl = ui.input(|i| i.modifiers.command);
-        // RGB: everything back.
-        ui.horizontal(|ui| {
-            let mut v = self.channels.visible == [true; 3];
-            if eye(ui, &mut v) {
-                self.channels.visible = [v; 3];
-            }
-            let r = ui.add_sized([ui.available_width(), 22.0], egui::SelectableLabel::new(all, "RGB"));
-            if r.on_hover_text("Show and edit every channel").clicked() {
-                self.channels.visible = [true; 3];
-                self.channels.edit = [true; 3];
-            }
-        });
-        for c in 0..3 {
+        if self.doc.mode == ColorMode::Cmyk && self.proofer.proofer.is_none() {
+            ui.label(RichText::new("The press profile couldn't be used: inks can't be shown").small().color(theme::warning()));
+        }
+        // The composite (RGB, CMYK): everything back.
+        if let Some(name) = composite {
             ui.horizontal(|ui| {
-                if eye(ui, &mut self.channels.visible[c]) && !self.channels.visible.contains(&true) {
+                let mut v = self.channels.visible[..n].iter().all(|v| *v);
+                if eye(ui, &mut v) {
+                    self.channels.visible = [true; 4];
+                }
+                let r = ui.add_sized([ui.available_width(), 22.0], egui::SelectableLabel::new(all, name));
+                if r.on_hover_text("Show and edit every channel (Ctrl+2)").clicked() {
+                    self.channels.reset();
+                }
+            });
+        }
+        for (c, (name, swatch)) in list.iter().enumerate() {
+            ui.horizontal(|ui| {
+                if n > 1 && eye(ui, &mut self.channels.visible[c]) && !self.channels.visible[..n].contains(&true) {
                     // Hiding the last one shows them all again, as nothing would be left.
-                    self.channels.visible = [true; 3];
+                    self.channels.visible = [true; 4];
+                }
+                if n == 1 {
+                    ui.add(Icon::Visible.image(16.0, theme::text()));
                 }
                 let (dot, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
-                ui.painter().rect_filled(dot, 2.0, SWATCHES[c]);
-                let selected = self.channels.edit[c] && !all;
-                let label = format!("{}   Ctrl+{}", NAMES[c], c + 3);
+                ui.painter().rect_filled(dot, 2.0, *swatch);
+                ui.painter().rect_stroke(dot, 2.0, egui::Stroke::new(1.0_f32, theme::line()), egui::StrokeKind::Inside);
+                let selected = (self.channels.edit[c] && !all) || n == 1;
+                let label = if n > 1 { format!("{name}   Ctrl+{}", c + 3) } else { name.to_string() };
                 let r = ui.add_sized([ui.available_width(), 22.0], egui::SelectableLabel::new(selected, label));
-                let r = r.on_hover_text(
-                    "Click: edit and show only this channel. Shift-click: add or remove it. Ctrl-click: load it as a selection",
-                );
-                if r.clicked() {
+                let hint = if n > 1 {
+                    "Click: edit and show only this channel. Shift-click: add or remove it. Ctrl-click: load it as a selection"
+                } else {
+                    "The document's one channel. Ctrl-click: load it as a selection"
+                };
+                if r.on_hover_text(hint).clicked() {
                     if ctrl {
                         self.load_colour_channel(c, SelectionOp::Replace);
+                    } else if n == 1 {
                     } else if shift && !all {
                         self.channels.edit[c] = !self.channels.edit[c];
-                        if !self.channels.edit.contains(&true) {
-                            self.channels.edit = [true; 3];
+                        if !self.channels.edit[..n].contains(&true) {
+                            self.channels.reset();
                         }
                         self.channels.visible = self.channels.edit;
                     } else {
-                        self.channels.edit = [false; 3];
-                        self.channels.edit[c] = true;
-                        self.channels.visible = self.channels.edit;
+                        self.channels.solo(c);
                     }
                 }
             });
         }
-        if !all && self.channels.edit != [true; 3] {
-            let names: Vec<&str> = (0..3).filter(|&c| self.channels.edit[c]).map(|c| NAMES[c]).collect();
+        if !all && n > 1 && !self.channels.edit[..n].iter().all(|e| *e) {
+            let names: Vec<&str> = (0..n).filter(|&c| self.channels.edit[c]).map(|c| list[c].0).collect();
             ui.label(RichText::new(format!("Painting changes only {}", names.join(" and "))).small().color(theme::accent()));
         }
         ui.separator();
@@ -192,21 +296,20 @@ impl PainterApp {
         });
     }
 
-    /// Ctrl+2 shows every channel, Ctrl+3 / 4 / 5 red, green or blue alone (as in Photoshop).
+    /// Ctrl+2 shows every channel, Ctrl+3, 4, 5 (6 in CMYK) one alone (as in Photoshop).
     pub(crate) fn channel_shortcuts(&mut self, ctx: &egui::Context) {
         if ctx.wants_keyboard_input() {
             return;
         }
+        self.sync_channels();
         let pressed = |key| ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, key));
         if pressed(egui::Key::Num2) {
-            self.channels.visible = [true; 3];
-            self.channels.edit = [true; 3];
+            self.channels.reset();
         }
-        for (c, key) in [egui::Key::Num3, egui::Key::Num4, egui::Key::Num5].into_iter().enumerate() {
-            if pressed(key) {
-                self.channels.edit = [false; 3];
-                self.channels.edit[c] = true;
-                self.channels.visible = self.channels.edit;
+        let n = self.channels.count();
+        for (c, key) in [egui::Key::Num3, egui::Key::Num4, egui::Key::Num5, egui::Key::Num6].into_iter().enumerate() {
+            if c < n && n > 1 && pressed(key) {
+                self.channels.solo(c);
             }
         }
     }

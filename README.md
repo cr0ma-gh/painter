@@ -123,9 +123,11 @@ cargo run --release -p painter-app -- drawing.painter
 - **Clock and battery** (View → Clock and Battery): the time and the
   battery's charge in a small chip in the canvas's corner; right-click it to
   hide it.
-- **Channels** (Window → Panels → Channels, as in Photoshop): show red, green
-  or blue alone (in grey) or in pairs; click a channel to paint, fill and
-  stamp only in it (Shift-click for several, Ctrl+2…5 from the keyboard);
+- **Channels** (Window → Panels → Channels, as in Photoshop): the colour
+  mode's own channels — red, green and blue; cyan, magenta, yellow and
+  black in CMYK (the press profile's inks, one alone in grey, several
+  printed over each other); Gray; Bitmap. Show one alone or a few; click a
+  channel to paint, fill and stamp only in it (Shift-click for several, Ctrl+2…5 from the keyboard);
   Ctrl-click loads a channel as a selection. Save selections as named
   channels (Select → Save Selection as Channel), kept in the project, and
   load them back (Shift adds, Alt subtracts).

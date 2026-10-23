@@ -135,6 +135,7 @@ fn check_canvas(placement: Placement, geometry: TransformGeometry, filter: Inter
         }),
         scenes: Vec::new(),
         view: ViewUniform::new(size, size, [0.0, 0.0], 1.0, 0.0, 8.0),
+        ink_lut: None,
     };
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     canvas.prepare(device, queue, &mut encoder, &frame);

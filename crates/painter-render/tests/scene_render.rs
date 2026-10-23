@@ -91,6 +91,7 @@ fn canvas_shows_the_scene_as_the_layer() {
         transform: None,
         scenes: vec![scene(id, true, (96, 64))],
         view: ViewUniform::new(size, size, [0.0, 0.0], 1.0, 0.0, 8.0),
+        ink_lut: None,
     };
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     canvas.prepare(device, queue, &mut encoder, &frame);

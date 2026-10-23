@@ -106,7 +106,15 @@ impl PainterApp {
                 stroke,
                 transform: self.transform_preview(),
                 scenes: self.scene_previews(),
-                view: self.view.uniform(rect.size(), self.doc_size()).with_selection_outline(time).with_channels(self.channels.visible),
+                view: {
+                    let v = self.view.uniform(rect.size(), self.doc_size()).with_selection_outline(time).with_channels(self.channels.rgb_view());
+                    // A CMYK document showing some of its inks.
+                    match (self.channels.ink_view(), &self.proofer.lut) {
+                        (Some(inks), Some(_)) => v.with_inks(inks),
+                        _ => v,
+                    }
+                },
+                ink_lut: self.proofer.lut.clone(),
             };
             ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, CanvasCallback(frame)));
         } else {
