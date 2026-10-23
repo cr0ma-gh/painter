@@ -32,6 +32,8 @@ pub struct Document {
     pub mode: crate::color_mode::ColorMode,
     /// The colour profile it.s tagged with (written into exports).
     pub profile: crate::color_profile::ColorProfile,
+    /// The press profile of a CMYK document (and how colours map to it).
+    pub cmyk: Option<crate::cmyk::CmykSetup>,
     /// Saved selections (Photoshop's alpha channels), oldest first.
     pub channels: Vec<SavedChannel>,
     /// `None`: no selection, everything is editable (see `selection`).
@@ -53,6 +55,7 @@ impl Document {
             channels: Vec::new(),
             mode: Default::default(),
             profile: Default::default(),
+            cmyk: None,
             next_id: 1,
         };
         let paper = doc.alloc_id();
@@ -105,6 +108,7 @@ impl Document {
             channels: Vec::new(),
             mode: Default::default(),
             profile: Default::default(),
+            cmyk: None,
             next_id: next_id.max(max_id + 1),
         }
     }

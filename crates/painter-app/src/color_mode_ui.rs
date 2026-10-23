@@ -27,11 +27,13 @@ impl Default for BitmapDialog {
 
 impl PainterApp {
     pub(crate) fn set_color_mode(&mut self, mode: ColorMode) {
-        if mode == self.doc.mode {
+        if mode == self.doc.mode && mode != ColorMode::Cmyk {
             return;
         }
         match mode {
             ColorMode::Bitmap => self.bitmap_dialog = Some(BitmapDialog::default()),
+            // CMYK asks for the press profile (also to change it on a CMYK document).
+            ColorMode::Cmyk => self.cmyk_dialog = Some(crate::cmyk_ui::CmykDialog::new(self.doc.cmyk.as_ref())),
             ColorMode::Grayscale => {
                 self.next_label = Some("Mode: Grayscale".into());
                 self.checkpoint();
@@ -82,12 +84,22 @@ impl PainterApp {
             return;
         }
         let mode = self.doc.mode;
-        let Some(tiles) = self.plane_tiles_mut(plane) else { return };
-        match mode {
-            ColorMode::Rgb => {}
-            ColorMode::Grayscale => color_mode::gray_tiles(tiles, Some(&coords)),
-            ColorMode::Bitmap => color_mode::threshold_tiles(tiles, &coords),
+        // Out while the tiles are borrowed; back below.
+        let proofer = self.proofer.proofer.take();
+        if let Some(tiles) = self.plane_tiles_mut(plane) {
+            match mode {
+                ColorMode::Rgb => {}
+                ColorMode::Grayscale => color_mode::gray_tiles(tiles, Some(&coords)),
+                ColorMode::Bitmap => color_mode::threshold_tiles(tiles, &coords),
+                // Only the new pixels, so colours don't drift from edit to edit.
+                ColorMode::Cmyk => {
+                    if let Some(p) = &proofer {
+                        p.proof_changed(tiles, before, &coords);
+                    }
+                }
+            }
         }
+        self.proofer.proofer = proofer;
     }
 
     pub(crate) fn bitmap_window(&mut self, ctx: &egui::Context) {
@@ -130,7 +142,7 @@ impl PainterApp {
     pub(crate) fn mode_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Mode", |ui| {
             for mode in ColorMode::ALL {
-                let label = if mode == ColorMode::Bitmap { "Bitmap..." } else { mode.name() };
+                let label = if matches!(mode, ColorMode::Bitmap | ColorMode::Cmyk) { format!("{}...", mode.name()) } else { mode.name().to_string() };
                 if ui.radio(self.doc.mode == mode, label).clicked() {
                     ui.close_menu();
                     self.set_color_mode(mode);
@@ -142,7 +154,7 @@ impl PainterApp {
             // Photoshop's Assign Profile: the colours' meaning in exports; pixels don't change.
             ui.menu_button("Assign Profile", |ui| {
                 use painter_core::color_profile::ColorProfile;
-                let choices: &[ColorProfile] = if self.doc.mode == ColorMode::Rgb { &ColorProfile::RGB } else { &ColorProfile::GRAY };
+                let choices: &[ColorProfile] = if matches!(self.doc.mode, ColorMode::Rgb | ColorMode::Cmyk) { &ColorProfile::RGB } else { &ColorProfile::GRAY };
                 for p in choices {
                     if ui.radio(self.doc.profile == *p, p.name()).clicked() {
                         self.doc.profile = *p;

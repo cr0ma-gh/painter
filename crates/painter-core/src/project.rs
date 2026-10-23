@@ -126,7 +126,19 @@ struct DocumentFile {
     /// Colour profile; sRGB in older files.
     #[serde(default)]
     profile: crate::color_profile::ColorProfile,
+    /// A CMYK document's press profile (its ICC in `CMYK_PROFILE_ENTRY`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cmyk: Option<CmykFile>,
 }
+
+#[derive(Serialize, Deserialize)]
+struct CmykFile {
+    name: String,
+    intent: crate::cmyk::CmykIntent,
+    black_point: bool,
+}
+
+const CMYK_PROFILE_ENTRY: &str = "profiles/cmyk.icc";
 
 fn default_dpi() -> u32 {
     crate::document::DEFAULT_DPI
@@ -261,12 +273,17 @@ fn write_to<W: Write + Seek>(doc: &Document, extras: &Extras, writer: W) -> Resu
         channels,
         mode: doc.mode,
         profile: doc.profile,
+        cmyk: doc.cmyk.as_ref().map(|c| CmykFile { name: c.name.clone(), intent: c.intent, black_point: c.black_point }),
     };
     zip.start_file(DOCUMENT_ENTRY, packed)?;
     serde_json::to_writer_pretty(&mut zip, &file)?;
     for (name, tiles) in planes {
         zip.start_file(name, packed)?;
         zip.write_all(&encode_tiles(tiles))?;
+    }
+    if let Some(c) = &doc.cmyk {
+        zip.start_file(CMYK_PROFILE_ENTRY, packed)?;
+        zip.write_all(&c.icc)?;
     }
     for (name, bytes) in extras {
         if name.is_empty() || name.contains(['/', '\\']) {
@@ -422,6 +439,11 @@ fn read_from<R: Read + Seek>(reader: R) -> Result<(Document, Extras), ProjectErr
     }
     doc.mode = file.mode;
     doc.profile = file.profile;
+    if let Some(c) = file.cmyk {
+        let mut icc = Vec::new();
+        zip.by_name(CMYK_PROFILE_ENTRY)?.read_to_end(&mut icc)?;
+        doc.cmyk = Some(crate::cmyk::CmykSetup { name: c.name, icc: std::sync::Arc::new(icc), intent: c.intent, black_point: c.black_point });
+    }
     for (name, entry) in file.channels {
         doc.channels.push(crate::document::SavedChannel { name, mask: read_plane(&mut zip, &entry)? });
     }
@@ -576,6 +598,7 @@ mod tests {
         doc.selection = Some(crate::selection::rect_mask([2.0, 2.0], [20.0, 9.0], doc.canvas()));
         doc.channels.push(crate::document::SavedChannel { name: "Eyes".into(), mask: crate::selection::rect_mask([25.0, 25.0], [40.0, 40.0], doc.canvas()) });
         doc.mode = crate::color_mode::ColorMode::Grayscale;
+        doc.cmyk = Some(crate::cmyk::CmykSetup { name: "Press".into(), icc: std::sync::Arc::new(vec![1, 2, 3]), intent: crate::cmyk::CmykIntent::Saturation, black_point: false });
         doc.active = v;
         doc
     }
@@ -604,6 +627,7 @@ mod tests {
         assert_eq!(back.channels.len(), 1);
         assert_eq!(back.channels[0].name, "Eyes");
         assert_eq!(back.mode, crate::color_mode::ColorMode::Grayscale);
+        assert_eq!(back.cmyk, doc.cmyk, "the press profile and its settings");
         assert_eq!(back.channels[0].mask.pixel(30, 30)[3], 255);
         // New layers never reuse saved ids.
         let mut back = back;

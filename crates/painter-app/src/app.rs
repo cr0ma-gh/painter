@@ -187,6 +187,10 @@ pub struct PainterApp {
     pub(crate) reset_dialog: Option<crate::settings_reset::ResetChoice>,
     /// Edit → Mode → Bitmap is asking how.
     pub(crate) bitmap_dialog: Option<crate::color_mode_ui::BitmapDialog>,
+    /// Edit → Mode → CMYK Color is asking for the press profile.
+    pub(crate) cmyk_dialog: Option<crate::cmyk_ui::CmykDialog>,
+    /// Little CMS conversions for a CMYK document.
+    pub(crate) proofer: crate::cmyk_ui::ProoferCache,
     /// "Reset whole brush list" waits for a yes.
     pub(crate) confirm_brush_reset: bool,
     pub(crate) chip_picker: Option<crate::chip_picker::ChipPicker>,
@@ -371,6 +375,8 @@ impl PainterApp {
             about_open: false,
             reset_dialog: None,
             bitmap_dialog: None,
+            cmyk_dialog: None,
+            proofer: Default::default(),
             confirm_brush_reset: false,
             chip_picker: None,
             spring_eraser: None,
@@ -469,7 +475,14 @@ impl PainterApp {
 
     pub(crate) fn main_rgb(&self) -> [f32; 3] {
         // Grey, or black or white, in those colour modes.
-        painter_core::color_mode::mode_color(self.doc.mode, hsva_rgb(self.color))
+        let rgb = painter_core::color_mode::mode_color(self.doc.mode, hsva_rgb(self.color));
+        // CMYK: the colour the press would print.
+        match &self.proofer.proofer {
+            Some(p) if self.doc.mode == painter_core::color_mode::ColorMode::Cmyk => {
+                p.proof(rgb.map(|v| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8)).map(|v| v as f32 / 255.0)
+            }
+            _ => rgb,
+        }
     }
 
     // ---- history & GPU sync ------------------------------------------------
@@ -1698,6 +1711,7 @@ impl eframe::App for PainterApp {
         self.next_label = None;
         self.dev_shot_tick(ctx);
         self.session_tick(ctx);
+        self.update_proofer();
         self.file_objects_tick();
         self.updater_tick(ctx);
         self.tablet.poll(frame);
@@ -1765,6 +1779,7 @@ impl eframe::App for PainterApp {
         self.image_size_window(ctx);
         self.reset_settings_window(ctx);
         self.bitmap_window(ctx);
+        self.cmyk_window(ctx);
         self.text_editor_window(ctx);
         self.save_as_window(ctx);
         self.svg_export_window(ctx);

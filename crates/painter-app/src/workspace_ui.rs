@@ -1011,7 +1011,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 80] = [
+        let fixed: [FixedCommand; 81] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -1043,6 +1043,7 @@ impl PainterApp {
             ("image.mode.0", "Mode: RGB Color", C::Edit, "", &["colour mode", "color mode", "rgb"], true),
             ("image.mode.1", "Mode: Grayscale", C::Edit, "", &["colour mode", "greyscale", "black and white", "desaturate"], true),
             ("image.mode.2", "Mode: Bitmap...", C::Edit, "", &["colour mode", "1 bit", "dither", "halftone", "monochrome"], true),
+            ("image.mode.3", "Mode: CMYK Color...", C::Edit, "", &["colour mode", "color mode", "cmyk", "print", "press", "fogra", "swop", "icc"], true),
             ("select.all", "Select All", C::Select, "Ctrl+A", &[], true),
             ("select.none", "Deselect", C::Select, "Ctrl+D", &["clear selection"], has_sel),
             ("select.invert", "Invert Selection", C::Select, "Ctrl+Shift+I", &[], true),
@@ -1177,6 +1178,7 @@ impl PainterApp {
             "image.mode.0" => self.set_color_mode(painter_core::color_mode::ColorMode::Rgb),
             "image.mode.1" => self.set_color_mode(painter_core::color_mode::ColorMode::Grayscale),
             "image.mode.2" => self.set_color_mode(painter_core::color_mode::ColorMode::Bitmap),
+            "image.mode.3" => self.set_color_mode(painter_core::color_mode::ColorMode::Cmyk),
             "select.all" => self.select_all(),
             "select.none" => self.deselect(),
             "select.invert" => self.invert_selection(),

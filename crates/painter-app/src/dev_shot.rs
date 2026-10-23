@@ -106,6 +106,13 @@ impl PainterApp {
                     self.convert_to_bitmap(painter_core::color_mode::BitmapMethod::Halftone { cell: 24.0, angle: 45.0 });
                     continue;
                 }
+                // `dev.cmyk`: Mode → CMYK Color with the default press profile.
+                if c == "dev.cmyk" {
+                    if let Some(setup) = crate::cmyk_ui::CmykDialog::new(None).setup() {
+                        self.convert_to_cmyk(setup);
+                    }
+                    continue;
+                }
                 // `dev.reset`: Reset Settings with its default choice.
                 if c == "dev.reset" {
                     self.reset_settings(ctx, Default::default());

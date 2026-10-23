@@ -243,7 +243,7 @@ pub fn export_png(doc: &Document, path: &Path) -> Result<(), ImageError> {
     }
     let image = RgbaImage::from_raw(doc.width, doc.height, pixels).expect("buffer matches canvas size");
     // Grey and black-and-white images as grey PNGs with a grey profile; colour with its own.
-    let gray = doc.mode != crate::color_mode::ColorMode::Rgb || doc.profile.is_gray();
+    let gray = matches!(doc.mode, crate::color_mode::ColorMode::Grayscale | crate::color_mode::ColorMode::Bitmap) || doc.profile.is_gray();
     let profile = match (gray, doc.profile.is_gray()) {
         (true, false) => crate::color_profile::ColorProfile::GrayGamma22,
         (false, true) => crate::color_profile::ColorProfile::Srgb,

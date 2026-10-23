@@ -346,6 +346,21 @@ fn empty_channels() -> Vec<Channel> {
     [-1, 0, 1, 2].into_iter().map(|id| Channel { id, data: Vec::new() }).collect()
 }
 
+/// RGB planes (0, 1, 2; alpha -1 kept) → CMYK planes (0..=3), stored as
+/// PSD stores them: 255 is no ink.
+fn cmyk_channels(channels: Vec<Channel>, proofer: &crate::cmyk::Proofer) -> Vec<Channel> {
+    let plane = |id: i16| channels.iter().find(|c| c.id == id).map(|c| c.data.as_slice()).unwrap_or(&[]);
+    let (r, g, b) = (plane(0), plane(1), plane(2));
+    let alpha = Channel { id: -1, data: plane(-1).to_vec() };
+    let rgb: Vec<[u8; 3]> = r.iter().zip(g).zip(b).map(|((r, g), b)| [*r, *g, *b]).collect();
+    let ink = proofer.cmyk_many(&rgb);
+    let mut out = vec![alpha];
+    for c in 0..4 {
+        out.push(Channel { id: c as i16, data: ink.iter().map(|k| 255 - k[c]).collect() });
+    }
+    out
+}
+
 /// RLE-compresses planar rows: compression tag, row byte counts, data.
 fn rle_channel(data: &[u8], width: usize, height: usize) -> Vec<u8> {
     let mut counts = Vec::with_capacity(height * 2);
@@ -374,16 +389,23 @@ fn pascal_name(name: &str) -> Vec<u8> {
 
 pub fn write(doc: &Document) -> Vec<u8> {
     let canvas = doc.canvas();
+    // CMYK documents as CMYK files, through their press profile.
+    let rgb_icc = if doc.profile.is_gray() { crate::color_profile::ColorProfile::Srgb.icc() } else { doc.profile.icc() };
+    let proofer = match (&doc.cmyk, doc.mode) {
+        (Some(setup), crate::color_mode::ColorMode::Cmyk) => crate::cmyk::Proofer::new(&rgb_icc, setup).ok(),
+        _ => None,
+    };
+    let cmyk = proofer.as_ref();
     let mut w = Writer(Vec::new());
     // Header
     w.bytes(b"8BPS");
     w.u16(1);
     w.bytes(&[0; 6]);
-    w.u16(4); // R, G, B + merged alpha
+    w.u16(if cmyk.is_some() { 5 } else { 4 }); // R, G, B (or C, M, Y, K) + merged alpha
     w.u32(canvas.1);
     w.u32(canvas.0);
     w.u16(8);
-    w.u16(3); // RGB
+    w.u16(if cmyk.is_some() { 4 } else { 3 }); // CMYK or RGB
     w.u32(0); // colour mode data
     // Image resources: just the resolution.
     let resources = w.begin_len();
@@ -396,9 +418,12 @@ pub fn write(doc: &Document) -> Vec<u8> {
         w.u16(1); // shown as pixels per inch
         w.u16(1); // size shown in inches
     }
-    // The colour profile (an RGB file: a grey profile is left out).
-    if !doc.profile.is_gray() {
-        let icc = doc.profile.icc();
+    // The colour profile: the press profile of a CMYK file, else the RGB one (a grey profile is left out).
+    let icc = match (cmyk, &doc.cmyk) {
+        (Some(_), Some(setup)) => Some(setup.icc.as_ref().clone()),
+        _ => (!doc.profile.is_gray()).then(|| doc.profile.icc()),
+    };
+    if let Some(icc) = icc {
         w.bytes(b"8BIM");
         w.u16(ICC_PROFILE);
         w.u16(0);
@@ -413,6 +438,11 @@ pub fn write(doc: &Document) -> Vec<u8> {
     // Layer and mask information
     let mut records = Vec::new();
     collect_records(&doc.layers, canvas, &mut records);
+    if let Some(p) = cmyk {
+        for r in &mut records {
+            r.channels = cmyk_channels(std::mem::take(&mut r.channels), p);
+        }
+    }
     let section = w.begin_len();
     let info = w.begin_len();
     // Negative count: the first alpha channel holds the merged transparency.
@@ -493,11 +523,19 @@ pub fn write(doc: &Document) -> Vec<u8> {
     // Composite image data (R, G, B, A planes), RLE.
     let flat = flatten(doc);
     let (cw, ch) = (canvas.0 as usize, canvas.1 as usize);
-    let planes: Vec<Vec<u8>> = (0..4)
+    let mut planes: Vec<Vec<u8>> = (0..4)
         .map(|c| {
             flat.as_chunks::<4>().0.iter().map(|px| unpremultiply(*px)[c]).collect()
         })
         .collect();
+    if let Some(p) = cmyk {
+        // C, M, Y, K (255: no ink), then the merged alpha.
+        let rgb: Vec<[u8; 3]> = (0..planes[0].len()).map(|i| [planes[0][i], planes[1][i], planes[2][i]]).collect();
+        let ink = p.cmyk_many(&rgb);
+        let alpha = planes.pop().unwrap_or_default();
+        planes = (0..4).map(|c| ink.iter().map(|k| 255 - k[c]).collect()).collect();
+        planes.push(alpha);
+    }
     w.u16(1);
     let mut bodies = Vec::new();
     for plane in &planes {
@@ -508,7 +546,7 @@ pub fn write(doc: &Document) -> Vec<u8> {
             bodies.push(body);
         }
     }
-    debug_assert_eq!(bodies.len(), ch * 4);
+    debug_assert_eq!(bodies.len(), ch * planes.len());
     for body in bodies {
         w.bytes(&body);
     }
@@ -958,5 +996,51 @@ mod tests {
         let flat = read(&bytes).unwrap();
         assert_eq!(flat.layers.len(), 1);
         assert_eq!(flat.layers[0].tiles().unwrap().pixel(3, 2), [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn cmyk_documents_write_cmyk_files() {
+        let Some(p) = crate::cmyk::find_profiles(&crate::cmyk::profile_dirs()).into_iter().next() else {
+            eprintln!("no CMYK profile here; skipped");
+            return;
+        };
+        let setup = crate::cmyk::load_setup(&p.path, crate::cmyk::CmykIntent::RelativeColorimetric, true).unwrap();
+        let mut doc = Document::new(8, 4);
+        doc.mode = crate::color_mode::ColorMode::Cmyk;
+        doc.cmyk = Some(setup.clone());
+        // A red layer over the white paper.
+        let id = doc.active;
+        if let Some(LayerKind::Raster(t)) = doc.find_mut(id).map(|l| &mut l.kind) {
+            *t = TileStore::from_rgba(8, 4, &[220, 20, 20, 255].repeat(32));
+        }
+        let bytes = write(&doc);
+        let be16 = |at: usize| u16::from_be_bytes([bytes[at], bytes[at + 1]]);
+        let be32 = |at: usize| u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+        assert_eq!((be16(12), be16(24)), (5, 4), "5 channels, CMYK mode");
+        // The press profile is in the image resources.
+        let resources = 26 + 4 + be32(26);
+        let res_len = be32(resources);
+        let icc_at = bytes[resources..resources + 4 + res_len].windows(setup.icc.len().min(64)).position(|w| w == &setup.icc[..w.len()]);
+        assert!(icc_at.is_some(), "the ICC profile is embedded");
+        // The merged image: RLE rows of C, M, Y, K and alpha.
+        let layers = resources + 4 + res_len;
+        let composite = layers + 4 + be32(layers);
+        assert_eq!(be16(composite), 1, "RLE");
+        let rows = 4 * 5;
+        let counts: Vec<usize> = (0..rows).map(|r| be16(composite + 2 + r * 2) as usize).collect();
+        let mut at = composite + 2 + rows * 2;
+        let mut planes = Vec::new();
+        for (r, len) in counts.iter().enumerate() {
+            let row = packbits_decode(&bytes[at..at + len], 8).unwrap();
+            if r % 4 == 0 {
+                planes.push(row[0]);
+            }
+            at += len;
+        }
+        assert_eq!(at, bytes.len(), "nothing after the image");
+        // Stored as 255 = no ink: red is little cyan, much magenta and yellow.
+        let [c, m, y] = [255 - planes[0], 255 - planes[1], 255 - planes[2]];
+        assert!(c < 60 && m > 180 && y > 150, "{}: C {c} M {m} Y {y}", p.name);
+        assert_eq!(planes[4], 255, "opaque");
     }
 }

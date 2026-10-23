@@ -19,14 +19,17 @@ pub enum ColorMode {
     Rgb,
     Grayscale,
     Bitmap,
+    /// Colours kept printable with a CMYK press profile (`Document::cmyk`).
+    Cmyk,
 }
 
 impl ColorMode {
-    pub const ALL: [ColorMode; 3] = [ColorMode::Rgb, ColorMode::Grayscale, ColorMode::Bitmap];
+    pub const ALL: [ColorMode; 4] = [ColorMode::Rgb, ColorMode::Cmyk, ColorMode::Grayscale, ColorMode::Bitmap];
 
     pub fn name(self) -> &'static str {
         match self {
             ColorMode::Rgb => "RGB Color",
+            ColorMode::Cmyk => "CMYK Color",
             ColorMode::Grayscale => "Grayscale",
             ColorMode::Bitmap => "Bitmap",
         }
@@ -36,6 +39,7 @@ impl ColorMode {
     pub fn short(self) -> &'static str {
         match self {
             ColorMode::Rgb => "RGB/8",
+            ColorMode::Cmyk => "CMYK/8",
             ColorMode::Grayscale => "Gray/8",
             ColorMode::Bitmap => "Bitmap",
         }
@@ -195,7 +199,8 @@ pub fn to_bitmap(rgba: &[u8], w: usize, h: usize, method: BitmapMethod) -> Vec<u
 pub fn mode_color(mode: ColorMode, rgb: [f32; 3]) -> [f32; 3] {
     let c = rgb.map(|v| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8);
     match mode {
-        ColorMode::Rgb => rgb,
+        // CMYK: made printable by the app's Little CMS proofer.
+        ColorMode::Rgb | ColorMode::Cmyk => rgb,
         ColorMode::Grayscale => [luma(c) as f32 / 255.0; 3],
         ColorMode::Bitmap => [if luma(c) >= 128 { 1.0 } else { 0.0 }; 3],
     }

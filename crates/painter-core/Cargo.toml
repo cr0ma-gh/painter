@@ -18,3 +18,5 @@ roxmltree = "0.19"
 # Text layers: glyph outlines and font names (already in the tree through egui).
 ab_glyph = "0.2"
 ttf-parser = "0.25"
+# CMYK: colour conversion through ICC profiles (Little CMS, MIT; its C source is built in).
+lcms2 = "6"

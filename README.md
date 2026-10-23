@@ -108,8 +108,18 @@ cargo run --release -p painter-app -- drawing.painter
   black and white) and the profile (sRGB, Display P3, Adobe RGB (1998), Gray
   Gamma 2.2); Edit → Mode → Assign Profile changes it. The profile is saved
   in the project and embedded in PNG (grey images as grey PNGs) and PSD
-  exports; Painter shows the numbers as they are and converts nothing. CMYK
-  isn't available: Painter paints in RGB.
+  exports; Painter shows the numbers as they are and converts nothing.
+- **CMYK** (New Canvas, or Edit → Mode → CMYK Color; through Little CMS):
+  pick a press profile (the ones on the computer, such as Adobe's Coated
+  FOGRA39, U.S. Web Coated SWOP, Japan Color, or Windows' SWOP, are found
+  by themselves; Load Profile adds any .icc), the rendering intent and black
+  point compensation. Every colour becomes what that press can print, and
+  what you paint after stays printable (only the new pixels are converted,
+  so colours don't drift). The colour panel shows the main colour's C M Y K
+  and warns, with a click to fix it, when the press can't print it. PSD
+  exports are CMYK files with the profile embedded; the project keeps the
+  profile. Painter keeps RGB pixels underneath, 8 bits per channel; press
+  profiles aren't shipped with Painter (their licences don't allow it).
 - **Clock and battery** (View → Clock and Battery): the time and the
   battery's charge in a small chip in the canvas's corner; right-click it to
   hide it.

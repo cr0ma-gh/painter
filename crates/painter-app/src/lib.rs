@@ -11,6 +11,7 @@ mod app;
 mod brush_cursor;
 mod brush_library;
 mod clipboard_image;
+mod cmyk_ui;
 mod clock_widget;
 mod collab_ui;
 mod chip_picker;
