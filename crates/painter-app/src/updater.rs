@@ -399,6 +399,12 @@ impl Default for Updater {
 }
 
 impl Updater {
+    /// Help → Reset Settings: update checks as they come.
+    pub(crate) fn reset_settings(&mut self) {
+        self.settings = UpdateSettings::default();
+        self.save();
+    }
+
     fn save(&self) {
         if let (Some(path), Ok(json)) = (settings_path(), serde_json::to_vec_pretty(&self.settings)) {
             if let Some(dir) = path.parent() {

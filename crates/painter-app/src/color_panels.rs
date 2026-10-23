@@ -69,7 +69,7 @@ pub(crate) struct ColorSet {
 
 impl ColorSet {
     /// Greys, saturated hues, pastels, darks and skin tones.
-    fn default_set() -> Self {
+    pub(crate) fn default_set() -> Self {
         let mut colors = vec![[0, 0, 0], [255, 255, 255]];
         let hues = [0.0, 0.04, 0.08, 0.12, 0.17, 0.25, 0.33, 0.45, 0.5, 0.55, 0.6, 0.67, 0.75, 0.83, 0.92];
         for (s, v) in [(0.9, 0.95), (0.35, 1.0), (0.85, 0.55)] {

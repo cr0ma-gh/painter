@@ -102,6 +102,25 @@ impl WorkspaceUi {
         }
     }
 
+    /// Everything back as Painter first starts: layout, panels, toolbars,
+    /// theme, interface size, welcome screen. Saved like any change.
+    pub(crate) fn reset(&mut self) {
+        self.set = WorkspaceSet::default();
+        self.chrome = Chrome::default();
+        self.themes = ThemeLibrary::default();
+        self.toolbar = crate::toolbar::default_items();
+        self.command_bar = crate::toolbar::default_command_bar();
+        self.bars = Default::default();
+        self.welcome = true;
+        self.applied_theme = None;
+        self.applied_zoom = None;
+        self.area_rects.clear();
+        self.renaming = None;
+        self.toolbar_editing = false;
+        self.command_bar_editing = false;
+        self.theme_editor = false;
+    }
+
     fn entries(&self) -> [(&'static str, String); 7] {
         [
             (WORKSPACES_KEY, self.set.to_json()),
@@ -957,7 +976,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 74] = [
+        let fixed: [FixedCommand; 75] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -978,6 +997,7 @@ impl PainterApp {
             ("file.quit", "Quit", C::File, "Ctrl+Q", &["exit", "close"], !cfg!(target_os = "ios")),
             ("help.welcome", "Welcome Screen", C::View, "", &["start", "splash", "features"], true),
             ("help.about", "About Painter", C::View, "", &["version", "about", "help"], true),
+            ("help.reset_settings", "Reset Settings...", C::View, "", &["preferences", "defaults", "restore", "factory", "layout"], true),
             ("help.updates", "Check for Updates...", C::View, "", &["update", "upgrade", "new version", "release"], true),
             ("edit.undo", "Undo", C::Edit, "Ctrl+Z", &[], self.history.can_undo()),
             ("edit.redo", "Redo", C::Edit, "Ctrl+Shift+Z", &[], self.history.can_redo()),
@@ -1138,6 +1158,7 @@ impl PainterApp {
             "help.welcome" => self.welcome_open = true,
             "help.about" => self.about_open = true,
             "help.updates" => self.check_for_updates(),
+            "help.reset_settings" => self.reset_dialog = Some(Default::default()),
             "view.reset_rotation" => self.view.set_rotation(0.0),
             "view.flip" => self.view.flip = !self.view.flip,
             "view.grid" => self.doc.rulers.grid.visible = !self.doc.rulers.grid.visible,

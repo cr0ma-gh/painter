@@ -14,6 +14,7 @@ mod clipboard_image;
 mod chip_picker;
 mod color_panels;
 mod search_layer;
+mod settings_reset;
 mod shape_tool;
 mod smart_shape;
 mod stamp_tool;
@@ -189,7 +190,8 @@ pub fn thumbnail_command(args: &[String]) -> Option<i32> {
     file_types::thumbnail_command(args)
 }
 
-pub fn run(options: eframe::NativeOptions, file: Option<std::path::PathBuf>) -> eframe::Result {
+/// `reset`: the interface and tool options back to how they come (`--reset-settings`).
+pub fn run(options: eframe::NativeOptions, file: Option<std::path::PathBuf>, reset: bool) -> eframe::Result {
     install_crash_log();
     // iPadOS: the Materials folder appears in Files, ready for Clip Studio materials.
     let _ = files::materials_dir();
@@ -199,6 +201,9 @@ pub fn run(options: eframe::NativeOptions, file: Option<std::path::PathBuf>) -> 
         Box::new(move |cc| {
             let mut app = app::PainterApp::new(cc);
             gpu_started();
+            if reset {
+                app.reset_settings(&cc.egui_ctx, settings_reset::ResetChoice::default());
+            }
             if let Some(path) = file {
                 app.open_any(path);
                 // Opened with a file: straight to it.

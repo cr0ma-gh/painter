@@ -9,7 +9,7 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
     painter_app::set_android_app(app.clone());
     let mut options = painter_app::native_options();
     options.android_app = Some(app);
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| painter_app::run(options, None)));
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| painter_app::run(options, None, false)));
     match outcome {
         Ok(Ok(())) => {}
         Ok(Err(err)) => eprintln!("Painter: {err}"),

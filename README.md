@@ -250,6 +250,12 @@ cargo run --release -p painter-app -- drawing.painter
   Settings' tip preview show the tip as the pen would stamp it now (shape,
   image tip, pressure, tilt, lean). Ctrl + Alt and a sideways move of the pen
   or mouse resizes the brush.
+- **Reset Settings** (Help → Reset Settings): put back the interface
+  (workspaces, panels, toolbars, theme, interface size), the tool options,
+  the built-in brushes, the colour sets, the recent files list or the update
+  checks, each on its own; documents, actions and patterns stay. Starting
+  with `painter --reset-settings` resets the interface and tool options
+  before the window shows, for when a setting gets in the way.
 - **Updates** (Help → Check for Updates; also once a day by itself, which can
   be turned off): the latest GitHub release against this version. On
   Windows, macOS and Linux (AppImage) "Update and restart" downloads this

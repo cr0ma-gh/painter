@@ -61,6 +61,11 @@ impl PainterApp {
                     self.add_file_object(std::path::Path::new(path));
                     continue;
                 }
+                // `dev.reset`: Reset Settings with its default choice.
+                if c == "dev.reset" {
+                    self.reset_settings(ctx, Default::default());
+                    continue;
+                }
                 // `dev.color:RRGGBB`: the main colour.
                 if let Some(rgb) = c.strip_prefix("dev.color:").and_then(|h| u32::from_str_radix(h, 16).ok()) {
                     self.color = egui::Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8).into();

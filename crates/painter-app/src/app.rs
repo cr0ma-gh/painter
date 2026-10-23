@@ -183,6 +183,8 @@ pub struct PainterApp {
     /// The welcome screen and the About window are open.
     pub(crate) welcome_open: bool,
     pub(crate) about_open: bool,
+    /// Help → Reset Settings is open, with what is ticked.
+    pub(crate) reset_dialog: Option<crate::settings_reset::ResetChoice>,
     /// "Reset whole brush list" waits for a yes.
     pub(crate) confirm_brush_reset: bool,
     pub(crate) chip_picker: Option<crate::chip_picker::ChipPicker>,
@@ -354,6 +356,7 @@ impl PainterApp {
             size_drag: None,
             welcome_open: ws.welcome,
             about_open: false,
+            reset_dialog: None,
             confirm_brush_reset: false,
             chip_picker: None,
             spring_eraser: None,
@@ -1734,6 +1737,7 @@ impl eframe::App for PainterApp {
         self.new_canvas_window(ctx);
         self.scanner_window(ctx);
         self.image_size_window(ctx);
+        self.reset_settings_window(ctx);
         self.save_as_window(ctx);
         self.svg_export_window(ctx);
         self.comic_wizard_window(ctx);

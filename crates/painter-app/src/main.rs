@@ -6,6 +6,8 @@ fn main() -> eframe::Result {
     if let Some(code) = painter_app::thumbnail_command(&args) {
         std::process::exit(code);
     }
-    let file = std::env::args_os().nth(1).map(std::path::PathBuf::from);
-    painter_app::run(painter_app::native_options(), file)
+    // `painter --reset-settings [FILE]`: the interface and tool options as they come.
+    let reset = std::env::args_os().any(|a| a == "--reset-settings");
+    let file = std::env::args_os().skip(1).find(|a| a != "--reset-settings").map(std::path::PathBuf::from);
+    painter_app::run(painter_app::native_options(), file, reset)
 }

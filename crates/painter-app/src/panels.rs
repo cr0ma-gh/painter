@@ -363,6 +363,10 @@ impl PainterApp {
                         ui.close_menu();
                         self.check_for_updates();
                     }
+                    if ui.button("Reset Settings...").clicked() {
+                        ui.close_menu();
+                        self.reset_dialog = Some(Default::default());
+                    }
                     if ui.button("About Painter").clicked() {
                         ui.close_menu();
                         self.about_open = true;
