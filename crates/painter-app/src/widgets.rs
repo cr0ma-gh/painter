@@ -36,33 +36,43 @@ pub fn prop_slider(
         }
     };
 
+    // One row: the name, a bar to drag, the value to type.
     let mut changed = false;
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).color(theme::text()));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let drag = egui::DragValue::new(value).range(range.clone()).suffix(suffix).max_decimals(decimals).speed((hi - lo) / 400.0);
-            changed |= ui.add(drag).changed();
-        });
-    });
-    let width = ui.available_width();
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 9.0), Sense::click_and_drag());
-    let bar = Rect::from_min_size(rect.left_top() + Vec2::new(0.0, 1.0), Vec2::new(width * 0.62, 6.0));
-    if let Some(pos) = response.interact_pointer_pos() {
-        if response.dragged() || response.clicked() {
-            let t = ((pos.x - bar.left()) / bar.width()).clamp(0.0, 1.0);
-            let new = from_t(t);
-            if (new - *value).abs() > f32::EPSILON {
-                *value = new;
-                changed = true;
+        ui.spacing_mut().item_spacing.x = 4.0;
+        let row_h = 18.0;
+        let full = ui.available_width();
+        let label_w = (full * 0.38).clamp(56.0, 120.0);
+        let (label_rect, label_response) = ui.allocate_exact_size(Vec2::new(label_w, row_h), Sense::hover());
+        let font = egui::FontId::proportional(12.0);
+        let galley = ui.painter().layout(label.to_string(), font, theme::text(), label_w);
+        let shown = ui.painter().with_clip_rect(label_rect);
+        shown.galley(label_rect.left_center() - Vec2::new(0.0, galley.size().y / 2.0), galley.clone(), theme::text());
+        if galley.size().x > label_w {
+            label_response.on_hover_text(label);
+        }
+        let value_w = 58.0;
+        let bar_w = (ui.available_width() - value_w - 4.0).max(24.0);
+        let (rect, response) = ui.allocate_exact_size(Vec2::new(bar_w, row_h), Sense::click_and_drag());
+        let bar = Rect::from_center_size(rect.center(), Vec2::new(rect.width(), 6.0));
+        if let Some(pos) = response.interact_pointer_pos() {
+            if response.dragged() || response.clicked() {
+                let t = ((pos.x - bar.left()) / bar.width()).clamp(0.0, 1.0);
+                let new = from_t(t);
+                if (new - *value).abs() > f32::EPSILON {
+                    *value = new;
+                    changed = true;
+                }
             }
         }
-    }
-    let painter = ui.painter();
-    painter.rect_filled(bar, 1.0, theme::well());
-    let filled = Rect::from_min_size(bar.min, Vec2::new(bar.width() * to_t(*value), bar.height()));
-    let fill = if response.hovered() || response.dragged() { theme::accent() } else { Color32::from_gray(120) };
-    painter.rect_filled(filled, 1.0, fill);
-    ui.add_space(2.0);
+        let painter = ui.painter();
+        painter.rect_filled(bar, 1.0, theme::well());
+        let filled = Rect::from_min_size(bar.min, Vec2::new(bar.width() * to_t(*value), bar.height()));
+        let fill = if response.hovered() || response.dragged() { theme::accent() } else { Color32::from_gray(120) };
+        painter.rect_filled(filled, 1.0, fill);
+        let drag = egui::DragValue::new(value).range(range.clone()).suffix(suffix).max_decimals(decimals).speed((hi - lo) / 400.0);
+        changed |= ui.add_sized([value_w, row_h], drag).changed();
+    });
     changed
 }
 

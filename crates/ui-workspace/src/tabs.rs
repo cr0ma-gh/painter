@@ -40,10 +40,17 @@ impl WorkspaceKind {
         match self {
             // The current default: tools left, canvas, colour and layers right.
             WorkspaceKind::Painting => {
+                // Panel groups as tabs (Photoshop): colour above, layers below.
                 let right = t.split(canvas, SideBySide, 0.8, ColorWheel, false).unwrap();
-                t.add_tab(right, Navigator);
+                for tab in [ColorSlider, ColorSet, Navigator] {
+                    t.add_tab(right, tab);
+                }
                 t.set_editor(right, ColorWheel);
-                t.split(right, Stacked, 0.36, Layers, false);
+                let layers = t.split(right, Stacked, 0.36, Layers, false).unwrap();
+                for tab in [Channels, History] {
+                    t.add_tab(layers, tab);
+                }
+                t.set_editor(layers, Layers);
                 let left = t.split(canvas, SideBySide, 0.25, BrushSize, true).unwrap();
                 let tools = t.split(left, SideBySide, 0.3, ToolGroup, false).unwrap();
                 t.split(tools, Stacked, 0.5, ToolSettings, false);
@@ -54,6 +61,10 @@ impl WorkspaceKind {
                 let right = t.split(canvas, SideBySide, 0.82, ToolSettings, false).unwrap();
                 let layers = t.split(right, Stacked, 0.45, Layers, false).unwrap();
                 t.split(layers, Stacked, 0.6, Navigator, false);
+                for tab in [Channels, History] {
+                    t.add_tab(layers, tab);
+                }
+                t.set_editor(layers, Layers);
             }
             // The 3D viewport beside the canvas it renders into.
             WorkspaceKind::Scene3D => {
@@ -64,7 +75,9 @@ impl WorkspaceKind {
             // Panels and layers on the right, the page large.
             WorkspaceKind::Comic => {
                 let right = t.split(canvas, SideBySide, 0.75, ComicPanels, false).unwrap();
-                t.split(right, Stacked, 0.4, Layers, false);
+                let layers = t.split(right, Stacked, 0.4, Layers, false).unwrap();
+                t.add_tab(layers, History);
+                t.set_editor(layers, Layers);
                 let left = t.split(canvas, SideBySide, 0.2, ToolSettings, true).unwrap();
                 t.split(left, Stacked, 0.6, ToolGroup, true);
             }

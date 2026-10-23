@@ -836,12 +836,13 @@ impl PainterApp {
         // Header: the brush's stroke on a light strip, its name on top.
         let total = self.brushes.len();
         let index = self.brush;
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.0), Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 30.0), Sense::hover());
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 3.0, Color32::from_gray(205));
         let texture = self.previews.get(ui.ctx(), index, &self.brushes[index].settings, total);
         let size = texture.size_vec2();
-        let shown = egui::Rect::from_min_size(rect.left_top() + Vec2::new(rect.width() * 0.25, 3.0), size);
+        let size = size * (rect.height() / size.y.max(1.0)).min(1.0);
+        let shown = egui::Rect::from_min_size(rect.left_top() + Vec2::new(rect.width() * 0.25, (rect.height() - size.y) / 2.0), size);
         painter.image(
             texture.id(),
             shown,
@@ -853,15 +854,15 @@ impl PainterApp {
         let tag = egui::Rect::from_min_size(rect.left_top() + Vec2::new(3.0, 3.0), galley.size() + Vec2::new(8.0, 2.0));
         painter.rect_filled(tag, 2.0, Color32::from_gray(70).gamma_multiply(0.9));
         painter.galley(tag.min + Vec2::new(4.0, 1.0), galley, Color32::WHITE);
-        ui.add_space(4.0);
+        ui.add_space(2.0);
 
         ui.horizontal(|ui| {
-            if ui.button("Advanced Tool Settings...").on_hover_text("Every setting by category; export for Photoshop or Clip Studio").clicked() {
+            if ui.small_button("Advanced Tool Settings...").on_hover_text("Every setting by category; export for Photoshop or Clip Studio").clicked() {
                 self.open_advanced_tool_settings();
             }
             let builtin = self.default_of(self.brush).is_some();
             if ui
-                .add_enabled(builtin, egui::Button::new("Reset"))
+                .add_enabled(builtin, egui::Button::new("Reset").small())
                 .on_hover_text("Back to this brush's default settings")
                 .on_disabled_hover_text("Imported brushes have no default to go back to")
                 .clicked()
@@ -873,15 +874,17 @@ impl PainterApp {
         if !missing.is_empty() {
             ui.colored_label(Color32::from_rgb(240, 190, 90), format!("Imported features not painted yet: {}", missing.join(", ")));
         }
-        egui::CollapsingHeader::new("Tip preview").id_salt("tip_preview").default_open(true).show(ui, |ui| self.tip_preview(ui));
-        ui.checkbox(&mut self.ws.chrome.brush_crosshair, "Crosshair at the brush").on_hover_text("Off: only the brush outline shows where you paint");
-        ui.checkbox(&mut self.tools.smart_shape, "Smart shape (hold)").on_hover_text(
-            "Draw a line, circle, rectangle or triangle and keep the pen still at the end: it becomes the clean shape, drawn with this brush",
-        );
+        egui::CollapsingHeader::new("Tip preview").id_salt("tip_preview").default_open(false).show(ui, |ui| self.tip_preview(ui));
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 3.0;
+            ui.toggle_value(&mut self.ws.chrome.brush_crosshair, "Crosshair").on_hover_text("Off: only the brush outline shows where you paint");
+            ui.toggle_value(&mut self.tools.smart_shape, "Smart shape").on_hover_text(
+                "Draw a line, circle, rectangle or triangle and keep the pen still at the end: it becomes the clean shape, drawn with this brush",
+            );
+        });
         let vector_eraser = &mut self.tools.vector_erase;
         let brush = &mut self.brushes[self.brush].settings;
         prop_slider(ui, "Brush Size", &mut brush.size, 0.5..=2000.0, "", 1, true);
-        ui.checkbox(&mut brush.pressure_size, "Size follows pressure");
         if brush.pressure_size {
             prop_percent(ui, "Minimum size", &mut brush.min_size_ratio, 0.0..=100.0);
         }
@@ -898,7 +901,13 @@ impl PainterApp {
             });
         }
         prop_percent(ui, "Density", &mut brush.density, 0.0..=100.0);
-        ui.checkbox(&mut brush.pressure_density, "Density follows pressure");
+        // What pen pressure changes, as two toggles on one row.
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 3.0;
+            ui.label(egui::RichText::new("Pressure:").small());
+            ui.toggle_value(&mut brush.pressure_size, "Size").on_hover_text("Size follows pressure");
+            ui.toggle_value(&mut brush.pressure_density, "Density").on_hover_text("Density follows pressure");
+        });
         prop_percent(ui, "Spacing", &mut brush.spacing, 1.0..=200.0);
         prop_percent(ui, "Hardness", &mut brush.hardness, 0.0..=100.0);
 
@@ -975,25 +984,26 @@ impl PainterApp {
             ui.small("Tilt comes from WinTab or XInput2 tablets and the Apple Pencil; speed is measured on the canvas.");
         });
 
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.label("Pressure curve:");
-            ui.selectable_value(&mut self.curve_target, CurveTarget::Size, "Size");
-            ui.selectable_value(&mut self.curve_target, CurveTarget::Density, "Density");
-        });
-        let curve = match self.curve_target {
-            CurveTarget::Size => &mut brush.size_curve,
-            CurveTarget::Density => &mut brush.density_curve,
-        };
-        ui.horizontal(|ui| {
-            for (label, gamma) in [("Soft", 0.6), ("Linear", 1.0), ("Firm", 1.7)] {
-                if ui.small_button(label).clicked() {
-                    *curve = PressureCurve::gamma(gamma);
+        let curve_target = &mut self.curve_target;
+        egui::CollapsingHeader::new("Pressure curve").id_salt("pressure_curve_section").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.selectable_value(curve_target, CurveTarget::Size, "Size");
+                ui.selectable_value(curve_target, CurveTarget::Density, "Density");
+            });
+            let curve = match curve_target {
+                CurveTarget::Size => &mut brush.size_curve,
+                CurveTarget::Density => &mut brush.density_curve,
+            };
+            ui.horizontal(|ui| {
+                for (label, gamma) in [("Soft", 0.6), ("Linear", 1.0), ("Firm", 1.7)] {
+                    if ui.small_button(label).clicked() {
+                        *curve = PressureCurve::gamma(gamma);
+                    }
                 }
-            }
+            });
+            curve_editor(ui, "pressure_curve", curve);
+            ui.small("Drag points · double-click to add · right-click to remove");
         });
-        curve_editor(ui, "pressure_curve", curve);
-        ui.small("Drag points · double-click to add · right-click to remove");
     }
 
     pub(crate) fn navigator_panel(&mut self, ui: &mut egui::Ui) {

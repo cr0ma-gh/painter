@@ -623,18 +623,40 @@ impl PainterApp {
             .response
             .on_hover_text(format!("{}: change what this area shows", editor.title()));
         };
-        type_menu(&mut head, &mut action);
         if area.editors.len() > 1 {
-            // Stacked tabs: the shown one with its name, the others as icons.
+            // Stacked tabs, as Photoshop's panel groups: every tab by name when
+            // they fit (the shown one framed), icons only when they don't.
+            let font = egui::TextStyle::Small.resolve(head.style());
+            let names: f32 = area
+                .editors
+                .iter()
+                .map(|e| head.fonts(|f| f.layout_no_wrap(e.title().to_string(), font.clone(), text).size().x) + 16.0)
+                .sum();
+            let fits = names + 36.0 <= header.width();
+            head.spacing_mut().button_padding.x = 4.0;
             for (i, e) in area.editors.iter().enumerate() {
                 let shown = i == area.active;
-                let image = crate::icons::editor_icon(*e).image(icon_size, text);
-                let label = if shown && roomy { e.title() } else { "" };
-                let tab = head.add(egui::Button::image_and_text(image, egui::RichText::new(label).small()).selected(shown).frame(shown));
+                if i > 0 && fits {
+                    head.add_space(2.0);
+                    let x = head.cursor().left();
+                    let y = header.center().y;
+                    head.painter().vline(x, (y - 5.0)..=(y + 5.0), egui::Stroke::new(1.0_f32, theme::line()));
+                    head.add_space(3.0);
+                }
+                let tab = if fits {
+                    let label = egui::RichText::new(e.title()).small().color(if shown { theme::strong() } else { theme::text_dim() });
+                    head.add(egui::Button::new(label).selected(shown).frame(shown))
+                } else {
+                    let image = crate::icons::editor_icon(*e).image(icon_size, text);
+                    let label = if shown && roomy { e.title() } else { "" };
+                    head.add(egui::Button::image_and_text(image, egui::RichText::new(label).small()).selected(shown).frame(shown))
+                };
                 if tab.on_hover_text(e.title()).clicked() {
                     action = Some(AreaAction::ShowTab(*e));
                 }
             }
+        } else {
+            type_menu(&mut head, &mut action);
         }
         // Viewports (the canvas, a reference) don't fold.
         let can_fold = many_areas && !area.editors.iter().any(|e| e.is_viewport());
@@ -643,6 +665,18 @@ impl PainterApp {
                 action = Some(AreaAction::Fold(true));
             }
             ui.menu_button(egui::RichText::new("···").small(), |ui| {
+                // With tabs the header has no type menu: change the shown panel from here.
+                if area.editors.len() > 1 {
+                    ui.menu_button("Show Instead", |ui| {
+                        for e in EditorType::ALL {
+                            let item = egui::Button::image_and_text(crate::icons::editor_icon(e).image(14.0, text), e.title()).selected(e == editor);
+                            if ui.add(item).clicked() {
+                                action = Some(AreaAction::SetEditor(e));
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                }
                 if ui.button("Split Right").clicked() {
                     action = Some(AreaAction::Split(SplitKind::SideBySide));
                     ui.close_menu();
