@@ -120,6 +120,9 @@ struct DocumentFile {
     /// Saved selections: name and plane entry. Absent in older files.
     #[serde(default)]
     channels: Vec<(String, String)>,
+    /// Colour mode; RGB in older files.
+    #[serde(default)]
+    mode: crate::color_mode::ColorMode,
 }
 
 fn default_dpi() -> u32 {
@@ -248,6 +251,7 @@ fn write_to<W: Write + Seek>(doc: &Document, extras: &Extras, writer: W) -> Resu
         layers,
         selection,
         channels,
+        mode: doc.mode,
     };
     zip.start_file(DOCUMENT_ENTRY, packed)?;
     serde_json::to_writer_pretty(&mut zip, &file)?;
@@ -330,6 +334,7 @@ fn read_from<R: Read + Seek>(reader: R) -> Result<(Document, Extras), ProjectErr
     if let Some(name) = file.selection {
         doc.selection = Some(read_plane(&mut zip, &name)?);
     }
+    doc.mode = file.mode;
     for (name, entry) in file.channels {
         doc.channels.push(crate::document::SavedChannel { name, mask: read_plane(&mut zip, &entry)? });
     }
@@ -482,6 +487,7 @@ mod tests {
         doc.add_layer(tone);
         doc.selection = Some(crate::selection::rect_mask([2.0, 2.0], [20.0, 9.0], doc.canvas()));
         doc.channels.push(crate::document::SavedChannel { name: "Eyes".into(), mask: crate::selection::rect_mask([25.0, 25.0], [40.0, 40.0], doc.canvas()) });
+        doc.mode = crate::color_mode::ColorMode::Grayscale;
         doc.active = v;
         doc
     }
@@ -509,6 +515,7 @@ mod tests {
         assert_eq!(back.selection.as_ref().unwrap().pixel(5, 5)[3], 255);
         assert_eq!(back.channels.len(), 1);
         assert_eq!(back.channels[0].name, "Eyes");
+        assert_eq!(back.mode, crate::color_mode::ColorMode::Grayscale);
         assert_eq!(back.channels[0].mask.pixel(30, 30)[3], 255);
         // New layers never reuse saved ids.
         let mut back = back;

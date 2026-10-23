@@ -61,6 +61,11 @@ impl PainterApp {
                     self.add_file_object(std::path::Path::new(path));
                     continue;
                 }
+                // `dev.bitmap`: Mode → Bitmap with an 8 px halftone screen.
+                if c == "dev.bitmap" {
+                    self.convert_to_bitmap(painter_core::color_mode::BitmapMethod::Halftone { cell: 24.0, angle: 45.0 });
+                    continue;
+                }
                 // `dev.reset`: Reset Settings with its default choice.
                 if c == "dev.reset" {
                     self.reset_settings(ctx, Default::default());

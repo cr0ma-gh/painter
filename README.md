@@ -87,6 +87,13 @@ cargo run --release -p painter-app -- drawing.painter
   included.
 - **Shortcuts:** hold E for the eraser until you let go (a tap switches);
   double-click the main or sub colour chip for a picker (wheel, RGB, hex).
+- **Colour modes** (Edit → Mode, as Photoshop's Image → Mode; shown in the
+  status bar): RGB Color, Grayscale (every layer's colours, vector lines,
+  fills, gradients and tones turn grey, and painting stays grey) and Bitmap
+  (the image flattens into one black-and-white layer by 50 % threshold,
+  diffusion dither or a halftone screen of any cell size and angle, and
+  painting stays black and white). Undo brings the colours back; 8 bits per
+  channel only.
 - **Channels** (Window → Panels → Channels, as in Photoshop): show red, green
   or blue alone (in grey) or in pairs; click a channel to paint, fill and
   stamp only in it (Shift-click for several, Ctrl+2…5 from the keyboard);

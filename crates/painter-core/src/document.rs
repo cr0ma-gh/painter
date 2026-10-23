@@ -28,6 +28,8 @@ pub struct Document {
     /// Root layers, bottom to top.
     pub layers: Vec<Layer>,
     pub active: LayerId,
+    /// RGB, Grayscale or Bitmap (Image → Mode).
+    pub mode: crate::color_mode::ColorMode,
     /// Saved selections (Photoshop's alpha channels), oldest first.
     pub channels: Vec<SavedChannel>,
     /// `None`: no selection, everything is editable (see `selection`).
@@ -47,6 +49,7 @@ impl Document {
             active: LayerId(0),
             selection: None,
             channels: Vec::new(),
+            mode: Default::default(),
             next_id: 1,
         };
         let paper = doc.alloc_id();
@@ -84,6 +87,7 @@ impl Document {
             active,
             selection: None,
             channels: Vec::new(),
+            mode: Default::default(),
             next_id: next_id.max(max_id + 1),
         }
     }

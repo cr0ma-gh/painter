@@ -185,6 +185,8 @@ pub struct PainterApp {
     pub(crate) about_open: bool,
     /// Help → Reset Settings is open, with what is ticked.
     pub(crate) reset_dialog: Option<crate::settings_reset::ResetChoice>,
+    /// Edit → Mode → Bitmap is asking how.
+    pub(crate) bitmap_dialog: Option<crate::color_mode_ui::BitmapDialog>,
     /// "Reset whole brush list" waits for a yes.
     pub(crate) confirm_brush_reset: bool,
     pub(crate) chip_picker: Option<crate::chip_picker::ChipPicker>,
@@ -357,6 +359,7 @@ impl PainterApp {
             welcome_open: ws.welcome,
             about_open: false,
             reset_dialog: None,
+            bitmap_dialog: None,
             confirm_brush_reset: false,
             chip_picker: None,
             spring_eraser: None,
@@ -449,7 +452,8 @@ impl PainterApp {
     }
 
     pub(crate) fn main_rgb(&self) -> [f32; 3] {
-        hsva_rgb(self.color)
+        // Grey, or black or white, in those colour modes.
+        painter_core::color_mode::mode_color(self.doc.mode, hsva_rgb(self.color))
     }
 
     // ---- history & GPU sync ------------------------------------------------
@@ -922,7 +926,7 @@ impl PainterApp {
         };
         let (opacity, mode, blend) = (stroke.settings.opacity, stroke.settings.mode, stroke.settings.blend);
         commit_stroke(tiles, &stroke.before, &result, opacity, mode, blend, stroke.alpha_locked, selection.as_ref());
-        self.restrict_channels(stroke.plane, &stroke.before, result.dirty.iter().copied());
+        self.finish_edit(stroke.plane, &stroke.before, result.dirty.iter().copied());
         self.upload_tiles(stroke.plane, result.dirty);
     }
 
@@ -970,7 +974,7 @@ impl PainterApp {
             stroke.alpha_locked,
             selection.as_ref(),
         );
-        self.restrict_channels(stroke.plane, &stroke.before, touched.iter().copied());
+        self.finish_edit(stroke.plane, &stroke.before, touched.iter().copied());
         self.upload_tiles(stroke.plane, touched);
     }
 
@@ -986,7 +990,7 @@ impl PainterApp {
         };
         let before = tiles.clone();
         commit_stroke(tiles, &before, stroke, 1.0, mode, painter_core::BrushBlend::Normal, alpha_locked, selection.as_ref());
-        self.restrict_channels(plane, &before, stroke.dirty.iter().copied());
+        self.finish_edit(plane, &before, stroke.dirty.iter().copied());
         self.upload_tiles(plane, stroke.dirty.iter().copied());
     }
 
@@ -1738,6 +1742,7 @@ impl eframe::App for PainterApp {
         self.scanner_window(ctx);
         self.image_size_window(ctx);
         self.reset_settings_window(ctx);
+        self.bitmap_window(ctx);
         self.save_as_window(ctx);
         self.svg_export_window(ctx);
         self.comic_wizard_window(ctx);

@@ -12,6 +12,7 @@ mod brush_cursor;
 mod brush_library;
 mod clipboard_image;
 mod chip_picker;
+mod color_mode_ui;
 mod color_panels;
 mod search_layer;
 mod settings_reset;

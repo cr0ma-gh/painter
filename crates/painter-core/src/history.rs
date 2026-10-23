@@ -16,6 +16,7 @@ struct Snapshot {
     active: LayerId,
     selection: Option<TileStore>,
     channels: Vec<crate::document::SavedChannel>,
+    mode: crate::color_mode::ColorMode,
     /// The action between this state and the next one.
     label: String,
     /// `label` is only what was in hand: name the step from what it changed.
@@ -24,7 +25,7 @@ struct Snapshot {
 
 impl Snapshot {
     fn of(doc: &Document, label: String, hint: bool) -> Self {
-        Self { size: doc.canvas(), layers: doc.layers.clone(), active: doc.active, selection: doc.selection.clone(), channels: doc.channels.clone(), label, hint }
+        Self { size: doc.canvas(), layers: doc.layers.clone(), active: doc.active, selection: doc.selection.clone(), channels: doc.channels.clone(), mode: doc.mode, label, hint }
     }
 
     fn restore(self, doc: &mut Document) {
@@ -33,6 +34,7 @@ impl Snapshot {
         doc.active = self.active;
         doc.selection = self.selection;
         doc.channels = self.channels;
+        doc.mode = self.mode;
     }
 }
 

@@ -191,6 +191,7 @@ impl PainterApp {
                         ui.close_menu();
                         self.image_size = Some(crate::dialogs::ImageSizeDialog::open(self.doc.canvas(), self.last_resize_filter));
                     }
+                    self.mode_menu(ui);
                     ui.separator();
                     let clear = egui::Button::new("Clear Selected").shortcut_text("Del");
                     if ui.add_enabled(self.doc.selection.is_some(), clear).clicked() {
@@ -396,6 +397,7 @@ impl PainterApp {
                 })
                 .response
                 .on_hover_text(format!("{w_mm:.1} × {h_mm:.1} mm at {} dpi", self.doc.dpi));
+                ui.label(self.doc.mode.short()).on_hover_text(format!("{} (Edit > Mode)", self.doc.mode.name()));
                 ui.separator();
                 ui.label(format!("{:.0}%", self.view.zoom * 100.0));
                 ui.separator();
