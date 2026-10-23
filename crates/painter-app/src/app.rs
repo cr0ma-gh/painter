@@ -200,10 +200,15 @@ pub struct PainterApp {
     pub(crate) pose_bone: Option<usize>,
     pub(crate) pose_drag: Option<crate::pose_ui::PoseDrag>,
     pub(crate) pose_filter: String,
+    /// Posing by inverse kinematics (the bones above a dragged joint bend), and how many.
+    pub(crate) pose_ik: bool,
+    pub(crate) pose_chain: usize,
     /// The Vector Points tool: the picked line and the drag.
     pub(crate) vector_edit: crate::vector_edit::VectorEditState,
     /// Decoded pictures of file object layers' files.
     pub(crate) file_objects: crate::file_object::FileObjectCache,
+    /// A layer being renamed in its row (double-click): id, text, field just opened.
+    pub(crate) layer_rename: Option<(painter_core::LayerId, String, bool)>,
     /// Android: the "open with" intent was looked at.
     #[cfg(target_os = "android")]
     pub(crate) android_intent_read: bool,
@@ -340,8 +345,11 @@ impl PainterApp {
             pose_bone: None,
             pose_drag: None,
             pose_filter: String::new(),
+            pose_ik: true,
+            pose_chain: 2,
             vector_edit: Default::default(),
             file_objects: Default::default(),
+            layer_rename: None,
             #[cfg(target_os = "android")]
             android_intent_read: false,
             logo: None,

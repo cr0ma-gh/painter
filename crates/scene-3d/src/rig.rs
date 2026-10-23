@@ -129,6 +129,47 @@ impl Rig {
         self.globals(pose).iter().map(|g| self.base.transform_point(g.transform_point(Vec3::ZERO)) - self.centre).collect()
     }
 
+    /// The rotation of bone `bone`'s parent frame in the object's space (identity for a root).
+    pub fn parent_rotation(&self, pose: &[Quat], bone: usize) -> Quat {
+        let parent = self.bones[bone].parent.map_or(Mat4::IDENTITY, |p| self.globals(pose)[p]);
+        decompose(&(self.base * parent)).1
+    }
+
+    /// The pose turn for `bone` that adds the object-space rotation `turn` to
+    /// its current orientation (`pose[bone]` included).
+    pub fn turn_bone(&self, pose: &[Quat], bone: usize, turn: Quat) -> Quat {
+        let frame = self.parent_rotation(pose, bone);
+        let rest = self.bones[bone].rotation;
+        (rest.conjugate() * frame.conjugate() * turn * frame * rest * pose[bone]).normalize()
+    }
+
+    /// Inverse kinematics (cyclic coordinate descent): turns up to `chain`
+    /// bones above `effector` so its joint reaches `target` (object space),
+    /// the nearest bone first, a few rounds. Bones below the effector follow.
+    pub fn solve_ik(&self, pose: &mut [Quat], effector: usize, chain: usize, target: Vec3) {
+        let mut bones = Vec::new();
+        let mut at = self.bones.get(effector).and_then(|b| b.parent);
+        while let Some(b) = at.filter(|_| bones.len() < chain) {
+            bones.push(b);
+            at = self.bones[b].parent;
+        }
+        for _ in 0..12 {
+            for &b in &bones {
+                let joints = self.joints_in_object(pose);
+                let (head, tip) = (joints[b], joints[effector]);
+                let (from, to) = (tip - head, target - head);
+                if from.length() < 1e-6 || to.length() < 1e-6 {
+                    continue;
+                }
+                let turn = rotation_between(from.normalize(), to.normalize());
+                pose[b] = self.turn_bone(pose, b, turn);
+            }
+            if (self.joints_in_object(pose)[effector] - target).length() < 1e-4 {
+                break;
+            }
+        }
+    }
+
     /// The mesh in `pose`: `mesh`'s triangles and UVs, skinned positions and normals.
     pub fn deform(&self, mesh: &Mesh, pose: &[Quat]) -> Mesh {
         let skin: Vec<Mat4> = self.globals(pose).iter().zip(&self.bones).map(|(g, b)| self.base * *g * b.inverse_bind).collect();
@@ -158,6 +199,23 @@ impl Rig {
             .collect();
         Mesh::from_buffers(&mesh.name, vertices, mesh.indices.clone())
     }
+}
+
+/// The shortest rotation taking unit vector `a` to unit vector `b`.
+pub fn rotation_between(a: Vec3, b: Vec3) -> Quat {
+    let d = a.dot(b).clamp(-1.0, 1.0);
+    if d > 1.0 - 1e-7 {
+        return Quat::IDENTITY;
+    }
+    let axis = a.cross(b);
+    let axis = if axis.length() < 1e-6 {
+        // Opposite: any perpendicular axis.
+        let other = if a.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
+        a.cross(other).normalize()
+    } else {
+        axis.normalize()
+    };
+    Quat::from_axis_angle(axis, d.acos())
 }
 
 /// Up to four strongest (bone, weight) pairs per vertex, normalised.
@@ -267,5 +325,55 @@ mod tests {
         assert_eq!(bones[1].parent, Some(0));
         assert_eq!(map, vec![1, 0]);
         assert_eq!(strongest_four(&[(3, 2.0), (1, 0.0), (2, 6.0)]), ([2, 3, 0, 0], [0.75, 0.25, 0.0, 0.0]));
+    }
+}
+
+#[cfg(test)]
+mod ik_tests {
+    use super::*;
+
+    /// Shoulder at the origin, elbow 1 up, wrist 2 up: an arm of three bones.
+    fn arm() -> Rig {
+        let bone = |name: &str, parent, t: f32| Bone {
+            name: name.into(),
+            parent,
+            translation: vec3(0.0, 0.0, t),
+            rotation: Quat::IDENTITY,
+            scale: vec3(1.0, 1.0, 1.0),
+            inverse_bind: Mat4::IDENTITY,
+        };
+        Rig {
+            bones: vec![bone("shoulder", None, 0.0), bone("elbow", Some(0), 1.0), bone("wrist", Some(1), 1.0)],
+            base: Mat4::IDENTITY,
+            centre: Vec3::ZERO,
+            positions: vec![],
+            normals: vec![],
+            joints: vec![],
+            weights: vec![],
+        }
+    }
+
+    #[test]
+    fn the_wrist_reaches_for_the_target() {
+        let rig = arm();
+        let mut pose = vec![Quat::IDENTITY; 3];
+        // Within reach (2 from the shoulder): bend the arm to put the wrist at (1, 0, 1).
+        let target = vec3(1.0, 0.0, 1.0);
+        rig.solve_ik(&mut pose, 2, 2, target);
+        let joints = rig.joints_in_object(&pose);
+        assert!((joints[2] - target).length() < 1e-3, "{:?}", joints[2]);
+        assert!(joints[0].length() < 1e-6, "the shoulder stays");
+        assert!(((joints[1] - joints[0]).length() - 1.0).abs() < 1e-4, "bones keep their length");
+        // Out of reach: the arm points at it, straight.
+        let mut pose = vec![Quat::IDENTITY; 3];
+        rig.solve_ik(&mut pose, 2, 2, vec3(5.0, 0.0, 0.0));
+        let j = rig.joints_in_object(&pose);
+        assert!((j[2] - vec3(2.0, 0.0, 0.0)).length() < 1e-2, "{:?}", j[2]);
+        // A chain of one only turns the elbow.
+        let mut pose = vec![Quat::IDENTITY; 3];
+        rig.solve_ik(&mut pose, 2, 1, vec3(1.0, 0.0, 1.0));
+        assert_eq!(pose[0], Quat::IDENTITY);
+        assert!((rig.joints_in_object(&pose)[2] - vec3(1.0, 0.0, 1.0)).length() < 1e-3);
+        assert!(rotation_between(Vec3::X, -Vec3::X).rotate(Vec3::X).dot(-Vec3::X) > 0.999);
     }
 }

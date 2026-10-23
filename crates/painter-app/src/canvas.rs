@@ -84,6 +84,7 @@ impl PainterApp {
         }
         self.canvas_input(ui, rect, &response);
         self.smart_tick(ui.ctx());
+        self.pose_grab_keys(ui.ctx());
 
         if !self.uploads.is_empty() {
             self.doc_touched = true;
@@ -123,6 +124,7 @@ impl PainterApp {
         self.draw_brush_cursor(&painter, rect, &response);
         self.draw_eyedropper(&painter);
         self.transform_hud(ui.ctx(), rect);
+        self.nav_gizmo(ui, rect);
         self.ruler_bar_ui(ui, full, rect, bar_top, bar_left);
     }
 
@@ -130,7 +132,9 @@ impl PainterApp {
         let doc_size = self.doc_size();
         let (events, space, zoom_delta, scroll) =
             ui.input(|i| (i.events.clone(), i.key_down(Key::Space), i.zoom_delta(), i.raw_scroll_delta));
-        let hovering = response.contains_pointer();
+        // Not over the 3D navigation gizmo (it takes its own clicks and drags).
+        let over_gizmo = self.nav_gizmo_rect(rect).zip(ui.input(|i| i.pointer.hover_pos())).is_some_and(|(g, p)| g.contains(p));
+        let hovering = response.contains_pointer() && !over_gizmo;
         self.pointer_mods = ui.input(|i| i.modifiers);
         self.hover_doc = response.hover_pos().filter(|p| rect.contains(*p)).map(|p| self.view.screen_to_doc(rect, doc_size, p));
 
@@ -229,6 +233,11 @@ impl PainterApp {
                     let p = to_doc(&self.view, *pos);
                     self.continue_stroke(self.stroke_point(p));
                 }
+                // A joint following the pointer (a click on it started it): no button held.
+                Event::PointerMoved(pos) if self.pose_grabbing() && self.drag.is_none() => {
+                    let p = to_doc(&self.view, *pos);
+                    self.pose_move(p);
+                }
                 Event::PointerMoved(pos) if self.drag.is_some() => {
                     let p = to_doc(&self.view, *pos);
                     self.tool_move(p);
@@ -271,6 +280,8 @@ impl PainterApp {
                 (true, true, _) => CursorIcon::Grabbing,
                 (true, false, _) => CursorIcon::Grab,
                 (_, _, Tool::Fill) => CursorIcon::Cell,
+                // The brush outline alone, when the crosshair is turned off.
+                (_, _, Tool::Brush) if !self.ws.chrome.brush_crosshair => CursorIcon::None,
                 _ => CursorIcon::Crosshair,
             };
             ui.ctx().set_cursor_icon(icon);

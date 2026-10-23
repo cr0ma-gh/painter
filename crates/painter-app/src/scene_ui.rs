@@ -813,7 +813,14 @@ impl PainterApp {
             });
             // Rigged models: their pose.
             if scene.objects[sel].rig.is_some() {
-                let (c, k) = crate::pose_ui::pose_panel(ui, &mut scene.objects[sel], &mut self.pose_bone, &mut self.pose_filter);
+                let (c, k) = crate::pose_ui::pose_panel(
+                    ui,
+                    &mut scene.objects[sel],
+                    &mut self.pose_bone,
+                    &mut self.pose_filter,
+                    &mut self.pose_ik,
+                    &mut self.pose_chain,
+                );
                 changed |= c;
                 checkpoint |= k;
             }

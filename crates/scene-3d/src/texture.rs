@@ -257,7 +257,21 @@ pub fn project(
                 if sz > depth.at(sx, sy) + 2e-3 * (1.0 - sz).max(1e-3).sqrt() {
                     continue; // hidden behind something
                 }
-                let p = paint_at(overlay, size, sx, sy);
+                // The texel's footprint on screen: where its neighbours one texel
+                // over in u and in v land. A texel bigger than a screen pixel
+                // takes all the paint over it, so thin lines don't break up.
+                let at_texel = |qx: f32, qy: f32| -> Option<(f32, f32)> {
+                    let k = [
+                        ((uv[1].0 - qx) * (uv[2].1 - qy) - (uv[2].0 - qx) * (uv[1].1 - qy)) / uv_area,
+                        ((uv[2].0 - qx) * (uv[0].1 - qy) - (uv[0].0 - qx) * (uv[2].1 - qy)) / uv_area,
+                    ];
+                    let k = [k[0], k[1], 1.0 - k[0] - k[1]];
+                    let c: [f32; 4] = std::array::from_fn(|r| k[0] * cs[0][r] + k[1] * cs[1][r] + k[2] * cs[2][r]);
+                    screen(c, w, h).map(|(x, y, _)| (x, y))
+                };
+                let du = at_texel(px + 1.0, py).map_or((0.0, 0.0), |(x, y)| (x - sx, y - sy));
+                let dv = at_texel(px, py + 1.0).map_or((0.0, 0.0), |(x, y)| (x - sx, y - sy));
+                let p = footprint_paint(overlay, size, (sx, sy), du, dv);
                 if p[3] <= 0.0 {
                     continue;
                 }
@@ -291,8 +305,43 @@ pub fn project(
     changed
 }
 
-fn paint_at(overlay: &[u8], size: (u32, u32), x: f32, y: f32) -> [f32; 4] {
-    sample(overlay, size.0, size.1, x, y)
+/// The paint over a texel whose centre lands at `centre` on screen and whose
+/// sides span `du` and `dv` there (one texel along u and along v). A texel no
+/// bigger than a pixel takes the paint at its centre; a bigger one looks over
+/// its whole footprint and takes the strongest coverage with the colour that
+/// covers it, as painting straight onto it pixel by pixel would.
+fn footprint_paint(overlay: &[u8], size: (u32, u32), centre: (f32, f32), du: (f32, f32), dv: (f32, f32)) -> [f32; 4] {
+    let span = |d: (f32, f32)| d.0.hypot(d.1);
+    let (nu, nv) = ((span(du).ceil() as usize).clamp(1, 12), (span(dv).ceil() as usize).clamp(1, 12));
+    if nu == 1 && nv == 1 {
+        return sample(overlay, size.0, size.1, centre.0, centre.1);
+    }
+    let (mut colour, mut weight, mut alpha) = ([0.0f32; 3], 0.0f32, 0.0f32);
+    for i in 0..nu {
+        for j in 0..nv {
+            let (a, b) = ((i as f32 + 0.5) / nu as f32 - 0.5, (j as f32 + 0.5) / nv as f32 - 0.5);
+            // The pixel itself (samples are at most a pixel apart, so each one in the footprint is seen).
+            let (x, y) = ((centre.0 + a * du.0 + b * dv.0).floor(), (centre.1 + a * du.1 + b * dv.1).floor());
+            if x < 0.0 || y < 0.0 || x >= size.0 as f32 || y >= size.1 as f32 {
+                continue;
+            }
+            let i = (y as usize * size.0 as usize + x as usize) * 4;
+            let p: [f32; 4] = std::array::from_fn(|c| overlay[i + c] as f32 / 255.0);
+            if p[3] <= 0.0 {
+                continue;
+            }
+            // Premultiplied: summing gives the coverage-weighted colour.
+            for k in 0..3 {
+                colour[k] += p[k];
+            }
+            weight += p[3];
+            alpha = alpha.max(p[3]);
+        }
+    }
+    if weight <= 0.0 {
+        return [0.0; 4];
+    }
+    [colour[0] / weight * alpha, colour[1] / weight * alpha, colour[2] / weight * alpha, alpha]
 }
 
 /// The UV coordinates under canvas pixel (x, y) on object `object`, if it's the nearest hit.
@@ -399,5 +448,47 @@ mod tests {
         let scene = quad_scene();
         // Four sides and the diagonal of the fan.
         assert_eq!(uv_edges(&scene.objects[0].mesh, 10, 10).len(), 5);
+    }
+}
+
+#[cfg(test)]
+mod thin_line_tests {
+    use super::*;
+    use crate::gizmo::Transform;
+    use crate::math::vec3;
+    use crate::scene::{SceneObject, CLAY};
+
+    /// A thin line painted over a texture coarser than the screen stays whole.
+    #[test]
+    fn thin_lines_on_coarse_textures_dont_break_up() {
+        let corners = [[-1.0, 0.0, -1.0], [1.0, 0.0, -1.0], [1.0, 0.0, 1.0], [-1.0, 0.0, 1.0]];
+        let uvs = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        let mesh = Mesh::from_polygons("quad", &[vec![0, 1, 2, 3]], |c| crate::mesh::Vertex { position: corners[c], normal: [0.0; 3], uv: uvs[c] });
+        let mut scene = Scene3D::default();
+        scene.objects.push(SceneObject { name: "q".into(), mesh: std::sync::Arc::new(mesh), transform: Transform::default(), visible: true, color: CLAY, texture: None, rig: None });
+        scene.camera.set_view(crate::camera::ViewPreset::Front);
+        scene.camera.pivot = Vec3::ZERO;
+        scene.camera.distance = 2.5;
+        // 400 px of screen over a 32-texel texture: each texel ~10 px wide.
+        let (w, h) = (400u32, 400u32);
+        let a = scene.camera.to_screen(vec3(-0.8, 0.0, -0.6), w as f32, h as f32).unwrap();
+        let b = scene.camera.to_screen(vec3(0.8, 0.0, 0.7), w as f32, h as f32).unwrap();
+        // A 1 px dark diagonal line.
+        let mut overlay = vec![0u8; (w * h * 4) as usize];
+        for i in 0..=1000 {
+            let t = i as f32 / 1000.0;
+            let (x, y) = ((a[0] + (b[0] - a[0]) * t) as usize, (a[1] + (b[1] - a[1]) * t) as usize);
+            overlay[(y * w as usize + x) * 4..(y * w as usize + x) * 4 + 4].copy_from_slice(&[20, 20, 20, 255]);
+        }
+        let mut tex = Texture::new(32, 32);
+        project(&scene, 0, &overlay, (w, h), &mut tex).expect("paint landed");
+        // Every texel the line passes through is painted, solidly.
+        for i in 0..=100 {
+            let t = i as f32 / 100.0;
+            let (u, v) = (0.1 + 0.8 * t, 0.2 + 0.65 * t);
+            let (tx, ty) = ((u * 32.0) as usize, ((1.0 - v) * 32.0) as usize);
+            let alpha = tex.rgba[(ty * 32 + tx) * 4 + 3];
+            assert!(alpha > 200, "a gap at texel ({tx}, {ty}): alpha {alpha}");
+        }
     }
 }

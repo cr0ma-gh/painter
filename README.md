@@ -43,7 +43,7 @@ cargo run --release -p painter-app -- drawing.painter
 - **Layers:** raster, vector, folders (pass-through or isolated), paper,
   gradient and screentone layers. Each has 13 blend modes, opacity, locks,
   clipping to the layer below, and layer masks. The Layer palette works like Clip
-  Studio's: Ctrl / Shift + click, or the selection checkbox on each row
+  Studio's (double-click a layer to rename it): Ctrl / Shift + click, or the selection checkbox on each row
   (and "Select all" above the list), selects several layers; drag them above,
   below or into a folder; duplicate (Ctrl+J, folders with their contents),
   group into a folder (Ctrl+G), delete, show / hide, lock or change opacity
@@ -88,6 +88,7 @@ cargo run --release -p painter-app -- drawing.painter
   written to Clip Studio `.sut` brushes; the live preview mixes exactly as the
   stroke lands. On iPad the brush preview follows the Apple Pencil hovering
   over the screen (iPad Pro M2 and later), and a trackpad or mouse pointer.
+  The crosshair over the brush outline can be turned off (Tool Settings).
   One engine covers what Clip Studio and
   Photoshop brushes do: image tips with thickness, angle and rotation
   dynamics, paper textures, a second tip (2-brush shape / dual brush),
@@ -286,10 +287,14 @@ cargo run --release -p painter-app -- drawing.painter
   `.fbx` (binary, 7.x), `.gltf` and `.glb` (meshes, node transforms, the file's
   up axis and unit, base colour and base colour image; **rigged models**
   keep their skeleton and skin, open in their bind pose and can be posed:
-  click a joint on the canvas and drag to turn its bone, or set it exactly in
-  the 3D panel's Pose section; poses are saved with the project),
+  drag a joint on the canvas, or click it and move the pen or mouse (click to
+  keep, Esc to cancel); IK bends the bones above it to follow (a chain of 2 by
+  default), FK turns the joint's own bone; exact angles in the 3D panel's Pose
+  section; poses are saved with the project),
   Blender-style navigation (middle drag orbit, Shift pan, wheel / Ctrl zoom,
-  1 / 3 / 7 views, 5 perspective, Home frame), click to pick, G / R / S gizmo,
+  1 / 3 / 7 views, 5 perspective, Home frame; a navigation gizmo in the corner
+  shows the axes: click one to look along it, drag it to orbit), click to
+  pick, G / R / S gizmo,
   and a panel for transforms, colour, FOV, views and up to four lights. A
   `.blend` with a scene camera opens through that camera (position, rotation,
   focal length, sensor fit, lens shift, clipping; the render frame fitted to

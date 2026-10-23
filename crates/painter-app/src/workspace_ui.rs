@@ -931,7 +931,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 67] = [
+        let fixed: [FixedCommand; 68] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -982,6 +982,7 @@ impl PainterApp {
             ("rulers.snap", "Snap to Rulers", C::View, "Ctrl+1", &["perspective", "symmetry", "ruler"], true),
             ("view.zen", "Toggle Zen Mode", C::View, "Tab / F11", &["fullscreen", "hide panels", "distraction free"], true),
             ("view.ruler_bar", "Ruler Bar", C::View, "Ctrl+R", &["rulers", "measure", "guides", "units"], true),
+            ("view.brush_crosshair", "Brush Crosshair On / Off", C::View, "", &["cursor", "pointer", "cross"], true),
             ("view.modifier_keys", "On-Screen Modifier Keys", C::View, "", &["ctrl", "shift", "alt", "touch", "keyboard"], true),
             ("layer.duplicate", "Duplicate Layers", C::Layer, "Ctrl+J", &["copy", "clone"], true),
             ("layer.group", "Group Layers into Folder", C::Layer, "Ctrl+G", &["folder", "group"], true),
@@ -1104,6 +1105,7 @@ impl PainterApp {
             "rulers.snap" => self.toggle_ruler_snapping(),
             "view.zen" => self.toggle_zen(),
             "view.ruler_bar" => self.ws.chrome.ruler_bar = !self.ws.chrome.ruler_bar,
+            "view.brush_crosshair" => self.ws.chrome.brush_crosshair = !self.ws.chrome.brush_crosshair,
             "view.ui_bigger" => self.step_ui_scale(1),
             "color.transparent" => self.toggle_transparent(),
             "layer.duplicate" => self.duplicate_selected_layers(),

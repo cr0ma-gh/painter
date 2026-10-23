@@ -810,6 +810,7 @@ impl PainterApp {
             ui.colored_label(Color32::from_rgb(240, 190, 90), format!("Imported features not painted yet: {}", missing.join(", ")));
         }
         egui::CollapsingHeader::new("Tip preview").id_salt("tip_preview").default_open(true).show(ui, |ui| self.tip_preview(ui));
+        ui.checkbox(&mut self.ws.chrome.brush_crosshair, "Crosshair at the brush").on_hover_text("Off: only the brush outline shows where you paint");
         ui.checkbox(&mut self.tools.smart_shape, "Smart shape (hold)").on_hover_text(
             "Draw a line, circle, rectangle or triangle and keep the pen still at the end: it becomes the clean shape, drawn with this brush",
         );
@@ -1006,6 +1007,9 @@ impl PainterApp {
         let mut drop: Option<(painter_core::LayerId, painter_core::layer_ops::LayerDrop)> = None;
         let mut eye_all: Option<bool> = None;
         let mut menu_action: Option<(painter_core::LayerId, &str)> = None;
+        // A layer being renamed in place (double-click): its id, the text, whether the field is new.
+        let mut renaming = self.layer_rename.take();
+        let mut renamed: Option<(painter_core::LayerId, String)> = None;
         // Checkbox clicks: toggle the layer in the selection (Shift: the range).
         let mut checked: Option<(painter_core::LayerId, bool)> = None;
         // Select all / none, over the list.
@@ -1148,13 +1152,29 @@ impl PainterApp {
                 );
                 x += 22.0;
                 let name_color = if !layer.visible || layer.draft { theme::text_dim() } else { theme::strong() };
-                ui.painter().text(
-                    egui::pos2(x, rect.top() + 9.0),
-                    Align2::LEFT_CENTER,
-                    &layer.name,
-                    egui::FontId::proportional(12.5),
-                    name_color,
-                );
+                match &mut renaming {
+                    // Renaming: a text field where the name was. Enter or clicking away keeps it, Esc doesn't.
+                    Some((rid, text, fresh)) if *rid == id => {
+                        let field = egui::Rect::from_min_max(egui::pos2(x - 2.0, rect.top() + 1.0), egui::pos2(rect.right() - 6.0, rect.top() + 18.0));
+                        let edit = ui.put(field, egui::TextEdit::singleline(text).font(egui::FontId::proportional(12.5)).margin(egui::vec2(2.0, 0.0)));
+                        if *fresh {
+                            edit.request_focus();
+                            *fresh = false;
+                        }
+                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                            renaming = None;
+                        } else if edit.lost_focus() {
+                            let name = text.trim().to_string();
+                            if !name.is_empty() && name != layer.name {
+                                renamed = Some((id, name));
+                            }
+                            renaming = None;
+                        }
+                    }
+                    _ => {
+                        ui.painter().text(egui::pos2(x, rect.top() + 9.0), Align2::LEFT_CENTER, &layer.name, egui::FontId::proportional(12.5), name_color);
+                    }
+                }
                 let detail = format!("{:.0}% {}", layer.opacity * 100.0, layer.blend.name());
                 ui.painter().text(
                     egui::pos2(x, rect.bottom() - 8.0),
@@ -1195,6 +1215,9 @@ impl PainterApp {
                 if response.clicked() {
                     select = Some(id);
                 }
+                if response.double_clicked() {
+                    renaming = Some((id, layer.name.clone(), true));
+                }
                 let draft = layer.draft;
                 response.context_menu(|ui| {
                     let mut item = |label: &str, what: &'static str| {
@@ -1220,6 +1243,14 @@ impl PainterApp {
         }
         if let Some((dragged, to)) = drop {
             self.drop_layers(dragged, to);
+        }
+        self.layer_rename = renaming;
+        if let Some((id, name)) = renamed {
+            self.next_label = Some("Rename Layer".into());
+            self.checkpoint();
+            if let Some(layer) = self.doc.find_mut(id) {
+                layer.name = name;
+            }
         }
         if let Some((id, what)) = menu_action {
             // The menu acts on the selection when its row is selected, else on that row.
