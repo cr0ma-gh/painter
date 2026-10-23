@@ -1038,6 +1038,13 @@ impl PainterApp {
             if icon_button(ui, Icon::Duplicate, 16.0, false, "Duplicate the selected layers (Ctrl+J)").clicked() {
                 self.duplicate_selected_layers();
             }
+            // Select all / none.
+            let (total, selected) = (self.doc.rows_top_down().len(), self.selected_layers().len());
+            let mut all = selected == total && total > 1;
+            let hint = if selected > 1 { format!("{selected} layers selected: untick for only the active one") } else { "Select every layer".to_string() };
+            if ui.checkbox(&mut all, "").on_hover_text(hint).changed() {
+                self.layer_selection = if all { self.doc.rows_top_down().iter().map(|(id, _)| *id).collect() } else { vec![self.doc.active] };
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
                 if icon_button(ui, Icon::Delete, 16.0, false, "Delete the selected layers").clicked() {
@@ -1076,28 +1083,13 @@ impl PainterApp {
         let mut renamed: Option<(painter_core::LayerId, String)> = None;
         // Checkbox clicks: toggle the layer in the selection (Shift: the range).
         let mut checked: Option<(painter_core::LayerId, bool)> = None;
-        // Select all / none, over the list.
-        let total = rows.len();
-        ui.horizontal(|ui| {
-            let all = multi.len() == total && total > 1;
-            let mut on = all;
-            let label = if multi.len() > 1 { format!("{} selected", multi.len()) } else { "Select all".to_string() };
-            if ui.checkbox(&mut on, label).on_hover_text("Select every layer, or only the active one").changed() {
-                if on {
-                    self.layer_selection = rows.iter().map(|(id, _)| *id).collect();
-                } else {
-                    self.layer_selection = vec![active];
-                }
-            }
-        });
-        let multi = self.selected_layers();
         egui::Frame::new().fill(theme::well()).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             for (id, depth) in rows {
                 let Some(layer) = self.doc.find_mut(id) else {
                     continue;
                 };
-                let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 30.0), Sense::click_and_drag());
+                let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 24.0), Sense::click_and_drag());
                 // Dragged within the list it moves (above, below, or into a folder);
                 // onto a document tab or a reference view it's copied there.
                 if response.drag_started() {
@@ -1219,7 +1211,7 @@ impl PainterApp {
                 match &mut renaming {
                     // Renaming: a text field where the name was. Enter or clicking away keeps it, Esc doesn't.
                     Some((rid, text, fresh)) if *rid == id => {
-                        let field = egui::Rect::from_min_max(egui::pos2(x - 2.0, rect.top() + 1.0), egui::pos2(rect.right() - 6.0, rect.top() + 18.0));
+                        let field = egui::Rect::from_min_max(egui::pos2(x - 2.0, rect.top() + 1.0), egui::pos2(rect.right() - 6.0, rect.bottom() - 3.0));
                         let edit = ui.put(field, egui::TextEdit::singleline(text).font(egui::FontId::proportional(12.5)).margin(egui::vec2(2.0, 0.0)));
                         if *fresh {
                             edit.request_focus();
@@ -1236,18 +1228,9 @@ impl PainterApp {
                         }
                     }
                     _ => {
-                        ui.painter().text(egui::pos2(x, rect.top() + 9.0), Align2::LEFT_CENTER, &layer.name, egui::FontId::proportional(12.5), name_color);
+                        ui.painter().text(egui::pos2(x, rect.center().y), Align2::LEFT_CENTER, &layer.name, egui::FontId::proportional(12.5), name_color);
                     }
                 }
-                let detail = format!("{:.0}% {}", layer.opacity * 100.0, layer.blend.name());
-                ui.painter().text(
-                    egui::pos2(x, rect.bottom() - 8.0),
-                    Align2::LEFT_CENTER,
-                    detail,
-                    egui::FontId::proportional(10.0),
-                    theme::text_dim(),
-                );
-
                 // State badges on the right: mask, locks.
                 let mut right = rect.right() - 4.0;
                 let mut badge = |icon: Icon, on: bool| {
@@ -1275,6 +1258,17 @@ impl PainterApp {
                     if hit.on_hover_text("This layer has rulers: click to show or hide them").clicked() {
                         toggle_rulers = Some(id);
                     }
+                }
+                // Opacity and blend, when not 100 % Normal.
+                if layer.opacity < 0.995 || layer.blend != BlendMode::Normal {
+                    let mut detail = String::new();
+                    if layer.opacity < 0.995 {
+                        detail.push_str(&format!("{:.0}%", layer.opacity * 100.0));
+                    }
+                    if layer.blend != BlendMode::Normal {
+                        detail.push_str(&format!(" {}", layer.blend.name()));
+                    }
+                    ui.painter().text(egui::pos2(right - 2.0, rect.center().y), Align2::RIGHT_CENTER, detail.trim(), egui::FontId::proportional(10.0), theme::text_dim());
                 }
                 if response.clicked() {
                     select = Some(id);
@@ -1396,51 +1390,59 @@ impl PainterApp {
             });
             ui.separator();
         }
-        let mut add_mask = false;
         let mut delete_mask = false;
         if let Some(layer) = self.doc.find_mut(self.doc.active) {
-            ui.horizontal(|ui| {
-                ui.label("Name");
-                ui.text_edit_singleline(&mut layer.name);
-            });
+            // Blend mode and opacity on one row (rename: double-click the layer).
             let pass_through = matches!(&layer.kind, LayerKind::Folder(f) if f.pass_through) && layer.mask.is_none();
             ui.add_enabled_ui(!pass_through, |ui| {
-                egui::ComboBox::from_label("Blend").selected_text(layer.blend.name()).show_ui(ui, |ui| {
-                    for mode in BlendMode::ALL {
-                        changed |= ui.selectable_value(&mut layer.blend, mode, mode.name()).changed();
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    egui::ComboBox::from_id_salt("layer_blend").width(110.0).selected_text(layer.blend.name()).show_ui(ui, |ui| {
+                        for mode in BlendMode::ALL {
+                            changed |= ui.selectable_value(&mut layer.blend, mode, mode.name()).changed();
+                        }
+                    });
+                    let mut pct = layer.opacity * 100.0;
+                    let r = ui.add(egui::DragValue::new(&mut pct).range(0.0..=100.0).speed(0.5).max_decimals(0).suffix("%"));
+                    if r.on_hover_text("Opacity: drag sideways or type").changed() {
+                        layer.opacity = pct / 100.0;
+                        changed = true;
                     }
                 });
-                changed |= prop_percent(ui, "Opacity", &mut layer.opacity, 0.0..=100.0);
             });
+            // Locks and switches as small toggles on one row.
             ui.horizontal_wrapped(|ui| {
-                ui.checkbox(&mut layer.locked, "Lock");
-                changed |= ui.checkbox(&mut layer.clip, "Clip to layer below").changed();
-                changed |= ui.checkbox(&mut layer.reference, "Reference").on_hover_text("The fill bucket can read its boundaries from reference layers").changed();
-                changed |= ui
-                    .checkbox(&mut layer.draft, "Draft")
-                    .on_hover_text("Shown while you work, left out of exports and prints (sketches, notes, guides)")
-                    .changed();
+                ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+                let toggle = |ui: &mut egui::Ui, on: &mut bool, icon: Icon, hint: &str| -> bool {
+                    let r = icon_button(ui, icon, 14.0, *on, hint);
+                    if r.clicked() {
+                        *on = !*on;
+                        return true;
+                    }
+                    false
+                };
+                toggle(ui, &mut layer.locked, Icon::Lock, "Lock the layer");
                 if layer.has_pixels() && !layer.is_vector() {
-                    ui.checkbox(&mut layer.alpha_locked, "Lock transparency");
+                    toggle(ui, &mut layer.alpha_locked, Icon::LockAlpha, "Lock transparency: paint only where there are pixels");
                 }
-            });
-            // Layer colour (Clip Studio): the layer shown in one colour, on screen only.
-            if layer.has_pixels() {
-                ui.horizontal(|ui| {
+                let small = |ui: &mut egui::Ui, on: &mut bool, label: &str, hint: &str| ui.toggle_value(on, egui::RichText::new(label).small()).on_hover_text(hint).changed();
+                changed |= small(ui, &mut layer.clip, "Clip", "Clip to the layer below");
+                changed |= small(ui, &mut layer.reference, "Ref", "Reference: the fill bucket can read its boundaries from it");
+                changed |= small(ui, &mut layer.draft, "Draft", "Shown while you work, left out of exports and prints (sketches, notes, guides)");
+                // Layer colour (Clip Studio): the layer shown in one colour, on screen only.
+                if layer.has_pixels() {
                     let mut on = layer.layer_color.is_some();
-                    let r = ui.checkbox(&mut on, "Layer colour").on_hover_text(
-                        "Show the layer's lines in one colour (light pixels stay white) to tell layers apart. \
-                         On screen only: saving and exporting keep the real colours",
-                    );
-                    if r.changed() {
+                    let hint = "Layer colour: the layer's lines in one colour (light pixels stay white) to tell layers apart. \
+                                On screen only: saving and exporting keep the real colours";
+                    if small(ui, &mut on, "Colour", hint) {
                         layer.layer_color = on.then_some(DEFAULT_LAYER_COLOR);
                         changed = true;
                     }
                     if let Some(color) = &mut layer.layer_color {
                         changed |= ui.color_edit_button_srgb(color).changed();
                     }
-                });
-            }
+                }
+            });
             match &mut layer.kind {
                 LayerKind::Folder(folder) => {
                     changed |= ui.checkbox(&mut folder.pass_through, "Pass-through blending").changed();
@@ -1487,24 +1489,18 @@ impl PainterApp {
                 LayerKind::Raster(_) => {}
             }
 
-            ui.separator();
+            // The mask (added from the icon row above).
             match &mut layer.mask {
                 Some(mask) => {
                     ui.horizontal_wrapped(|ui| {
-                        changed |= ui.checkbox(&mut mask.enabled, "Mask enabled").changed();
+                        changed |= ui.checkbox(&mut mask.enabled, "Mask").changed();
                         ui.toggle_value(&mut self.edit_mask, "Edit mask")
                             .on_hover_text("Brush hides, eraser reveals, fill/gradient hide");
-                        delete_mask = ui.button("Delete mask").clicked();
+                        delete_mask = ui.small_button("Delete").on_hover_text("Delete the mask").clicked();
                     });
                 }
-                None => {
-                    self.edit_mask = false;
-                    add_mask = ui.button("Add mask").on_hover_text("From the selection when there is one").clicked();
-                }
+                None => self.edit_mask = false,
             }
-        }
-        if add_mask {
-            self.add_mask();
         }
         if delete_mask {
             self.delete_mask();

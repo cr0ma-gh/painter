@@ -161,7 +161,13 @@ cargo run --release -p painter-app -- drawing.painter
   (area menu, or Ctrl + Alt + wheel over it). Search Layer finds layers by
   name and kind. The tool strip is customisable: right-click it â Customize
   Toolbar to reorder buttons, remove them, or add any command as a quick
-  button.
+  button. As in Photoshop, tools of a family share one button (brushes,
+  stamps, fill and gradient, marquees, lassos, auto and object selection,
+  text and balloon): it shows the one in hand or the last used; hold it,
+  right-click it or click its corner triangle for the others (Group Tools
+  in the strip's right-click menu turns this off). The Layers panel is
+  compact: one-line rows (opacity and blend only when not 100 % Normal),
+  blend and opacity on one row, locks and switches as small toggles.
 - **Tools:** rectangle, ellipse and lasso selections and Auto Select (W, a
   magic wand reading the same boundaries as the fill: tolerance, gap closing,
   reference layers), the magnetic lasso (Shift+L: the path snaps to the

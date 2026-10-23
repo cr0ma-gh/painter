@@ -61,6 +61,11 @@ impl PainterApp {
                     self.add_file_object(std::path::Path::new(path));
                     continue;
                 }
+                // `dev.flyout:N`: the tool strip's family N flyout open.
+                if let Some(f) = c.strip_prefix("dev.flyout:").and_then(|n| n.parse::<u8>().ok()) {
+                    self.tool_groups.dev_open = Some(f);
+                    continue;
+                }
                 // `dev.text_demo`: texts and balloons (once the font scan has had a moment).
                 if c == "dev.text_demo" {
                     std::thread::sleep(std::time::Duration::from_millis(1500));

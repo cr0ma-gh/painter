@@ -55,6 +55,7 @@ mod tablet;
 mod text_tool;
 mod theme;
 mod toolbar;
+mod tool_groups;
 mod tools;
 mod transform_ui;
 mod updater;

@@ -6,6 +6,7 @@
 use eframe::egui::{self, Color32, Sense, Stroke, Vec2};
 
 use crate::app::PainterApp;
+use crate::tool_groups::family;
 use crate::icons::{icon_button, Icon};
 use crate::theme;
 use crate::tools::{BrushGroup, SelectShape, Tool};
@@ -82,9 +83,16 @@ pub(crate) fn default_items() -> Vec<Item> {
 /// The strip from saved keys; unknown keys are dropped, tools added since come back at the end.
 pub(crate) fn from_keys(keys: &[String]) -> Vec<Item> {
     let mut items: Vec<Item> = keys.iter().filter_map(|k| Item::parse(k)).collect();
-    for item in default_items().into_iter().filter(|i| !matches!(i, Item::Separator)) {
-        if !items.contains(&item) {
-            items.push(item);
+    let defaults: Vec<Item> = default_items().into_iter().filter(|i| !matches!(i, Item::Separator)).collect();
+    for (d, item) in defaults.iter().enumerate() {
+        if items.contains(item) {
+            continue;
+        }
+        // Next to the tool before it by default, so families stay together.
+        let after = defaults[..d].iter().rev().find_map(|prev| items.iter().position(|i| i == prev));
+        match after {
+            Some(p) => items.insert(p + 1, item.clone()),
+            None => items.push(item.clone()),
         }
     }
     items
@@ -169,10 +177,7 @@ impl PainterApp {
                 // buttons on top of it still get their clicks.
                 let background = ui.interact(strip, ui.id().with("tool_strip_bg"), Sense::click());
                 background.context_menu(|ui| {
-                    if ui.button("Customize Toolbar...").clicked() {
-                        self.ws.toolbar_editing = true;
-                        ui.close_menu();
-                    }
+                    self.strip_menu_items(ui);
                     if ui.button("Hide Tool Strip").on_hover_text("View → Tool Strip shows it again").clicked() {
                         self.ws.bars.tool_strip = false;
                         ui.close_menu();
@@ -203,54 +208,91 @@ impl PainterApp {
 
     fn tool_strip_buttons(&mut self, ui: &mut egui::Ui) {
         let items = self.ws.toolbar.clone();
+        let grouped = self.ws.bars.grouped;
         let mut last_was_separator = true;
-        for (i, item) in items.iter().enumerate() {
+        let mut i = 0;
+        while i < items.len() {
+            let item = &items[i];
             if !self.item_shown(item) {
+                i += 1;
                 continue;
             }
-            let response = match item {
-                Item::Separator => {
-                    if !last_was_separator {
-                        ui.separator();
-                    }
-                    last_was_separator = true;
+            if *item == Item::Separator {
+                if !last_was_separator {
+                    ui.separator();
+                }
+                last_was_separator = true;
+                i += 1;
+                continue;
+            }
+            // A family's tools, wherever they are on the strip, share the first one's button.
+            let mut run = vec![(i, item.clone())];
+            let next = i + 1;
+            if let Some(f) = family(item).filter(|_| grouped) {
+                let earlier = items[..i].iter().any(|x| family(x) == Some(f) && self.item_shown(x));
+                if earlier {
+                    i += 1;
                     continue;
                 }
-                Item::Group(group) => {
-                    let selected = self.tool == Tool::Brush && self.brush_group == *group;
-                    let r = icon_button(ui, group.icon(), 20.0, selected, group.label());
-                    if r.clicked() {
-                        self.select_group(*group);
+                for (k, other) in items.iter().enumerate().skip(i + 1) {
+                    if family(other) == Some(f) && self.item_shown(other) {
+                        run.push((k, other.clone()));
                     }
-                    r
                 }
-                Item::Tool(tool) => {
-                    let r = icon_button(ui, tool.icon(), 20.0, self.tool == *tool, tool.hint());
-                    if r.clicked() {
-                        self.tool = *tool;
+            }
+            let response = if run.len() > 1 {
+                let members: Vec<Item> = run.iter().map(|(_, m)| m.clone()).collect();
+                self.group_button(ui, &members)
+            } else {
+                match item {
+                    Item::Group(group) => {
+                        let r = icon_button(ui, group.icon(), 20.0, self.item_selected(item), group.label());
+                        if r.clicked() {
+                            self.activate_item(item);
+                        }
+                        r
                     }
-                    r
-                }
-                Item::Command(id) => {
-                    let r = self.command_button(ui, id);
-                    if r.clicked() {
-                        let id = id.clone();
-                        self.run_command(&id);
+                    Item::Tool(tool) => {
+                        let r = icon_button(ui, tool.icon(), 20.0, self.item_selected(item), tool.hint());
+                        if r.clicked() {
+                            self.activate_item(item);
+                        }
+                        r
                     }
-                    r
+                    Item::Command(id) => {
+                        let r = self.command_button(ui, id);
+                        if r.clicked() {
+                            self.activate_item(item);
+                        }
+                        r
+                    }
+                    Item::Separator => unreachable!("handled above"),
                 }
             };
             last_was_separator = false;
-            response.context_menu(|ui| {
-                if ui.button("Remove from Toolbar").clicked() {
-                    self.ws.toolbar.remove(i);
-                    ui.close_menu();
-                }
-                if ui.button("Customize Toolbar...").clicked() {
-                    self.ws.toolbar_editing = true;
-                    ui.close_menu();
-                }
-            });
+            // Families use the right button for their flyout; single items for this menu.
+            if run.len() == 1 {
+                response.context_menu(|ui| {
+                    if ui.button("Remove from Toolbar").clicked() {
+                        self.ws.toolbar.remove(i);
+                        ui.close_menu();
+                    }
+                    self.strip_menu_items(ui);
+                });
+            }
+            i = next;
+        }
+        self.tool_flyout(ui.ctx());
+    }
+
+    /// The tool strip's right-click menu entries.
+    fn strip_menu_items(&mut self, ui: &mut egui::Ui) {
+        if ui.checkbox(&mut self.ws.bars.grouped, "Group Tools").on_hover_text("Tools of a family share one button, as in Photoshop").changed() {
+            ui.close_menu();
+        }
+        if ui.button("Customize Toolbar...").clicked() {
+            self.ws.toolbar_editing = true;
+            ui.close_menu();
         }
     }
 
@@ -449,11 +491,18 @@ pub(crate) fn command_bar_from_keys(keys: &[String]) -> Vec<Item> {
 pub(crate) struct Bars {
     pub(crate) tool_strip: bool,
     pub(crate) command_bar: bool,
+    /// Tools of a family share one button (see `tool_groups`).
+    #[serde(default = "grouped_default")]
+    pub(crate) grouped: bool,
+}
+
+fn grouped_default() -> bool {
+    true
 }
 
 impl Default for Bars {
     fn default() -> Self {
-        Self { tool_strip: true, command_bar: true }
+        Self { tool_strip: true, command_bar: true, grouped: true }
     }
 }
 
@@ -628,9 +677,18 @@ mod tests {
             loaded[..4],
             [Item::Command("file.save".into()), Item::Tool(Tool::Hand), Item::Separator, Item::Group(BrushGroup::Pen)]
         );
-        // Tools missing from an old list come back at the end.
+        // Tools missing from an old list come back next to the one before them by default.
         assert!(loaded.contains(&Item::Tool(Tool::Ruler)) && loaded.contains(&Item::Group(BrushGroup::Eraser)));
         assert_eq!(loaded.iter().filter(|i| **i == Item::Tool(Tool::Hand)).count(), 1);
+    }
+
+    #[test]
+    fn new_tools_join_their_family() {
+        let old = vec!["tool:select_lasso".to_string(), "tool:hand".into()];
+        let loaded = from_keys(&old);
+        let at = |t: Tool| loaded.iter().position(|i| *i == Item::Tool(t)).unwrap();
+        assert_eq!(at(Tool::Select(SelectShape::Magnetic)), at(Tool::Select(SelectShape::Lasso)) + 1);
+        assert_eq!(crate::tool_groups::family(&loaded[at(Tool::Select(SelectShape::Lasso))]), crate::tool_groups::family(&loaded[at(Tool::Select(SelectShape::Magnetic))]));
     }
 
     #[test]

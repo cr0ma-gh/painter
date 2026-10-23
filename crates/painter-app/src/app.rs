@@ -223,6 +223,8 @@ pub struct PainterApp {
     pub(crate) actions: crate::actions::Actions,
     /// The text tool: the text being edited and new texts' settings.
     pub(crate) text: crate::text_tool::TextState,
+    /// Tool families on the strip: last used, open flyout.
+    pub(crate) tool_groups: crate::tool_groups::ToolGroups,
     /// Decoded pictures of file object layers' files.
     pub(crate) file_objects: crate::file_object::FileObjectCache,
     /// A layer being renamed in its row (double-click): id, text, field just opened.
@@ -384,6 +386,7 @@ impl PainterApp {
             channels: Default::default(),
             actions: crate::actions::Actions::load(),
             text: Default::default(),
+            tool_groups: Default::default(),
             file_objects: Default::default(),
             layer_rename: None,
             updater: Default::default(),
