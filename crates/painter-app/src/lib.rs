@@ -48,6 +48,7 @@ mod theme;
 mod toolbar;
 mod tools;
 mod transform_ui;
+mod updater;
 mod vector_edit;
 mod view;
 mod welcome;

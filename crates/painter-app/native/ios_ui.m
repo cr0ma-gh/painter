@@ -180,3 +180,50 @@ int painter_pencil_state(double *altitude, double *azimuth, double *age) {
     *age = NSProcessInfo.processInfo.systemUptime - pencil_time;
     return 1;
 }
+
+// ---- Updates (see src/updater.rs) --------------------------------------------
+//
+// The updater asks GitHub for the latest release over HTTPS on a thread of
+// its own (never the main thread: this waits for the answer), and opens the
+// release page in Safari to sideload the new IPA.
+
+#include <stdlib.h>
+#include <string.h>
+
+// The body of an HTTPS GET (status 200), malloc'd (free with painter_free), or NULL.
+uint8_t *painter_https_get(const char *url, size_t *len) {
+    NSURL *target = [NSURL URLWithString:[NSString stringWithUTF8String:url]];
+    if (!target || [NSThread isMainThread]) return NULL;
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:target];
+    [request setValue:@"Painter-updater" forHTTPHeaderField:@"User-Agent"];
+    request.timeoutInterval = 20;
+    __block NSData *body = nil;
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithRequest:request
+                                                               completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (!error && [response isKindOfClass:[NSHTTPURLResponse class]] && ((NSHTTPURLResponse *)response).statusCode == 200) {
+            body = data;
+        }
+        dispatch_semaphore_signal(done);
+    }];
+    [task resume];
+    dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+    if (!body) return NULL;
+    *len = body.length;
+    uint8_t *out = malloc(body.length ? body.length : 1);
+    if (out) memcpy(out, body.bytes, body.length);
+    return out;
+}
+
+void painter_free(uint8_t *p) {
+    free(p);
+}
+
+// Opens a link in Safari.
+void painter_open_url(const char *url) {
+    NSString *text = [NSString stringWithUTF8String:url];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSURL *target = [NSURL URLWithString:text];
+        if (target) [UIApplication.sharedApplication openURL:target options:@{} completionHandler:nil];
+    });
+}

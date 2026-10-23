@@ -77,3 +77,41 @@ impl IosWindow {
         }
     }
 }
+
+#[cfg(target_os = "ios")]
+mod net {
+    use std::ffi::{c_char, CString};
+
+    extern "C" {
+        fn painter_https_get(url: *const c_char, len: *mut usize) -> *mut u8;
+        fn painter_free(p: *mut u8);
+        fn painter_open_url(url: *const c_char);
+    }
+
+    /// The body of an HTTPS GET (call off the main thread: it waits).
+    pub(crate) fn https_get(url: &str) -> Option<Vec<u8>> {
+        let url = CString::new(url).ok()?;
+        let mut len = 0usize;
+        // SAFETY: a NUL-terminated URL in; the buffer is copied out and freed with painter_free.
+        unsafe {
+            let p = painter_https_get(url.as_ptr(), &mut len);
+            if p.is_null() {
+                return None;
+            }
+            let body = std::slice::from_raw_parts(p, len).to_vec();
+            painter_free(p);
+            Some(body)
+        }
+    }
+
+    /// Opens a link in Safari.
+    pub(crate) fn open_url(url: &str) {
+        if let Ok(url) = CString::new(url) {
+            // SAFETY: a NUL-terminated string; UIKit copies it.
+            unsafe { painter_open_url(url.as_ptr()) }
+        }
+    }
+}
+
+#[cfg(target_os = "ios")]
+pub(crate) use net::{https_get, open_url};

@@ -209,6 +209,8 @@ pub struct PainterApp {
     pub(crate) file_objects: crate::file_object::FileObjectCache,
     /// A layer being renamed in its row (double-click): id, text, field just opened.
     pub(crate) layer_rename: Option<(painter_core::LayerId, String, bool)>,
+    /// Help → Check for Updates, and the daily check.
+    pub(crate) updater: crate::updater::Updater,
     /// Android: the "open with" intent was looked at.
     #[cfg(target_os = "android")]
     pub(crate) android_intent_read: bool,
@@ -350,6 +352,7 @@ impl PainterApp {
             vector_edit: Default::default(),
             file_objects: Default::default(),
             layer_rename: None,
+            updater: Default::default(),
             #[cfg(target_os = "android")]
             android_intent_read: false,
             logo: None,
@@ -1564,10 +1567,18 @@ impl PainterApp {
 }
 
 impl eframe::App for PainterApp {
+    /// An installed update starts once Painter has closed.
+    fn on_exit(&mut self) {
+        if let Some(restart) = self.updater.restart.take() {
+            restart.run();
+        }
+    }
+
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.next_label = None;
         self.dev_shot_tick(ctx);
         self.file_objects_tick();
+        self.updater_tick(ctx);
         self.tablet.poll(frame);
         if let Some(eraser) = self.tablet.take_eraser_switch() {
             // Flipping the pen to its eraser end switches tools, like a real eraser.
@@ -1647,6 +1658,7 @@ impl eframe::App for PainterApp {
         self.brush_reset_prompt(ctx);
         self.chip_picker_window(ctx);
         self.file_types_window(ctx);
+        self.updater_window(ctx);
         self.close_prompts(ctx);
         if self.doc.selection.is_some() {
             // Marching ants.

@@ -218,6 +218,15 @@ cargo run --release -p painter-app -- drawing.painter
   Settings' tip preview show the tip as the pen would stamp it now (shape,
   image tip, pressure, tilt, lean). Ctrl + Alt and a sideways move of the pen
   or mouse resizes the brush.
+- **Updates** (Help → Check for Updates; also once a day by itself, which can
+  be turned off): the latest GitHub release against this version. On
+  Windows, macOS and Linux (AppImage) "Update and restart" downloads this
+  platform's build, checks its size and the SHA-256 GitHub lists, puts it in
+  place of the running program and starts it once Painter closes (unsaved
+  documents are asked about first). On Android the new APK downloads in the
+  browser to install; on iPad the release page opens to sideload the new IPA.
+  A version can be skipped. Uses the system's own HTTPS (`curl` on the
+  desktop, Java on Android, `NSURLSession` on iPadOS).
 - **In the file manager** (File → Set Up File Types on Windows and Linux; built
   into the app on macOS and Android): `.painter` projects open in Painter and
   show their picture as the thumbnail (every project carries a 256 px

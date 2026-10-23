@@ -931,7 +931,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 68] = [
+        let fixed: [FixedCommand; 69] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -952,6 +952,7 @@ impl PainterApp {
             ("file.quit", "Quit", C::File, "Ctrl+Q", &["exit", "close"], !cfg!(target_os = "ios")),
             ("help.welcome", "Welcome Screen", C::View, "", &["start", "splash", "features"], true),
             ("help.about", "About Painter", C::View, "", &["version", "about", "help"], true),
+            ("help.updates", "Check for Updates...", C::View, "", &["update", "upgrade", "new version", "release"], true),
             ("edit.undo", "Undo", C::Edit, "Ctrl+Z", &[], self.history.can_undo()),
             ("edit.redo", "Redo", C::Edit, "Ctrl+Shift+Z", &[], self.history.can_redo()),
             ("edit.image_size", "Image Size...", C::Edit, "", &["resize", "scale", "resample", "pixel art", "nearest", "resolution"], true),
@@ -1099,6 +1100,7 @@ impl PainterApp {
             "file.quit" => self.quit_requested = true,
             "help.welcome" => self.welcome_open = true,
             "help.about" => self.about_open = true,
+            "help.updates" => self.check_for_updates(),
             "view.reset_rotation" => self.view.set_rotation(0.0),
             "view.flip" => self.view.flip = !self.view.flip,
             "view.grid" => self.doc.rulers.grid.visible = !self.doc.rulers.grid.visible,

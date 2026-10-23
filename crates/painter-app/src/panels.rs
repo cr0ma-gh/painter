@@ -327,6 +327,10 @@ impl PainterApp {
                         ui.close_menu();
                         self.welcome_open = true;
                     }
+                    if ui.button("Check for Updates...").clicked() {
+                        ui.close_menu();
+                        self.check_for_updates();
+                    }
                     if ui.button("About Painter").clicked() {
                         ui.close_menu();
                         self.about_open = true;

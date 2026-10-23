@@ -96,6 +96,7 @@ mod f {
     pub const EXCEPTION_CHECK: usize = 228;
     /// In the invocation interface (`JNIInvokeInterface`).
     pub const ATTACH_CURRENT_THREAD: usize = 4;
+    pub const DETACH_CURRENT_THREAD: usize = 5;
 }
 
 /// A Java exception or a missing class / method: the call didn't happen.
@@ -493,7 +494,53 @@ pub(crate) fn opened_file() -> Option<(String, Vec<u8>)> {
 fn read_uri(env: &Env, activity: Obj, uri: Obj) -> R<Vec<u8>> {
     let resolver = env.call_object(activity, "getContentResolver", "()Landroid/content/ContentResolver;", &[])?;
     let stream = env.call_object(env.nonnull(resolver)?, "openInputStream", "(Landroid/net/Uri;)Ljava/io/InputStream;", &[obj(uri)])?;
-    let stream = env.nonnull(stream)?;
+    read_stream(env, env.nonnull(stream)?)
+}
+
+/// The body of an HTTPS GET (Java's HttpsURLConnection). Not on the main
+/// thread: Android forbids the network there.
+pub(crate) fn https_get(url: &str) -> Option<Vec<u8>> {
+    with_env(|env, _activity| {
+        let text = env.string(url)?;
+        let target = env.new_object("java/net/URL", "(Ljava/lang/String;)V", &[obj(text)])?;
+        let conn = env.call_object(target, "openConnection", "()Ljava/net/URLConnection;", &[])?;
+        let conn = env.nonnull(conn)?;
+        let (key, value) = (env.string("User-Agent")?, env.string("Painter-updater")?);
+        env.call_void(conn, "setRequestProperty", "(Ljava/lang/String;Ljava/lang/String;)V", &[obj(key), obj(value)])?;
+        env.call_void(conn, "setConnectTimeout", "(I)V", &[int(20_000)])?;
+        env.call_void(conn, "setReadTimeout", "(I)V", &[int(20_000)])?;
+        let stream = env.call_object(conn, "getInputStream", "()Ljava/io/InputStream;", &[])?;
+        read_stream(env, env.nonnull(stream)?)
+    })
+}
+
+/// Opens a link in the browser (an APK link downloads; opening it installs).
+pub(crate) fn open_url(url: &str) {
+    with_env(|env, activity| {
+        let text = env.string(url)?;
+        let uri = env.call_static_object("android/net/Uri", "parse", "(Ljava/lang/String;)Landroid/net/Uri;", &[obj(text)])?;
+        let action = env.string("android.intent.action.VIEW")?;
+        let intent = env.new_object("android/content/Intent", "(Ljava/lang/String;Landroid/net/Uri;)V", &[obj(action), obj(uri)])?;
+        env.call_void(activity, "startActivity", "(Landroid/content/Intent;)V", &[obj(intent)])
+    });
+}
+
+/// A thread that used Java (through `with_env`) lets go of it before ending.
+pub(crate) fn detach_thread() {
+    let vm = ndk_context::android_context().vm();
+    if vm.is_null() {
+        return;
+    }
+    // SAFETY: entry 5 of the JavaVM invocation table is DetachCurrentThread.
+    unsafe {
+        let table = *(vm as *const *const *const c_void);
+        let detach: extern "system" fn(*mut c_void) -> i32 = std::mem::transmute_copy(&*table.add(f::DETACH_CURRENT_THREAD));
+        detach(vm);
+    }
+}
+
+/// Everything an `InputStream` gives, then closes it.
+fn read_stream(env: &Env, stream: Obj) -> R<Vec<u8>> {
     const CHUNK: usize = 64 * 1024;
     // SAFETY: NewByteArray(env, length).
     let buffer = unsafe {
