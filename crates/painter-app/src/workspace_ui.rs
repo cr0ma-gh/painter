@@ -326,6 +326,30 @@ impl PainterApp {
         };
     }
 
+    /// Photoshop's screen modes (F cycles them, Shift+F back): 0 standard,
+    /// 1 full screen with menus and panels, 2 full screen with the canvas only.
+    pub(crate) fn set_screen_mode(&mut self, ctx: &egui::Context, mode: u8) {
+        let mode = mode % 3;
+        if !crate::MOBILE {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(mode > 0));
+        }
+        let want_zen = mode == 2;
+        if self.ws.chrome.zen != want_zen {
+            self.ws.chrome.toggle_zen();
+        }
+        self.screen_mode = mode;
+        self.status = match mode {
+            0 => "Standard screen mode".into(),
+            1 => "Full screen with menus (F: canvas only, Shift+F: back)".into(),
+            _ => "Full screen, canvas only (F: standard again; Tab shows the panels)".into(),
+        };
+    }
+
+    pub(crate) fn cycle_screen_mode(&mut self, ctx: &egui::Context, forward: bool) {
+        let next = if forward { self.screen_mode + 1 } else { self.screen_mode + 2 };
+        self.set_screen_mode(ctx, next);
+    }
+
     pub(crate) fn toggle_zen(&mut self) {
         self.ws.chrome.toggle_zen();
         self.status = if self.ws.chrome.zen {
@@ -931,7 +955,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 69] = [
+        let fixed: [FixedCommand; 72] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -982,6 +1006,9 @@ impl PainterApp {
             ("view.grid", "Show Grid", C::View, "Ctrl+'", &["guides"], true),
             ("rulers.snap", "Snap to Rulers", C::View, "Ctrl+1", &["perspective", "symmetry", "ruler"], true),
             ("view.zen", "Toggle Zen Mode", C::View, "Tab / F11", &["fullscreen", "hide panels", "distraction free"], true),
+            ("view.screen.0", "Screen Mode: Standard", C::View, "", &["window", "screen mode"], true),
+            ("view.screen.1", "Screen Mode: Full Screen with Menus", C::View, "F", &["fullscreen", "screen mode"], true),
+            ("view.screen.2", "Screen Mode: Full Screen", C::View, "", &["fullscreen", "canvas only", "presentation", "screen mode"], true),
             ("view.ruler_bar", "Ruler Bar", C::View, "Ctrl+R", &["rulers", "measure", "guides", "units"], true),
             ("view.brush_crosshair", "Brush Crosshair On / Off", C::View, "", &["cursor", "pointer", "cross"], true),
             ("view.modifier_keys", "On-Screen Modifier Keys", C::View, "", &["ctrl", "shift", "alt", "touch", "keyboard"], true),
@@ -1106,6 +1133,9 @@ impl PainterApp {
             "view.grid" => self.doc.rulers.grid.visible = !self.doc.rulers.grid.visible,
             "rulers.snap" => self.toggle_ruler_snapping(),
             "view.zen" => self.toggle_zen(),
+            "view.screen.0" => { let ctx = self.egui_ctx.clone(); self.set_screen_mode(&ctx, 0) }
+            "view.screen.1" => { let ctx = self.egui_ctx.clone(); self.set_screen_mode(&ctx, 1) }
+            "view.screen.2" => { let ctx = self.egui_ctx.clone(); self.set_screen_mode(&ctx, 2) }
             "view.ruler_bar" => self.ws.chrome.ruler_bar = !self.ws.chrome.ruler_bar,
             "view.brush_crosshair" => self.ws.chrome.brush_crosshair = !self.ws.chrome.brush_crosshair,
             "view.ui_bigger" => self.step_ui_scale(1),

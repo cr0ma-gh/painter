@@ -53,6 +53,8 @@ impl PainterApp {
             }
         });
         let mut action = None;
+        let mut action_open: Option<std::path::PathBuf> = None;
+        let mut forget: Option<String> = None;
         let width = (screen.width() - 40.0).clamp(320.0, 760.0);
         egui::Window::new("Welcome to Painter")
             .title_bar(false)
@@ -73,6 +75,60 @@ impl PainterApp {
                     });
                 });
                 ui.add_space(10.0);
+                // Recent files, as cards: click one to open it.
+                if !self.recent.files.is_empty() {
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Recent").strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("Clear").on_hover_text("Forget the list (the files stay)").clicked() {
+                                self.recent.clear();
+                            }
+                        });
+                    });
+                    let card = Vec2::new(118.0, 118.0);
+                    let per_row = ((width - 20.0) / (card.x + 10.0)).floor().max(1.0) as usize;
+                    let files: Vec<crate::recent::RecentFile> = self.recent.files.iter().take(per_row * 2).cloned().collect();
+                    egui::Grid::new("welcome_recent").spacing(Vec2::new(10.0, 8.0)).show(ui, |ui| {
+                        for (i, f) in files.iter().enumerate() {
+                            let exists = f.exists();
+                            ui.vertical(|ui| {
+                                ui.set_width(card.x);
+                                let (rect, response) = ui.allocate_exact_size(Vec2::new(card.x, card.y - 30.0), egui::Sense::click());
+                                ui.painter().rect_filled(rect, 4.0, crate::theme::well());
+                                match self.recent.texture(ui.ctx(), &f.path) {
+                                    Some(tex) => {
+                                        let size = ui.ctx().tex_manager().read().meta(tex).map_or(Vec2::splat(1.0), |m| Vec2::new(m.size[0] as f32, m.size[1] as f32));
+                                        let fit = (rect.width() / size.x).min(rect.height() / size.y);
+                                        let shown = egui::Rect::from_center_size(rect.center(), size * fit);
+                                        ui.painter().image(tex, shown, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), if exists { Color32::WHITE } else { Color32::from_gray(90) });
+                                    }
+                                    None => {
+                                        let ext = std::path::Path::new(&f.path).extension().map_or(String::new(), |e| e.to_string_lossy().to_uppercase());
+                                        ui.painter().text(rect.center(), Align2::CENTER_CENTER, ext, egui::FontId::proportional(16.0), crate::theme::text_dim());
+                                    }
+                                }
+                                if response.hovered() && exists {
+                                    ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(2.0_f32, crate::theme::accent()), egui::StrokeKind::Inside);
+                                }
+                                let tip = if exists { f.folder() } else { format!("Not found: {}", f.path) };
+                                if response.on_hover_text(tip).clicked() && exists {
+                                    action_open = Some(std::path::PathBuf::from(&f.path));
+                                }
+                                ui.horizontal(|ui| {
+                                    let name = RichText::new(f.name()).small();
+                                    ui.add(egui::Label::new(if exists { name } else { name.weak().strikethrough() }).truncate());
+                                    if !exists && ui.small_button("✕").on_hover_text("Remove from the list").clicked() {
+                                        forget = Some(f.path.clone());
+                                    }
+                                });
+                            });
+                            if (i + 1) % per_row == 0 {
+                                ui.end_row();
+                            }
+                        }
+                    });
+                }
                 ui.separator();
                 let columns = if width > 560.0 { 2 } else { 1 };
                 egui::Grid::new("welcome_features").num_columns(columns).spacing(Vec2::new(18.0, 10.0)).show(ui, |ui| {
@@ -117,6 +173,13 @@ impl PainterApp {
         if let Some(command) = action {
             self.welcome_open = false;
             self.run_command(command);
+        }
+        if let Some(path) = forget {
+            self.recent.remove(&path);
+        }
+        if let Some(path) = action_open {
+            self.welcome_open = false;
+            self.open_any(path);
         }
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.welcome_open = false;

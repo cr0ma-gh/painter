@@ -502,6 +502,10 @@ impl PainterApp {
     pub(crate) fn finish_open(&mut self, path: PathBuf, result: Loaded) {
         match result {
             Ok((doc, is_project, extras)) => {
+                // Every opened file is a recent one (projects also through their path).
+                if !is_project {
+                    self.recent.touch(&path, &doc);
+                }
                 self.set_document(doc, is_project.then(|| path.clone()));
                 if !is_project {
                     let active = self.docs.active;

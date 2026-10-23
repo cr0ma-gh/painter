@@ -131,7 +131,7 @@ impl Tool {
             Tool::Select(SelectShape::Lasso) => "L",
             Tool::Select(SelectShape::Magic) => "W",
             Tool::Transform => "Ctrl+T",
-            Tool::Crop => "C",
+            Tool::Crop => "Shift+C",
             Tool::Frame => "U",
             Tool::Scene3D | Tool::Ruler => return None,
             Tool::Eyedropper => "I",
@@ -150,7 +150,7 @@ impl Tool {
             Tool::Select(SelectShape::Lasso) => "Lasso selection (L)",
             Tool::Select(SelectShape::Magic) => "Auto select (W): click an area to select what a fill would cover",
             Tool::Transform => "Transform the layer or selection (Ctrl+T). Enter applies, Esc cancels",
-            Tool::Crop => "Crop / resize the canvas (C). Enter applies, Esc cancels",
+            Tool::Crop => "Crop / resize the canvas (Shift+C). Enter applies, Esc cancels",
             Tool::Frame => "Panel frames (U): draw rectangles or polygons, divide panels, reshape them",
             Tool::Scene3D => "3D layer: middle drag orbits, Shift pans, wheel zooms; click picks, G / R / S gizmo",
             Tool::Ruler => "Rulers: perspective, symmetry, special rulers and guides. Drag their handles; Ctrl+1 toggles snapping",
@@ -547,6 +547,20 @@ impl PainterApp {
         }
         if key(Key::X, false) {
             std::mem::swap(&mut self.color, &mut self.sub_color);
+        }
+        // C: the transparent colour on / off (as in Clip Studio); Shift+C: crop.
+        if key(Key::C, false) {
+            self.toggle_transparent();
+        }
+        if key(Key::C, true) {
+            self.tool = Tool::Crop;
+        }
+        // F / Shift+F: the screen modes, as in Photoshop.
+        if key(Key::F, false) {
+            self.cycle_screen_mode(ctx, true);
+        }
+        if key(Key::F, true) {
+            self.cycle_screen_mode(ctx, false);
         }
         if key(Key::Delete, false) || key(Key::Backspace, false) {
             // A picked vector line (Vector Points tool), else the selected pixels.

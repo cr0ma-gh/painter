@@ -40,6 +40,11 @@ const DOCUMENT_ENTRY: &str = "document.json";
 pub const THUMBNAIL_ENTRY: &str = "thumbnail.png";
 pub const THUMBNAIL_SIZE: u32 = 256;
 
+/// A PNG thumbnail of `doc`, at most `max` pixels on a side (drafts left out).
+pub fn thumbnail(doc: &Document, max: u32) -> Result<Vec<u8>, String> {
+    crate::interchange::thumbnail_png(doc, max)
+}
+
 /// The thumbnail (PNG bytes) a Painter project, Krita or OpenRaster file
 /// carries: what file managers show for it.
 pub fn embedded_thumbnail(bytes: &[u8]) -> Option<Vec<u8>> {

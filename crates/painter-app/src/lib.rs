@@ -36,6 +36,7 @@ mod nav_gizmo;
 mod pose_ui;
 mod previews;
 mod ruler_bar;
+mod recent;
 mod rulers_ui;
 mod print_ui;
 mod scan_source;

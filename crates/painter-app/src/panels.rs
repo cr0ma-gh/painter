@@ -52,6 +52,28 @@ impl PainterApp {
                         ui.close_menu();
                         self.open_dialog();
                     }
+                    // The files opened or saved lately.
+                    ui.add_enabled_ui(!self.recent.files.is_empty(), |ui| {
+                        ui.menu_button("Open Recent", |ui| {
+                            let mut open = None;
+                            for f in self.recent.files.iter().take(15) {
+                                let exists = f.exists();
+                                let r = ui.add_enabled(exists, egui::Button::new(f.name())).on_hover_text(&f.path);
+                                if r.clicked() {
+                                    open = Some(std::path::PathBuf::from(&f.path));
+                                }
+                            }
+                            ui.separator();
+                            if ui.button("Clear Recent Files").clicked() {
+                                ui.close_menu();
+                                self.recent.clear();
+                            }
+                            if let Some(path) = open {
+                                ui.close_menu();
+                                self.open_any(path);
+                            }
+                        });
+                    });
                     // iPadOS: the app's own folder in the Files app.
                     if crate::files::documents_dir().is_some() {
                         ui.menu_button("Documents", |ui| {
@@ -262,6 +284,16 @@ impl PainterApp {
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.ws.bars.tool_strip, "Tool Strip").on_hover_text("The tools on the left");
                     ui.checkbox(&mut self.ws.bars.command_bar, "Command Bar").on_hover_text("The icon buttons under the menu");
+                    ui.menu_button("Screen Mode", |ui| {
+                        let ctx = ui.ctx().clone();
+                        for (mode, label) in [(0u8, "Standard"), (1, "Full Screen with Menus"), (2, "Full Screen")] {
+                            if ui.radio(self.screen_mode == mode, label).clicked() {
+                                ui.close_menu();
+                                self.set_screen_mode(&ctx, mode);
+                            }
+                        }
+                        ui.small("F cycles them, Shift+F goes back");
+                    });
                     ui.separator();
                     if ui.add(egui::Button::new("Fit to Window").shortcut_text("0")).clicked() {
                         self.fit_pending = true;

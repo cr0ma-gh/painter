@@ -192,6 +192,12 @@ cargo run --release -p painter-app -- drawing.painter
   (any command from the palette, drag to reorder, right-click to remove,
   separators). File â Quit (Ctrl+Q). The reference board also takes PSD,
   Krita, OpenRaster, Clip Studio and Painter files, shown as their flattened picture.
+- **Recent files:** the welcome screen shows the files opened or saved lately
+  as cards with their picture; File → Open Recent lists them too.
+- **Screen modes** (View → Screen Mode, F / Shift+F, as in Photoshop):
+  standard, full screen with menus, full screen with the canvas only. C
+  toggles the transparent colour (as in Clip Studio; crop is Shift+C), X
+  swaps main and sub colour.
 - **Several documents:** a tab per open document (`*` marks unsaved changes;
   Ctrl+W closes, Ctrl+Tab / Ctrl+Shift+Tab cycle), each with its own zoom,
   rotation, pan and undo history. Files open and save on worker threads.

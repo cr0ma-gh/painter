@@ -211,6 +211,12 @@ pub struct PainterApp {
     pub(crate) layer_rename: Option<(painter_core::LayerId, String, bool)>,
     /// Help → Check for Updates, and the daily check.
     pub(crate) updater: crate::updater::Updater,
+    /// Files opened or saved lately (welcome screen, File → Open Recent).
+    pub(crate) recent: crate::recent::Recent,
+    /// Photoshop's screen modes: 0 standard, 1 full screen with menus, 2 canvas only.
+    pub(crate) screen_mode: u8,
+    /// For commands that act on the window (full screen).
+    pub(crate) egui_ctx: egui::Context,
     /// Android: the "open with" intent was looked at.
     #[cfg(target_os = "android")]
     pub(crate) android_intent_read: bool,
@@ -353,6 +359,9 @@ impl PainterApp {
             file_objects: Default::default(),
             layer_rename: None,
             updater: Default::default(),
+            recent: crate::recent::Recent::load(),
+            screen_mode: 0,
+            egui_ctx: cc.egui_ctx.clone(),
             #[cfg(target_os = "android")]
             android_intent_read: false,
             logo: None,
@@ -460,6 +469,9 @@ impl PainterApp {
 
     /// Replaces the active document.
     pub(crate) fn set_document_here(&mut self, doc: Document, path: Option<PathBuf>) {
+        if let Some(p) = &path {
+            self.recent.touch(p, &doc);
+        }
         self.doc = doc;
         self.history.clear();
         self.comic = None;
@@ -1393,6 +1405,7 @@ impl PainterApp {
             extras.insert(crate::scene_ui::scene_entry(*id), layer.scene.to_bytes());
         }
         // On a worker thread, from a copy: painting goes on meanwhile.
+        self.recent.touch(&path, &self.doc);
         self.save_in_background(path, extras);
 
     }
