@@ -87,6 +87,7 @@ impl PainterApp {
         self.pose_grab_keys(ui.ctx());
         self.shape_keys(ui.ctx());
         self.magnetic_keys(ui.ctx());
+        self.text_keys(ui.ctx());
 
         if !self.uploads.is_empty() {
             self.doc_touched = true;
@@ -126,6 +127,7 @@ impl PainterApp {
         self.draw_shape_draft(&painter, rect);
         self.draw_stamp_overlay(&painter, rect);
         self.draw_magnetic(&painter, rect);
+        self.draw_text_overlay(&painter, rect);
         self.draw_brush_cursor(&painter, rect, &response);
         self.draw_eyedropper(&painter);
         self.transform_hud(ui.ctx(), rect);

@@ -117,6 +117,9 @@ pub fn resize_document(doc: &mut Document, width: u32, height: u32, filter: Inte
                         }
                         stroke.settings.size *= width_scale;
                     }
+                    for t in &mut v.texts {
+                        t.transform(|[x, y]| [x * s.0, y * s.1], width_scale);
+                    }
                     painter_core::vector::rasterize(v, to);
                 }
                 LayerKind::Folder(folder) => walk(&mut folder.children, from, to, s, filter),

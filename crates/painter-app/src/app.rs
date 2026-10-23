@@ -221,6 +221,8 @@ pub struct PainterApp {
     pub(crate) channels: crate::channels_ui::ChannelState,
     /// Recorded actions (the Actions panel).
     pub(crate) actions: crate::actions::Actions,
+    /// The text tool: the text being edited and new texts' settings.
+    pub(crate) text: crate::text_tool::TextState,
     /// Decoded pictures of file object layers' files.
     pub(crate) file_objects: crate::file_object::FileObjectCache,
     /// A layer being renamed in its row (double-click): id, text, field just opened.
@@ -278,6 +280,8 @@ pub struct PainterApp {
 impl PainterApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
+        crate::text_tool::load_fonts();
+        crate::text_tool::install_symbol_fallback(&cc.egui_ctx);
         let gpu_ready = match &cc.wgpu_render_state {
             Some(rs) => {
                 let canvas = GpuCanvas::new(&rs.device, rs.target_format);
@@ -379,6 +383,7 @@ impl PainterApp {
             magnetic: Default::default(),
             channels: Default::default(),
             actions: crate::actions::Actions::load(),
+            text: Default::default(),
             file_objects: Default::default(),
             layer_rename: None,
             updater: Default::default(),
@@ -1743,6 +1748,7 @@ impl eframe::App for PainterApp {
         self.image_size_window(ctx);
         self.reset_settings_window(ctx);
         self.bitmap_window(ctx);
+        self.text_editor_window(ctx);
         self.save_as_window(ctx);
         self.svg_export_window(ctx);
         self.comic_wizard_window(ctx);

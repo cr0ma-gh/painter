@@ -815,6 +815,10 @@ impl PainterApp {
                 widgets::group_header(ui, Icon::Shapes, "Shape");
                 self.shape_panel(ui);
             }
+            Tool::Text(kind) => {
+                widgets::group_header(ui, self.tool.icon(), self.tool.name());
+                self.text_panel(ui, kind);
+            }
             Tool::Stamp(kind) => {
                 widgets::group_header(ui, self.tool.icon(), self.tool.name());
                 self.stamp_panel(ui, kind);
@@ -1471,7 +1475,11 @@ impl PainterApp {
                     changed |= percent_slider(ui, &mut t.density, "Density", 0.0..=100.0);
                 }
                 LayerKind::Vector(v) => {
-                    ui.label(format!("{} strokes", v.strokes.len()));
+                    ui.label(match (v.strokes.len(), v.texts.len()) {
+                        (s, 0) => format!("{s} strokes"),
+                        (0, t) => format!("{t} texts"),
+                        (s, t) => format!("{s} strokes, {t} texts"),
+                    });
                 }
                 LayerKind::Adjustment(a) => {
                     changed |= crate::adjust_ui::adjustment_editor(ui, a);

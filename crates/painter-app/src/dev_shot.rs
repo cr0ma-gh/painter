@@ -61,6 +61,12 @@ impl PainterApp {
                     self.add_file_object(std::path::Path::new(path));
                     continue;
                 }
+                // `dev.text_demo`: texts and balloons (once the font scan has had a moment).
+                if c == "dev.text_demo" {
+                    std::thread::sleep(std::time::Duration::from_millis(1500));
+                    self.text_demo();
+                    continue;
+                }
                 // `dev.bitmap`: Mode → Bitmap with an 8 px halftone screen.
                 if c == "dev.bitmap" {
                     self.convert_to_bitmap(painter_core::color_mode::BitmapMethod::Halftone { cell: 24.0, angle: 45.0 });

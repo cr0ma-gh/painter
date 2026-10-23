@@ -9,6 +9,7 @@ use painter_core::{BrushMode, BrushSettings};
 use crate::app::PainterApp;
 use crate::icons::Icon;
 use crate::stamp_tool::StampKind;
+use crate::text_tool::TextKind;
 
 /// Holding a tool key this long makes the switch temporary (released: back to the tool before).
 pub(crate) const SPRING_HOLD: std::time::Duration = std::time::Duration::from_millis(300);
@@ -37,6 +38,8 @@ pub enum Tool {
     Shape,
     /// The clone and pattern stamps and the history brush: the brush's tip, colours from elsewhere.
     Stamp(crate::stamp_tool::StampKind),
+    /// Text and balloons on vector layers.
+    Text(crate::text_tool::TextKind),
     Hand,
 }
 
@@ -54,7 +57,7 @@ pub enum SelectShape {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 21] = [
+    pub const ALL: [Tool; 23] = [
         Tool::Brush,
         Tool::Stamp(StampKind::Clone),
         Tool::Stamp(StampKind::Pattern),
@@ -62,6 +65,8 @@ impl Tool {
         Tool::Fill,
         Tool::Gradient,
         Tool::Shape,
+        Tool::Text(TextKind::Text),
+        Tool::Text(TextKind::Balloon),
         Tool::Eyedropper,
         Tool::Select(SelectShape::Rect),
         Tool::Select(SelectShape::Ellipse),
@@ -80,7 +85,7 @@ impl Tool {
 
     /// The tools by command id (`tool.N`): only ever appended to, so saved
     /// toolbar buttons and recent commands keep pointing at the same tool.
-    pub const COMMANDS: [Tool; 21] = [
+    pub const COMMANDS: [Tool; 23] = [
         Tool::Brush,
         Tool::Fill,
         Tool::Gradient,
@@ -102,6 +107,8 @@ impl Tool {
         Tool::Stamp(StampKind::History),
         Tool::Select(SelectShape::Magnetic),
         Tool::Select(SelectShape::Object),
+        Tool::Text(TextKind::Text),
+        Tool::Text(TextKind::Balloon),
     ];
 
     pub fn icon(self) -> Icon {
@@ -123,6 +130,8 @@ impl Tool {
             Tool::Eyedropper => Icon::ColorPicker,
             Tool::VectorEdit => Icon::Curve,
             Tool::Shape => Icon::Shapes,
+            Tool::Text(TextKind::Text) => Icon::Text,
+            Tool::Text(TextKind::Balloon) => Icon::Balloon,
             Tool::Stamp(StampKind::Clone) => Icon::Clone,
             Tool::Stamp(StampKind::Pattern) => Icon::PatternStamp,
             Tool::Stamp(StampKind::History) => Icon::HistoryBrush,
@@ -145,6 +154,8 @@ impl Tool {
             Tool::Eyedropper => "eyedropper",
             Tool::VectorEdit => "vector_edit",
             Tool::Shape => "shape",
+            Tool::Text(TextKind::Text) => "text",
+            Tool::Text(TextKind::Balloon) => "balloon",
             Tool::Stamp(StampKind::Clone) => "clone",
             Tool::Stamp(StampKind::Pattern) => "pattern_stamp",
             Tool::Stamp(StampKind::History) => "history_brush",
@@ -171,6 +182,8 @@ impl Tool {
             Tool::Eyedropper => "Eyedropper",
             Tool::VectorEdit => "Vector Points",
             Tool::Shape => "Shape",
+            Tool::Text(TextKind::Text) => "Text",
+            Tool::Text(TextKind::Balloon) => "Balloon",
             Tool::Stamp(StampKind::Clone) => "Clone Stamp",
             Tool::Stamp(StampKind::Pattern) => "Pattern Stamp",
             Tool::Stamp(StampKind::History) => "History Brush",
@@ -196,6 +209,8 @@ impl Tool {
             Tool::Eyedropper => "I",
             Tool::VectorEdit => "O",
             Tool::Shape => "R",
+            Tool::Text(TextKind::Text) => "T",
+            Tool::Text(TextKind::Balloon) => "Shift+T",
             Tool::Stamp(StampKind::Clone) => "S",
             Tool::Stamp(StampKind::Pattern) => "Shift+S",
             Tool::Stamp(StampKind::History) => "Y",
@@ -225,6 +240,8 @@ impl Tool {
             Tool::Stamp(StampKind::Clone) => "Clone stamp (S): Alt-click where to copy from, then paint with the current brush's tip",
             Tool::Stamp(StampKind::Pattern) => "Pattern stamp (Shift+S): paint a pattern with the current brush's tip",
             Tool::Stamp(StampKind::History) => "History brush (Y): paint back an earlier state (pick it in the History panel)",
+            Tool::Text(TextKind::Text) => "Text (T): click to write, click a text to edit it, drag it to move it",
+            Tool::Text(TextKind::Balloon) => "Balloon (Shift+T): drag a speech balloon, then write in it; drag the tail tip to aim it",
             Tool::Hand => "Pan the canvas (H, or hold Space)",
         }
     }
@@ -371,6 +388,12 @@ impl PainterApp {
             Tool::Scene3D => self.scene_press(at),
             Tool::Ruler => self.ruler_press(at),
             Tool::VectorEdit => self.vector_edit_press(at, modifiers.alt),
+            Tool::Text(kind) => {
+                self.text_press(at, kind);
+                if self.text_dragging() {
+                    self.drag = Some(ToolDrag { start: at, current: at, points: vec![at], op: SelectionOp::Replace });
+                }
+            }
             Tool::Shape => {
                 let double = self.egui_ctx.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary));
                 self.shape_press(at, double);
@@ -400,6 +423,7 @@ impl PainterApp {
             Tool::Ruler => self.ruler_move(at),
             Tool::VectorEdit => self.vector_edit_move(at),
             Tool::Shape => self.shape_move(at),
+            Tool::Text(_) => self.text_move(at),
             Tool::Eyedropper => self.eyedrop_at(at),
             _ => {}
         }
@@ -423,6 +447,7 @@ impl PainterApp {
             Tool::Ruler => return self.ruler_release(),
             Tool::VectorEdit => return self.vector_edit_release(),
             Tool::Shape => return self.shape_release(),
+            Tool::Text(_) => return self.text_release(),
             _ => {}
         }
         let canvas = self.doc.canvas();
@@ -647,6 +672,12 @@ impl PainterApp {
         }
         if key(Key::R, false) {
             self.tool = Tool::Shape;
+        }
+        if key(Key::T, false) {
+            self.tool = Tool::Text(TextKind::Text);
+        }
+        if key(Key::T, true) {
+            self.tool = Tool::Text(TextKind::Balloon);
         }
         if key(Key::S, false) {
             self.tool = Tool::Stamp(StampKind::Clone);

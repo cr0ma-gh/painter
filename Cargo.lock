@@ -2516,6 +2516,7 @@ dependencies = [
 name = "painter-core"
 version = "0.5.0"
 dependencies = [
+ "ab_glyph",
  "crc32fast",
  "flate2",
  "image",
@@ -2523,6 +2524,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "ttf-parser",
  "zip",
 ]
 

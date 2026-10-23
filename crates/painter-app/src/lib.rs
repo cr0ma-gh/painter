@@ -52,6 +52,7 @@ mod texture_paint;
 #[cfg(target_os = "linux")]
 mod pen_x11;
 mod tablet;
+mod text_tool;
 mod theme;
 mod toolbar;
 mod tools;

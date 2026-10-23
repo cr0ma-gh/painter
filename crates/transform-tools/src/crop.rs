@@ -197,6 +197,9 @@ pub fn apply_crop(doc: &mut Document, plan: CropPlan) {
                             p.y += dy as f32;
                         }
                     }
+                    for t in &mut v.texts {
+                        t.transform(|[x, y]| [x + dx as f32, y + dy as f32], 1.0);
+                    }
                     painter_core::vector::rasterize(v, canvas);
                 }
                 LayerKind::Folder(folder) => walk(&mut folder.children, dx, dy, canvas),

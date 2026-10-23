@@ -77,6 +77,16 @@ cargo run --release -p painter-app -- drawing.painter
   with the current brush, filled with the main colour, or both. Shift makes
   squares and circles (lines in 15° steps), Alt draws from the centre;
   polygons close on the first corner, a double-click or Enter.
+- **Text and balloons** (T and Shift+T, as Clip Studio's text and balloon
+  tools and Photoshop's type): click to write, or drag a balloon and write in
+  it. Any font on the computer (searchable list), size, colour, left / centre
+  / right, vertical columns for manga, line and letter spacing, an outline
+  round the letters; characters a font lacks (Japanese, Chinese, Korean,
+  symbols) come from a system font that has them. Balloons: ellipse, rounded,
+  rectangle, cloud (thought) or burst (shout), fill, border, a tail you aim by
+  dragging its tip, Fit to Text. Texts stay editable (click one; drag to move
+  it), live on vector layers, are saved in the project and export as pixels;
+  a font missing on another computer falls back to the built-in one.
 - **Clone stamp, pattern stamp, history brush** (S, Shift+S, Y, as in
   Photoshop), painting with the current brush's tip and dynamics: the clone
   stamp copies from where you Alt-clicked (from the layer or all layers;

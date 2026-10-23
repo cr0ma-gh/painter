@@ -23,6 +23,9 @@ pub fn rasterize(layer: &mut VectorLayer, canvas: (u32, u32)) {
     for stroke in &layer.strokes {
         paint_stroke(&mut cache, &stroke_dabs(stroke), stroke.color, &stroke.settings, canvas, false, None);
     }
+    for text in &layer.texts {
+        crate::text::render(text, &mut cache, canvas);
+    }
     layer.cache = cache;
 }
 
@@ -209,7 +212,7 @@ mod tests {
 
     #[test]
     fn eraser_removes_only_touched_strokes() {
-        let mut layer = VectorLayer { strokes: vec![stroke(10.0), stroke(60.0)], cache: TileStore::new() };
+        let mut layer = VectorLayer { strokes: vec![stroke(10.0), stroke(60.0)], cache: TileStore::new(), ..Default::default() };
         rasterize(&mut layer, (100, 100));
         assert!(layer.cache.pixel(40, 10)[3] > 200);
         let eraser = [Dab { x: 40.0, y: 12.0, radius: 3.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false }];
@@ -243,7 +246,7 @@ mod intersection_tests {
     #[test]
     fn only_the_overhang_past_a_crossing_goes() {
         // A horizontal line crossed by a vertical one at x = 30; erase the bit left of it.
-        let mut layer = VectorLayer { strokes: vec![line([10.0, 50.0], [90.0, 50.0]), line([30.0, 10.0], [30.0, 90.0])], cache: TileStore::new() };
+        let mut layer = VectorLayer { strokes: vec![line([10.0, 50.0], [90.0, 50.0]), line([30.0, 10.0], [30.0, 90.0])], cache: TileStore::new(), ..Default::default() };
         assert!(erase_to_intersections(&mut layer, &[dab(15.0, 50.0)], (100, 100)));
         assert_eq!(layer.strokes.len(), 2, "the vertical line and what's right of the crossing");
         let rest = &layer.strokes[0];
@@ -260,6 +263,7 @@ mod intersection_tests {
         let mut layer = VectorLayer {
             strokes: vec![line([10.0, 50.0], [90.0, 50.0]), line([30.0, 10.0], [30.0, 90.0]), line([70.0, 10.0], [70.0, 90.0])],
             cache: TileStore::new(),
+            texts: Vec::new(),
         };
         assert!(erase_to_intersections(&mut layer, &[dab(50.0, 50.0)], (100, 100)));
         // Left end and right end stay as two strokes, plus the two verticals.
@@ -269,7 +273,7 @@ mod intersection_tests {
         assert!(ends.iter().any(|&(a, b)| (a - 10.0).abs() < 0.01 && (b - 30.0).abs() < 0.01));
         assert!(ends.iter().any(|&(a, b)| (a - 70.0).abs() < 0.01 && (b - 90.0).abs() < 0.01));
         // Nothing crossing: the whole stroke goes.
-        let mut lone = VectorLayer { strokes: vec![line([10.0, 50.0], [90.0, 50.0])], cache: TileStore::new() };
+        let mut lone = VectorLayer { strokes: vec![line([10.0, 50.0], [90.0, 50.0])], cache: TileStore::new(), ..Default::default() };
         assert!(erase_to_intersections(&mut lone, &[dab(50.0, 50.0)], (100, 100)));
         assert!(lone.strokes.is_empty());
         assert!(!erase_to_intersections(&mut lone, &[dab(50.0, 50.0)], (100, 100)));
@@ -415,7 +419,7 @@ mod editing_tests {
         assert!((s.points[10].x - 50.0).abs() < 1e-4 && (s.points[10].y - 50.0).abs() < 1e-4);
         assert!(!remove_control(&mut s.points, &controls, 0), "ends stay");
         // Picking: the stroke within reach of its edge.
-        let layer = VectorLayer { strokes: vec![stroke(vec![[0.0, 0.0], [100.0, 0.0]]), stroke(vec![[0.0, 50.0], [100.0, 50.0]])], cache: TileStore::new() };
+        let layer = VectorLayer { strokes: vec![stroke(vec![[0.0, 0.0], [100.0, 0.0]]), stroke(vec![[0.0, 50.0], [100.0, 50.0]])], cache: TileStore::new(), ..Default::default() };
         assert_eq!(stroke_at(&layer, [50.0, 46.0], 3.0).map(|x| x.0), Some(1));
         assert!(stroke_at(&layer, [50.0, 25.0], 3.0).is_none());
     }

@@ -161,7 +161,12 @@ struct MaskFile {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ContentFile {
     Raster { tiles: String },
-    Vector { strokes: Vec<VectorStroke> },
+    Vector {
+        strokes: Vec<VectorStroke>,
+        /// Absent in files from before text layers.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        texts: Vec<crate::text::TextItem>,
+    },
     Folder { pass_through: bool, children: Vec<LayerFile> },
     Fill { color: [u8; 3] },
     Gradient { gradient: Gradient },
@@ -278,7 +283,7 @@ fn layer_file<'a>(layer: &'a Layer, planes: &mut Vec<(String, &'a TileStore)>) -
             planes.push((name.clone(), tiles));
             ContentFile::Raster { tiles: name }
         }
-        LayerKind::Vector(v) => ContentFile::Vector { strokes: v.strokes.clone() },
+        LayerKind::Vector(v) => ContentFile::Vector { strokes: v.strokes.clone(), texts: v.texts.clone() },
         LayerKind::Folder(f) => ContentFile::Folder {
             pass_through: f.pass_through,
             children: f.children.iter().map(|c| layer_file(c, planes)).collect(),
@@ -354,8 +359,8 @@ fn read_from<R: Read + Seek>(reader: R) -> Result<(Document, Extras), ProjectErr
 fn read_layer<R: Read + Seek>(file: LayerFile, zip: &mut ZipArchive<R>, canvas: (u32, u32)) -> Result<Layer, ProjectError> {
     let kind = match file.content {
         ContentFile::Raster { tiles } => LayerKind::Raster(read_plane(zip, &tiles)?),
-        ContentFile::Vector { strokes } => {
-            let mut layer = VectorLayer { strokes, cache: TileStore::new() };
+        ContentFile::Vector { strokes, texts } => {
+            let mut layer = VectorLayer { strokes, texts, cache: TileStore::new() };
             vector::rasterize(&mut layer, canvas);
             LayerKind::Vector(layer)
         }

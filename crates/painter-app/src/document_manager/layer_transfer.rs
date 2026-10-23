@@ -79,6 +79,10 @@ fn copy_rec(layer: &Layer, src_canvas: (u32, u32), dst: &mut Document, factor: f
                     }
                     stroke.settings.size = (stroke.settings.size as f64 * factor) as f32;
                 }
+                let k = factor as f32;
+                for t in &mut v.texts {
+                    t.transform(|[x, y]| [x * k, y * k], k);
+                }
             }
             vector::rasterize(&mut v, dst_canvas);
             LayerKind::Vector(v)

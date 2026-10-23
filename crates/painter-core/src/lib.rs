@@ -31,6 +31,7 @@ pub mod smart_select;
 pub mod smoothing;
 pub mod source_stroke;
 pub mod stroke;
+pub mod text;
 pub mod tile;
 pub mod tip;
 pub mod vector;

@@ -37,6 +37,8 @@ pub struct VectorStroke {
 #[derive(Clone, Debug, Default)]
 pub struct VectorLayer {
     pub strokes: Vec<VectorStroke>,
+    /// Text and balloons, drawn over the strokes.
+    pub texts: Vec<crate::text::TextItem>,
     /// Rasterised strokes; what is composited and exported.
     pub cache: TileStore,
 }
