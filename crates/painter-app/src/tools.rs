@@ -30,6 +30,8 @@ pub enum Tool {
     Eyedropper,
     /// Perspective, symmetry and special rulers, guides: place and edit them.
     Ruler,
+    /// Vector layers: pick a line, move it, reshape it by its control points.
+    VectorEdit,
     Hand,
 }
 
@@ -43,7 +45,7 @@ pub enum SelectShape {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 14] = [
+    pub const ALL: [Tool; 15] = [
         Tool::Brush,
         Tool::Fill,
         Tool::Gradient,
@@ -57,6 +59,7 @@ impl Tool {
         Tool::Frame,
         Tool::Scene3D,
         Tool::Ruler,
+        Tool::VectorEdit,
         Tool::Hand,
     ];
 
@@ -75,6 +78,7 @@ impl Tool {
             Tool::Scene3D => Icon::Transform3d,
             Tool::Ruler => Icon::Path,
             Tool::Eyedropper => Icon::ColorPicker,
+            Tool::VectorEdit => Icon::Curve,
             Tool::Hand => Icon::Move,
         }
     }
@@ -92,6 +96,7 @@ impl Tool {
             Tool::Scene3D => "scene3d",
             Tool::Ruler => "ruler",
             Tool::Eyedropper => "eyedropper",
+            Tool::VectorEdit => "vector_edit",
             Tool::Hand => "hand",
         }
     }
@@ -111,6 +116,7 @@ impl Tool {
             Tool::Scene3D => "3D Layer Tool",
             Tool::Ruler => "Rulers and Guides",
             Tool::Eyedropper => "Eyedropper",
+            Tool::VectorEdit => "Vector Points",
             Tool::Hand => "Hand (pan)",
         }
     }
@@ -129,6 +135,7 @@ impl Tool {
             Tool::Frame => "U",
             Tool::Scene3D | Tool::Ruler => return None,
             Tool::Eyedropper => "I",
+            Tool::VectorEdit => "O",
             Tool::Hand => "H",
         })
     }
@@ -148,6 +155,7 @@ impl Tool {
             Tool::Scene3D => "3D layer: middle drag orbits, Shift pans, wheel zooms; click picks, G / R / S gizmo",
             Tool::Ruler => "Rulers: perspective, symmetry, special rulers and guides. Drag their handles; Ctrl+1 toggles snapping",
             Tool::Eyedropper => "Eyedropper (I): pick a colour from the canvas or the current layer. Alt with a brush, or hold a finger still on an iPad",
+            Tool::VectorEdit => "Vector points (O): pick a vector line, drag its control points to reshape it, drag the line to move it",
             Tool::Hand => "Pan the canvas (H, or hold Space)",
         }
     }
@@ -221,8 +229,8 @@ pub struct ToolOptions {
     pub paste_match_dpi: bool,
     /// Holding the pen still at the end of a stroke turns it into a clean shape.
     pub smart_shape: bool,
-    /// The eraser removes whole vector strokes it touches.
-    pub vector_eraser_whole_strokes: bool,
+    /// What the eraser takes off vector layers.
+    pub vector_erase: VectorErase,
     /// Only a pen draws; fingers move the view (the default on iPad).
     pub pencil_only: bool,
 }
@@ -237,7 +245,7 @@ impl Default for ToolOptions {
             gradient_to_transparent: true,
             selection_op: SelectionOp::Replace,
             paste_match_dpi: true,
-            vector_eraser_whole_strokes: true,
+            vector_erase: VectorErase::ToIntersection,
             smart_shape: true,
             pencil_only: cfg!(target_os = "ios"),
         }
@@ -279,6 +287,7 @@ impl PainterApp {
             Tool::Frame => self.frame_press(at),
             Tool::Scene3D => self.scene_press(at),
             Tool::Ruler => self.ruler_press(at),
+            Tool::VectorEdit => self.vector_edit_press(at, modifiers.alt),
             Tool::Eyedropper => {
                 self.eyedrop_at(at);
                 self.drag = Some(ToolDrag { start: at, current: at, points: vec![at], op: SelectionOp::Replace });
@@ -299,6 +308,7 @@ impl PainterApp {
             Tool::Frame => self.frame_move(at),
             Tool::Scene3D => self.scene_move(at),
             Tool::Ruler => self.ruler_move(at),
+            Tool::VectorEdit => self.vector_edit_move(at),
             Tool::Eyedropper => self.eyedrop_at(at),
             _ => {}
         }
@@ -320,6 +330,7 @@ impl PainterApp {
             Tool::Frame => return self.frame_release(),
             Tool::Scene3D => return self.scene_release(),
             Tool::Ruler => return self.ruler_release(),
+            Tool::VectorEdit => return self.vector_edit_release(),
             _ => {}
         }
         let canvas = self.doc.canvas();
@@ -528,6 +539,9 @@ impl PainterApp {
         if key(Key::I, false) {
             self.tool = Tool::Eyedropper;
         }
+        if key(Key::O, false) {
+            self.tool = Tool::VectorEdit;
+        }
         if key(Key::H, false) {
             self.tool = Tool::Hand;
         }
@@ -535,7 +549,10 @@ impl PainterApp {
             std::mem::swap(&mut self.color, &mut self.sub_color);
         }
         if key(Key::Delete, false) || key(Key::Backspace, false) {
-            self.clear_selected();
+            // A picked vector line (Vector Points tool), else the selected pixels.
+            if !self.vector_edit_delete() {
+                self.clear_selected();
+            }
         }
         if key(Key::OpenBracket, false) {
             let brush = self.current_brush_mut();
@@ -572,5 +589,28 @@ mod tests {
         let presets = BrushSettings::presets();
         let groups: Vec<_> = presets.iter().map(BrushGroup::of).collect();
         assert_eq!(groups, [BrushGroup::Pen, BrushGroup::Pencil, BrushGroup::Airbrush, BrushGroup::Eraser, BrushGroup::Eraser]);
+    }
+}
+
+/// What the eraser takes off a vector layer (Clip Studio's vector eraser options).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VectorErase {
+    /// Only where it passes, like on pixels (the strokes stay, partly erased).
+    Area,
+    /// Every stroke it touches, whole.
+    WholeStroke,
+    /// The touched part of a stroke, up to where other strokes cross it.
+    ToIntersection,
+}
+
+impl VectorErase {
+    pub const ALL: [VectorErase; 3] = [VectorErase::Area, VectorErase::WholeStroke, VectorErase::ToIntersection];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            VectorErase::Area => "Touched area",
+            VectorErase::WholeStroke => "Whole stroke",
+            VectorErase::ToIntersection => "Up to intersection",
+        }
     }
 }

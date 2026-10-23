@@ -52,6 +52,16 @@ impl PainterApp {
                     }
                     continue;
                 }
+                // `dev.file_object:PATH`: a file object layer showing PATH.
+                if let Some(path) = c.strip_prefix("dev.file_object:") {
+                    self.add_file_object(std::path::Path::new(path));
+                    continue;
+                }
+                // `dev.vector_demo`: a vector layer of crossing lines, one picked in Vector Points.
+                if c == "dev.vector_demo" {
+                    self.vector_demo();
+                    continue;
+                }
                 self.run_command(&c);
             }
             return;
@@ -75,5 +85,36 @@ impl PainterApp {
             }
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
+    }
+}
+
+impl PainterApp {
+    /// A vector layer with a few crossing lines, the curved one picked in Vector Points.
+    fn vector_demo(&mut self) {
+        let (w, h) = self.doc.canvas();
+        let (w, h) = (w as f32, h as f32);
+        let id = self.doc.alloc_id();
+        let mut layer = painter_core::Layer::vector(id, "Vector demo");
+        let settings = painter_core::BrushSettings { size: w / 120.0, stabilization: 0, ..painter_core::BrushSettings::g_pen() };
+        let line = |pts: Vec<[f32; 2]>| painter_core::VectorStroke {
+            points: pts.into_iter().map(|[x, y]| painter_core::StrokePoint::new(x, y, 1.0)).collect(),
+            settings: settings.clone(),
+            color: [0.1, 0.1, 0.1],
+            seed: 0,
+        };
+        let strokes = vec![
+            line((0..=60).map(|i| i as f32 / 60.0).map(|t| [w * (0.15 + 0.7 * t), h * (0.45 - 0.15 * (t * std::f32::consts::PI).sin())]).collect()),
+            line((0..=30).map(|i| i as f32 / 30.0).map(|t| [w * 0.35, h * (0.2 + 0.5 * t)]).collect()),
+            line((0..=30).map(|i| i as f32 / 30.0).map(|t| [w * 0.65, h * (0.2 + 0.5 * t)]).collect()),
+        ];
+        if let painter_core::LayerKind::Vector(v) = &mut layer.kind {
+            v.strokes = strokes;
+            painter_core::vector::rasterize(v, (w as u32, h as u32));
+        }
+        self.doc.add_layer(layer);
+        self.doc.active = id;
+        self.upload_plane(painter_render::Plane::Color(id));
+        self.tool = crate::tools::Tool::VectorEdit;
+        self.vector_edit.picked = Some((id, 0));
     }
 }

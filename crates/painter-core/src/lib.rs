@@ -37,7 +37,7 @@ pub use blend::BlendMode;
 pub use brush::{AntiAlias, BrushMode, BrushSettings, ColorJitter, Dab, PressureCurve, Scatter, SmoothingMethod};
 pub use document::{Document, DEFAULT_DPI, MAX_CANVAS_SIZE};
 pub use history::History;
-pub use layer::{clip_targets, ClipTo, Folder, Layer, LayerId, LayerKind, Mask, VectorLayer, VectorStroke};
+pub use layer::{clip_targets, ClipTo, FileObject, Folder, Layer, LayerId, LayerKind, Mask, VectorLayer, VectorStroke};
 pub use procedural::{Gradient, GradientShape, Tone};
 pub use rulers::{Grid, Ruler, RulerKind, RulerScope, RulerSet};
 pub use selection::SelectionOp;

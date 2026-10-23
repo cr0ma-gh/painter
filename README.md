@@ -52,6 +52,18 @@ cargo run --release -p painter-app -- drawing.painter
   Krita and OpenRaster exports. Layer colour (as in Clip Studio; layer
   properties or right-click) shows a layer's lines in one colour, light blue
   by default, on screen only.
+- **File object layers** (Layer → New File Object Layer, as Clip Studio's
+  file objects and Photoshop's linked smart objects): a picture or document
+  (PNG, JPEG, GIF, PSD, Krita, OpenRaster, Clip Studio, Painter) linked, not
+  copied. The Transform tool moves, scales, turns and distorts it drawn again
+  from the file, so it stays sharp; when the file changes the layer follows;
+  Update, Open original, Replace file and Rasterize in the Layers panel.
+- **Vector layers:** the eraser takes the touched area, whole strokes, or
+  (default, as in Clip Studio) only the touched part **up to where other
+  lines cross it**. The **Vector Points** tool (O) picks a line and shows its
+  control points: drag one to bend the line there, Alt + click removes it,
+  drag the line to move it, Delete removes it; width, colour and Simplify in
+  Tool Settings.
 - **Straight lines:** with any brush (pen, pencil, eraserâ¦) hold Shift and
   click or drag: the line starts where the last stroke ended (Shift-click
   point after point to join them) or where you press, follows the pointer as

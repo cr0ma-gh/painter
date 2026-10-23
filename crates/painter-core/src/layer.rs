@@ -85,7 +85,25 @@ pub struct Layer {
     /// (light ones stay white), on screen only; files and exports keep the
     /// real colours.
     pub layer_color: Option<[u8; 3]>,
+    /// A file object (Clip Studio) / linked smart object (Photoshop): the
+    /// pixels are an outside file drawn where it's placed, redrawn from the
+    /// file when it moves or the file changes.
+    pub file_object: Option<FileObject>,
     pub mask: Option<Mask>,
+}
+
+/// Where a file object's picture comes from and where it goes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FileObject {
+    /// The file, as an absolute path.
+    pub path: String,
+    /// Its picture's pixels to canvas pixels (3 × 3, rows; projective).
+    pub placement: [[f64; 3]; 3],
+    /// Its picture's size, in pixels.
+    pub size: [u32; 2],
+    /// The file's modification time when last read (seconds since 1970).
+    #[serde(default)]
+    pub modified: u64,
 }
 
 impl Layer {
@@ -103,6 +121,7 @@ impl Layer {
             reference: false,
             draft: false,
             layer_color: None,
+            file_object: None,
             mask: None,
         }
     }

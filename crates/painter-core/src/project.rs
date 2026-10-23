@@ -134,6 +134,8 @@ struct LayerFile {
     draft: bool,
     #[serde(default)]
     layer_color: Option<[u8; 3]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    file_object: Option<crate::layer::FileObject>,
     mask: Option<MaskFile>,
     content: ContentFile,
 }
@@ -280,6 +282,7 @@ fn layer_file<'a>(layer: &'a Layer, planes: &mut Vec<(String, &'a TileStore)>) -
         reference: layer.reference,
         draft: layer.draft,
         layer_color: layer.layer_color,
+        file_object: layer.file_object.clone(),
         mask,
         content,
     }
@@ -355,6 +358,7 @@ fn read_layer<R: Read + Seek>(file: LayerFile, zip: &mut ZipArchive<R>, canvas: 
         reference: file.reference,
         draft: file.draft,
         layer_color: file.layer_color,
+        file_object: file.file_object,
         mask,
     })
 }

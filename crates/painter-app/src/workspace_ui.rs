@@ -931,7 +931,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 66] = [
+        let fixed: [FixedCommand; 67] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -965,6 +965,7 @@ impl PainterApp {
             ("layer.gradient", "New Gradient Layer", C::Layer, "", &[], true),
             ("layer.scene3d", "New 3D Layer from Model...", C::Layer, "", &["blend", "obj", "blender", "fbx", "gltf", "glb"], true),
             ("layer.scene3d_ruler", "New 3D Layer from Perspective Ruler", C::Layer, "", &["3d space", "vanishing point", "camera"], true),
+            ("layer.file_object", "New File Object Layer...", C::Layer, "", &["smart object", "linked", "place", "embed", "reference file"], true),
             ("layer.tone", "New Tone Layer (from selection)", C::Layer, "", &["screentone", "halftone"], has_sel),
             ("layer.add_mask", "Add Layer Mask", C::Layer, "", &[], !has_mask),
             ("layer.delete_mask", "Delete Layer Mask", C::Layer, "", &[], has_mask),
@@ -1083,6 +1084,7 @@ impl PainterApp {
             "layer.gradient" => self.add_gradient_layer(),
             "layer.scene3d" => self.new_scene_layer_dialog(),
             "layer.scene3d_ruler" => self.new_scene_layer_from_ruler(),
+            "layer.file_object" => self.new_file_object_dialog(),
             "layer.tone" => self.add_tone_layer(),
             "layer.add_mask" => self.add_mask(),
             "layer.delete_mask" => self.delete_mask(),

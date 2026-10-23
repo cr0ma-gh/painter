@@ -200,6 +200,10 @@ pub struct PainterApp {
     pub(crate) pose_bone: Option<usize>,
     pub(crate) pose_drag: Option<crate::pose_ui::PoseDrag>,
     pub(crate) pose_filter: String,
+    /// The Vector Points tool: the picked line and the drag.
+    pub(crate) vector_edit: crate::vector_edit::VectorEditState,
+    /// Decoded pictures of file object layers' files.
+    pub(crate) file_objects: crate::file_object::FileObjectCache,
     /// Android: the "open with" intent was looked at.
     #[cfg(target_os = "android")]
     pub(crate) android_intent_read: bool,
@@ -336,6 +340,8 @@ impl PainterApp {
             pose_bone: None,
             pose_drag: None,
             pose_filter: String::new(),
+            vector_edit: Default::default(),
+            file_objects: Default::default(),
             #[cfg(target_os = "android")]
             android_intent_read: false,
             logo: None,
@@ -669,6 +675,10 @@ impl PainterApp {
             }
             return Some(Plane::Mask(layer.id));
         }
+        if layer.file_object.is_some() {
+            self.status = format!("\"{}\" is a file object: edit its file (Open original) or Rasterize it to paint", layer.name);
+            return None;
+        }
         if !layer.can_paint() {
             self.status = format!("\"{}\" can't be painted on (hidden, locked, or not a pixel layer)", layer.name);
             return None;
@@ -702,7 +712,7 @@ impl PainterApp {
             let r = [0u32, 21, 42].map(|s| ((seed >> s) & 0xF_FFFF) as f32 / 0xF_FFFF as f32);
             settings.color_jitter.apply(self.main_rgb(), r)
         };
-        let vector_erase = is_vector && settings.mode == BrushMode::Erase && self.tools.vector_eraser_whole_strokes;
+        let vector_erase = is_vector && settings.mode == BrushMode::Erase && self.tools.vector_erase != crate::tools::VectorErase::Area;
         if settings.mode != BrushMode::Erase && matches!(plane, Plane::Color(_)) {
             let [r, g, b, _] = self.color.to_srgba_unmultiplied();
             self.colors.used([r, g, b]);
@@ -800,7 +810,11 @@ impl PainterApp {
 
         if let (Some(eraser), Plane::Color(id)) = (&stroke.vector_erase, stroke.plane) {
             if let Some(LayerKind::Vector(layer)) = self.doc.find_mut(id).map(|l| &mut l.kind) {
-                if vector::erase_touching(layer, eraser, canvas) {
+                let erased = match self.tools.vector_erase {
+                    crate::tools::VectorErase::ToIntersection => vector::erase_to_intersections(layer, eraser, canvas),
+                    _ => vector::erase_touching(layer, eraser, canvas),
+                };
+                if erased {
                     self.upload_plane(stroke.plane);
                 } else {
                     // Nothing hit: just drop the preview.
@@ -1544,6 +1558,7 @@ impl eframe::App for PainterApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.next_label = None;
         self.dev_shot_tick(ctx);
+        self.file_objects_tick();
         self.tablet.poll(frame);
         if let Some(eraser) = self.tablet.take_eraser_switch() {
             // Flipping the pen to its eraser end switches tools, like a real eraser.

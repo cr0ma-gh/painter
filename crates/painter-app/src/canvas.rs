@@ -119,6 +119,7 @@ impl PainterApp {
         self.draw_tool_overlay(&painter, rect);
         self.draw_line_guide(&painter, rect);
         self.draw_smart_shape(&painter, rect);
+        self.draw_vector_edit(&painter, rect);
         self.draw_brush_cursor(&painter, rect, &response);
         self.draw_eyedropper(&painter);
         self.transform_hud(ui.ctx(), rect);

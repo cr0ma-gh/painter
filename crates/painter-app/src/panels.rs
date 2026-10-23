@@ -201,6 +201,7 @@ impl PainterApp {
                         ("New Gradient Layer", PainterApp::add_gradient_layer),
                         ("New 3D Layer from Model...", PainterApp::new_scene_layer_dialog),
                         ("New 3D Layer from Perspective Ruler", PainterApp::new_scene_layer_from_ruler),
+                        ("New File Object Layer...", PainterApp::new_file_object_dialog),
                         ("New Tone Layer (from selection)", PainterApp::add_tone_layer),
                     ] {
                         if ui.button(label).clicked() {
@@ -756,6 +757,10 @@ impl PainterApp {
                 widgets::group_header(ui, Icon::ColorPicker, "Eyedropper");
                 self.eyedropper_panel(ui);
             }
+            Tool::VectorEdit => {
+                widgets::group_header(ui, Icon::Curve, "Vector Points");
+                self.vector_edit_panel(ui);
+            }
             Tool::Hand => {
                 widgets::group_header(ui, Icon::Move, "Hand");
                 ui.label("Drag to pan. Wheel zooms, , and . rotate, 0 fits.");
@@ -808,7 +813,7 @@ impl PainterApp {
         ui.checkbox(&mut self.tools.smart_shape, "Smart shape (hold)").on_hover_text(
             "Draw a line, circle, rectangle or triangle and keep the pen still at the end: it becomes the clean shape, drawn with this brush",
         );
-        let vector_eraser = &mut self.tools.vector_eraser_whole_strokes;
+        let vector_eraser = &mut self.tools.vector_erase;
         let brush = &mut self.brushes[self.brush].settings;
         prop_slider(ui, "Brush Size", &mut brush.size, 0.5..=2000.0, "", 1, true);
         ui.checkbox(&mut brush.pressure_size, "Size follows pressure");
@@ -845,7 +850,11 @@ impl PainterApp {
             });
         });
         if brush.mode == BrushMode::Erase {
-            ui.checkbox(vector_eraser, "Vector layers: erase whole strokes");
+            egui::ComboBox::from_label("Vector layers").selected_text(vector_eraser.name()).show_ui(ui, |ui| {
+                for mode in crate::tools::VectorErase::ALL {
+                    ui.selectable_value(vector_eraser, mode, mode.name());
+                }
+            });
         }
 
         ui.add_space(2.0);
@@ -1394,6 +1403,7 @@ impl PainterApp {
             self.recomposite = true;
             self.dirty = true;
         }
+        self.file_object_panel(ui);
     }
 }
 

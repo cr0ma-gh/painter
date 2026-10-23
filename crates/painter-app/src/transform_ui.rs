@@ -141,7 +141,8 @@ impl PainterApp {
             return;
         }
         let tiles = layer.tiles().cloned().unwrap_or_default();
-        let selection = self.doc.selection.as_ref();
+        // A file object moves whole (it's drawn again from its file on apply).
+        let selection = if layer.file_object.is_some() { None } else { self.doc.selection.as_ref() };
         let Some(floating) = copy(&tiles, selection, canvas) else {
             self.status = "Nothing to transform on this layer".into();
             self.transform_blocked = true;
@@ -175,6 +176,22 @@ impl PainterApp {
             return;
         };
         let canvas = self.doc.canvas();
+        // File objects: their new place, drawn from the file at full quality.
+        if self.doc.find(session.layer).is_some_and(|l| l.file_object.is_some()) {
+            let map = match session.placement() {
+                Placement::Matrix(_) => Some(session.gizmo.matrix()),
+                Placement::Mesh { .. } => None,
+            };
+            self.checkpoint();
+            if self.transform_file_object(session.layer, map) {
+                self.status = format!("File object placed ({}), drawn from its file", session.gizmo.mode.name());
+                if self.tool == Tool::Transform {
+                    self.transform_blocked = true;
+                }
+                return;
+            }
+            // A mesh warp: the layer became pixels; apply it as pixels below.
+        }
         let result = commit(&session.rest, &session.image, &session.placement(), session.gizmo.interpolation, canvas);
         self.checkpoint();
         if let Some(layer) = self.doc.find_mut(session.layer) {
