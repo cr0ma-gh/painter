@@ -821,6 +821,17 @@ impl PainterApp {
             prop_percent(ui, "Minimum size", &mut brush.min_size_ratio, 0.0..=100.0);
         }
         prop_percent(ui, "Opacity", &mut brush.opacity, 0.0..=100.0);
+        // Clip Studio's brush blending mode: how the stroke mixes with the layer's pixels.
+        if brush.mode != BrushMode::Erase {
+            egui::ComboBox::from_label("Blending").selected_text(brush.blend.name()).show_ui(ui, |ui| {
+                for b in painter_core::BrushBlend::ALL {
+                    let r = ui.selectable_value(&mut brush.blend, b, b.name());
+                    if b == painter_core::BrushBlend::Behind {
+                        r.on_hover_text("Paints only where the layer is still transparent: under the lines, on the same layer");
+                    }
+                }
+            });
+        }
         prop_percent(ui, "Density", &mut brush.density, 0.0..=100.0);
         ui.checkbox(&mut brush.pressure_density, "Density follows pressure");
         prop_percent(ui, "Spacing", &mut brush.spacing, 1.0..=200.0);

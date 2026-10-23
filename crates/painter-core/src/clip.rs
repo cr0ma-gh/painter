@@ -122,7 +122,7 @@ pub(crate) fn offscreen_size(attribute: &[u8]) -> Option<(u32, u32, u32, u32)> {
 }
 
 /// Clip Studio's blend mode numbers.
-pub(crate) fn blend_of(n: i64) -> Option<BlendMode> {
+pub fn blend_of(n: i64) -> Option<BlendMode> {
     Some(match n {
         0 => BlendMode::Normal,
         1 => BlendMode::Darken,
@@ -141,7 +141,7 @@ pub(crate) fn blend_of(n: i64) -> Option<BlendMode> {
     })
 }
 
-pub(crate) fn blend_number(mode: BlendMode) -> i64 {
+pub fn blend_number(mode: BlendMode) -> i64 {
     (0..32).find(|n| blend_of(*n) == Some(mode)).unwrap_or(0)
 }
 

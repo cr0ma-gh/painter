@@ -268,6 +268,23 @@ fn sample_index(event: usize, events: usize, samples: usize) -> usize {
     (((event.min(events - 1) + 1) * samples).div_ceil(events)).clamp(1, samples) - 1
 }
 
+/// Where the Apple Pencil hovers over the screen (or a trackpad / mouse
+/// pointer is) on iPad, in egui points: where the brush cursor goes when
+/// nothing touches. `None` elsewhere and when nothing hovers.
+pub(crate) fn pencil_hover(ctx: &eframe::egui::Context) -> Option<eframe::egui::Pos2> {
+    #[cfg(target_os = "ios")]
+    {
+        let (x, y) = ios_pencil::hover()?;
+        let ppp = ctx.pixels_per_point().max(1e-3) as f64;
+        Some(eframe::egui::Pos2::new((x / ppp) as f32, (y / ppp) as f32))
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = ctx;
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::sample_index;
@@ -292,6 +309,14 @@ mod ios_pencil {
     extern "C" {
         fn painter_pencil_install() -> c_int;
         fn painter_pencil_state(altitude: *mut f64, azimuth: *mut f64, age: *mut f64) -> c_int;
+        fn painter_hover_state(x: *mut f64, y: *mut f64) -> c_int;
+    }
+
+    /// Where the Pencil hovers (or a trackpad / mouse pointer is), in physical pixels.
+    pub(crate) fn hover() -> Option<(f64, f64)> {
+        let (mut x, mut y) = (0.0, 0.0);
+        // SAFETY: writes two doubles.
+        (unsafe { painter_hover_state(&mut x, &mut y) } != 0).then_some((x, y))
     }
 
     pub(super) fn install() -> bool {

@@ -82,8 +82,13 @@ cargo run --release -p painter-app -- drawing.painter
   to remove it.
 - **Brushes:** pressure curves for size and density (with an editor),
   per-stroke opacity, per-dab density, spacing, hardness, anti-aliasing,
-  stabilisation (weighted average or pulled string), erasers. On vector layers
-  the eraser removes whole strokes. One engine covers what Clip Studio and
+  stabilisation (weighted average or pulled string), erasers. Blending modes
+  per brush (as in Clip Studio: Multiply, Screen, Overlay, Add, Difference…
+  and Behind, which paints only under what's already there), read from and
+  written to Clip Studio `.sut` brushes; the live preview mixes exactly as the
+  stroke lands. On iPad the brush preview follows the Apple Pencil hovering
+  over the screen (iPad Pro M2 and later), and a trackpad or mouse pointer.
+  One engine covers what Clip Studio and
   Photoshop brushes do: image tips with thickness, angle and rotation
   dynamics, paper textures, a second tip (2-brush shape / dual brush),
   speed / tilt / random dynamics, spraying (scattering), per-stroke colour

@@ -34,7 +34,7 @@ pub mod zipfile;
 
 pub use adjust::{AdjustOp, Adjustment};
 pub use blend::BlendMode;
-pub use brush::{AntiAlias, BrushMode, BrushSettings, ColorJitter, Dab, PressureCurve, Scatter, SmoothingMethod};
+pub use brush::{AntiAlias, BrushBlend, BrushMode, BrushSettings, ColorJitter, Dab, PressureCurve, Scatter, SmoothingMethod};
 pub use document::{Document, DEFAULT_DPI, MAX_CANVAS_SIZE};
 pub use history::History;
 pub use layer::{clip_targets, ClipTo, FileObject, Folder, Layer, LayerId, LayerKind, Mask, VectorLayer, VectorStroke};

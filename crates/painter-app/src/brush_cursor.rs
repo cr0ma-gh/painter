@@ -137,7 +137,8 @@ impl PainterApp {
         // While resizing, the tip stays where Ctrl + Alt began.
         let at = match self.size_drag {
             Some(drag) => drag.anchor,
-            None => match response.hover_pos() {
+            // iPad: the Pencil hovering over the screen, or the trackpad pointer.
+            None => match response.hover_pos().or_else(|| crate::tablet::pencil_hover(painter.ctx())) {
                 Some(p) if rect.contains(p) => p,
                 _ => return,
             },

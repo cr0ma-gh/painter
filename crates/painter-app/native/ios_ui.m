@@ -109,9 +109,44 @@ static int pencil_seen = 0;
 }
 @end
 
-// 1 once the observer is on the app's view; call again until then.
+// ---- Hover: the Pencil above the screen, a trackpad or mouse pointer --------
+//
+// winit reports nothing until something touches, so the brush cursor had
+// nowhere to be on iPad. A hover recognizer sees the Apple Pencil hovering
+// (iPad Pro M2 and later, with Pencil 2 or Pro; its tilt too from iPadOS
+// 16.4) and the pointer of a trackpad or mouse. Each change asks the view to
+// redraw, so the cursor follows even while nothing else happens.
+
+static double hover_x = 0, hover_y = 0;
+static int hover_active = 0;
+
+@interface PainterHoverObserver : NSObject
+@end
+
+@implementation PainterHoverObserver
+- (void)hover:(UIHoverGestureRecognizer *)g {
+    UIView *view = g.view;
+    CGPoint p = [g locationInView:view];
+    CGFloat scale = view.contentScaleFactor;
+    hover_x = p.x * scale;
+    hover_y = p.y * scale;
+    hover_active = (g.state == UIGestureRecognizerStateBegan || g.state == UIGestureRecognizerStateChanged);
+    if (@available(iOS 16.4, *)) {
+        if (hover_active) {
+            pencil_altitude = g.altitudeAngle;
+            pencil_azimuth = [g azimuthAngleInView:view];
+            pencil_time = NSProcessInfo.processInfo.systemUptime;
+            pencil_seen = 1;
+        }
+    }
+    [view setNeedsDisplay];
+}
+@end
+
+// 1 once the observers are on the app's view; call again until then.
 int painter_pencil_install(void) {
     static PainterPencilObserver *observer = nil;
+    static PainterHoverObserver *hover_target = nil;
     if (observer) return 1;
     if (![NSThread isMainThread]) return 0;
     UIView *view = painter_window().rootViewController.view;
@@ -122,6 +157,17 @@ int painter_pencil_install(void) {
     observer.delaysTouchesEnded = NO;
     observer.delegate = observer;
     [view addGestureRecognizer:observer];
+    hover_target = [[PainterHoverObserver alloc] init];
+    UIHoverGestureRecognizer *hover = [[UIHoverGestureRecognizer alloc] initWithTarget:hover_target action:@selector(hover:)];
+    [view addGestureRecognizer:hover];
+    return 1;
+}
+
+// Where the Pencil hovers (or the pointer is), in the view's physical pixels; 0 when nothing hovers.
+int painter_hover_state(double *x, double *y) {
+    if (!hover_active) return 0;
+    *x = hover_x;
+    *y = hover_y;
     return 1;
 }
 

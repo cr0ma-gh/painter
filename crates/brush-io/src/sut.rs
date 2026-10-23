@@ -370,8 +370,10 @@ pub fn write_with_template(template: &Path, preset: &BrushPreset, out: &Path) ->
             AntiAlias::Strong => 3,
         };
         let template_mode: Option<i64> = db.query_row("SELECT CompositeMode FROM Variant WHERE rowid = ?1", [variant], |r| r.get(0)).ok().flatten();
-        let mode = match s.mode {
-            BrushMode::Erase => COMPOSITE_ERASE,
+        let mode = match (s.mode, s.blend.layer_mode()) {
+            (BrushMode::Erase, _) => COMPOSITE_ERASE,
+            // A blend mode Clip Studio numbers the same as its layer modes.
+            (_, Some(m)) if m != painter_core::BlendMode::Normal => painter_core::clip::blend_number(m),
             _ if template_mode == Some(COMPOSITE_ERASE) => 0,
             _ => template_mode.unwrap_or(0),
         };
@@ -545,6 +547,10 @@ fn map_variant(row: &Row, materials: &[BrushTip], library: &MaterialLibrary, war
     let settings = BrushSettings {
         name,
         mode: if erase { BrushMode::Erase } else { BrushMode::Paint },
+        blend: int(row, "CompositeMode")
+            .filter(|_| !erase)
+            .and_then(painter_core::clip::blend_of)
+            .map_or(painter_core::BrushBlend::Normal, painter_core::BrushBlend::from_layer_mode),
         size: size.clamp(0.5, 5000.0),
         min_size_ratio: 0.0,
         pressure_size: false,

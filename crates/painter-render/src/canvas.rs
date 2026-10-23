@@ -606,7 +606,7 @@ impl GpuCanvas {
             None,
             &self.no_index,
             &targets.preview.view,
-            MergeOptions { opacity: 1.0, erase: false, alpha_locked: false },
+            MergeOptions { opacity: 1.0, erase: false, alpha_locked: false, blend: 0 },
         );
         self.transform_revision = Some(transform.revision);
         true

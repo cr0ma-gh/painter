@@ -54,6 +54,8 @@ pub struct StrokePreview {
     pub style: DabStyle,
     pub opacity: f32,
     pub erase: bool,
+    /// The brush's blend mode (`painter_core::BrushBlend::shader_id`; 0 = Normal).
+    pub blend: u32,
     pub alpha_locked: bool,
     /// Limit the preview to the selection (false for vector layers, which ignore it).
     pub respect_selection: bool,
@@ -103,6 +105,8 @@ struct MergeParams {
     erase: u32,
     alpha_locked: u32,
     has_selection: u32,
+    blend: u32,
+    _pad: [u32; 3],
 }
 
 const DAB_ATTRIBUTES: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
@@ -242,11 +246,12 @@ pub(crate) struct MergeOptions {
     pub opacity: f32,
     pub erase: bool,
     pub alpha_locked: bool,
+    pub blend: u32,
 }
 
 impl From<&StrokePreview> for MergeOptions {
     fn from(s: &StrokePreview) -> Self {
-        Self { opacity: s.opacity, erase: s.erase, alpha_locked: s.alpha_locked }
+        Self { opacity: s.opacity, erase: s.erase, alpha_locked: s.alpha_locked, blend: s.blend }
     }
 }
 
@@ -305,6 +310,8 @@ impl StrokeMerger {
             erase: u32::from(how.erase),
             alpha_locked: u32::from(how.alpha_locked),
             has_selection: u32::from(selection_index.is_some()),
+            blend: how.blend,
+            _pad: [0; 3],
         };
         let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("stroke merge params"),

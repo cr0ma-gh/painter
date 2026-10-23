@@ -326,6 +326,7 @@ fn check_stroke(mut doc: Document, settings: BrushSettings, case: StrokeCase) ->
         style: style.clone(),
         opacity: settings.opacity,
         erase: settings.mode == BrushMode::Erase,
+        blend: settings.blend.shader_id(),
         alpha_locked,
         respect_selection: true,
     };
@@ -704,4 +705,15 @@ fn layer_colour_shows_black_lines_in_its_colour() {
     let mut black = Document::new(150, 90);
     add_raster(&mut black, "Inks", BlendMode::Normal, &dabs, [0.0; 3]);
     assert_eq!(io::flatten(&shown), io::flatten(&black));
+}
+
+/// Brush blend modes: the live preview mixes with the layer as the commit does.
+#[test]
+fn brush_blend_modes_preview_matches_commit() {
+    use painter_core::BrushBlend;
+    for blend in [BrushBlend::Multiply, BrushBlend::Screen, BrushBlend::Overlay, BrushBlend::Difference, BrushBlend::Behind] {
+        let settings = BrushSettings { name: blend.name().into(), size: 30.0, blend, ..pen() };
+        check_stroke(sample_document(), settings.clone(), StrokeCase::default());
+        check_stroke(sample_document(), settings, StrokeCase { alpha_locked: true, ..StrokeCase::default() });
+    }
 }

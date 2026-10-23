@@ -14,7 +14,7 @@ use std::sync::mpsc::{self, Sender};
 use std::thread::{self, JoinHandle};
 
 use crate::blend::{to_f32, to_u8, Rgba};
-use crate::brush::{BrushMode, BrushSettings, Dab};
+use crate::brush::{BrushBlend, BrushMode, BrushSettings, Dab};
 use crate::tile::{Tile, TileCoord, TileStore, TILE_PIXELS, TILE_SIZE};
 use crate::tip::{TipBitmap, TipKind};
 
@@ -212,6 +212,7 @@ pub fn merge_stroke(
     stroke: &[Rgba],
     opacity: f32,
     mode: BrushMode,
+    blend: BrushBlend,
     alpha_locked: bool,
     selection: Option<&Tile>,
 ) -> Tile {
@@ -227,13 +228,39 @@ pub fn merge_stroke(
         let b = to_f32(*o);
         let s = s.map(|v| v * opacity * selected);
         let sa = s[3];
-        let result = match (mode, alpha_locked) {
-            (BrushMode::Erase, _) => b.map(|v| v * (1.0 - sa)),
-            (BrushMode::Paint, false) => {
+        // The brush's blend mode: the colour the stroke lays where it fully covers.
+        // Expressed as an equivalent premultiplied source of the same alpha, so
+        // opacity, the alpha lock and the selection apply as for Normal:
+        // source-over gives `s·(1 − ba) + b·(1 − sa) + sa·ba·B(cb, cs)` (the W3C
+        // blend), source-atop gives `ba·(sa·B + (1 − sa)·cb)`.
+        let s = match blend.layer_mode() {
+            Some(m) if m != crate::blend::BlendMode::Normal && b[3] > 0.0 => {
+                let ba = b[3];
+                let mixed = [0, 1, 2].map(|i| {
+                    let (cs, cb) = ((s[i] / sa).min(1.0), (b[i] / ba).min(1.0));
+                    let blended = m.channel(cb, cs);
+                    if alpha_locked {
+                        sa * blended
+                    } else {
+                        s[i] * (1.0 - ba) + sa * ba * blended
+                    }
+                });
+                [mixed[0], mixed[1], mixed[2], sa]
+            }
+            _ => s,
+        };
+        let result = match (mode, alpha_locked, blend) {
+            (BrushMode::Erase, _, _) => b.map(|v| v * (1.0 - sa)),
+            // Behind: under what's there (destination-over); a locked alpha leaves nothing to fill.
+            (BrushMode::Paint, false, BrushBlend::Behind) => {
+                [b[0] + s[0] * (1.0 - b[3]), b[1] + s[1] * (1.0 - b[3]), b[2] + s[2] * (1.0 - b[3]), b[3] + sa * (1.0 - b[3])]
+            }
+            (BrushMode::Paint, true, BrushBlend::Behind) => b,
+            (BrushMode::Paint, false, _) => {
                 [s[0] + b[0] * (1.0 - sa), s[1] + b[1] * (1.0 - sa), s[2] + b[2] * (1.0 - sa), sa + b[3] * (1.0 - sa)]
             }
             // Source-atop: recolour existing pixels, keep their alpha.
-            (BrushMode::Paint, true) => [
+            (BrushMode::Paint, true, _) => [
                 s[0] * b[3] + b[0] * (1.0 - sa),
                 s[1] * b[3] + b[1] * (1.0 - sa),
                 s[2] * b[3] + b[2] * (1.0 - sa),
@@ -247,12 +274,14 @@ pub fn merge_stroke(
 
 /// Merges every dirty stroke tile into `tiles`, rebuilding from `before`.
 /// With a selection, only selected pixels change.
+#[allow(clippy::too_many_arguments)]
 pub fn commit_stroke(
     tiles: &mut TileStore,
     before: &TileStore,
     stroke: &RasterizedStroke,
     opacity: f32,
     mode: BrushMode,
+    blend: BrushBlend,
     alpha_locked: bool,
     selection: Option<&TileStore>,
 ) {
@@ -267,7 +296,7 @@ pub fn commit_stroke(
                 None => continue,
             },
         };
-        let merged = merge_stroke(before.get(coord).map(|t| &**t), pixels, opacity, mode, alpha_locked, selection_tile);
+        let merged = merge_stroke(before.get(coord).map(|t| &**t), pixels, opacity, mode, blend, alpha_locked, selection_tile);
         tiles.insert(coord, merged);
     }
 }
@@ -287,7 +316,7 @@ pub fn paint_stroke(
         stamp_dab(&mut stroke.buffer, dab, color, settings, canvas, &mut stroke.dirty);
     }
     let before = tiles.clone();
-    commit_stroke(tiles, &before, &stroke, settings.opacity, settings.mode, alpha_locked, selection);
+    commit_stroke(tiles, &before, &stroke, settings.opacity, settings.mode, settings.blend, alpha_locked, selection);
     stroke.dirty
 }
 
@@ -525,7 +554,7 @@ mod tests {
         for _ in 0..10 {
             stamp(&mut buffer, 10.5, 10.5, 1.0);
         }
-        let tile = merge_stroke(None, buffer.get(TileCoord::new(0, 0)).unwrap(), 0.5, BrushMode::Paint, false, None);
+        let tile = merge_stroke(None, buffer.get(TileCoord::new(0, 0)).unwrap(), 0.5, BrushMode::Paint, BrushBlend::Normal, false, None);
         assert_eq!(tile.pixel(10, 10)[3], 128);
     }
 
@@ -536,7 +565,7 @@ mod tests {
         for _ in 0..400 {
             stamp(&mut buffer, 10.5, 10.5, 0.02);
         }
-        let tile = merge_stroke(None, buffer.get(TileCoord::new(0, 0)).unwrap(), 1.0, BrushMode::Paint, false, None);
+        let tile = merge_stroke(None, buffer.get(TileCoord::new(0, 0)).unwrap(), 1.0, BrushMode::Paint, BrushBlend::Normal, false, None);
         assert_eq!(tile.pixel(10, 10), [255, 0, 0, 255]);
     }
 
@@ -548,10 +577,10 @@ mod tests {
         stroke[0] = [1.0, 0.0, 0.0, 1.0];
         stroke[1] = [1.0, 0.0, 0.0, 1.0];
 
-        let erased = merge_stroke(Some(&before), &stroke, 1.0, BrushMode::Erase, false, None);
+        let erased = merge_stroke(Some(&before), &stroke, 1.0, BrushMode::Erase, BrushBlend::Normal, false, None);
         assert_eq!(erased.pixel(0, 0), [0, 0, 0, 0]);
 
-        let locked = merge_stroke(Some(&before), &stroke, 1.0, BrushMode::Paint, true, None);
+        let locked = merge_stroke(Some(&before), &stroke, 1.0, BrushMode::Paint, BrushBlend::Normal, true, None);
         assert_eq!(locked.pixel(0, 0), [255, 0, 0, 255]);
         assert_eq!(locked.pixel(1, 0), [0, 0, 0, 0]);
     }
@@ -577,5 +606,54 @@ mod tests {
         let mut tiles = TileStore::new();
         paint_stroke(&mut tiles, &dabs, [0.0, 1.0, 0.0], &BrushSettings::g_pen(), (32, 32), false, Some(&TileStore::new()));
         assert!(tiles.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod blend_tests {
+    use super::*;
+    use crate::tile::Tile;
+
+    /// A tile of one straight-colour pixel value everywhere.
+    fn filled(px: [u8; 4]) -> Tile {
+        let mut t = Tile::default();
+        for p in t.bytes_mut().as_chunks_mut::<4>().0 {
+            *p = crate::blend::premultiply(px);
+        }
+        t
+    }
+
+    fn stroke_of(rgba: [f32; 4]) -> Vec<Rgba> {
+        // Premultiplied.
+        vec![[rgba[0] * rgba[3], rgba[1] * rgba[3], rgba[2] * rgba[3], rgba[3]]; TILE_PIXELS]
+    }
+
+    #[test]
+    fn brush_blend_modes_mix_with_the_layer() {
+        let red = filled([255, 0, 0, 255]);
+        // Multiply: red × half grey = dark red, alpha stays opaque.
+        let out = merge_stroke(Some(&red), &stroke_of([0.5, 0.5, 0.5, 1.0]), 1.0, BrushMode::Paint, BrushBlend::Multiply, false, None);
+        let p = out.bytes();
+        assert!((p[0] as i32 - 128).abs() <= 1 && p[1] == 0 && p[3] == 255, "{:?}", &p[..4]);
+        // Half opacity: halfway between red and dark red.
+        let half = merge_stroke(Some(&red), &stroke_of([0.5, 0.5, 0.5, 1.0]), 0.5, BrushMode::Paint, BrushBlend::Multiply, false, None);
+        assert!((half.bytes()[0] as i32 - 191).abs() <= 2, "{}", half.bytes()[0]);
+        // On transparent pixels Multiply paints the colour itself (nothing to mix with).
+        let empty = merge_stroke(None, &stroke_of([0.0, 0.0, 1.0, 1.0]), 1.0, BrushMode::Paint, BrushBlend::Multiply, false, None);
+        assert_eq!(&empty.bytes()[..4], &[0, 0, 255, 255]);
+        // With the alpha locked, a half-transparent pixel keeps its alpha.
+        let faint = filled([255, 0, 0, 128]);
+        let locked = merge_stroke(Some(&faint), &stroke_of([0.5, 0.5, 0.5, 1.0]), 1.0, BrushMode::Paint, BrushBlend::Multiply, true, None);
+        let l = crate::blend::unpremultiply([locked.bytes()[0], locked.bytes()[1], locked.bytes()[2], locked.bytes()[3]]);
+        assert_eq!(l[3], 128);
+        assert!((l[0] as i32 - 128).abs() <= 2, "{l:?}");
+        // Behind: nothing changes under opaque paint, transparent pixels fill in.
+        let behind = merge_stroke(Some(&red), &stroke_of([0.0, 0.0, 1.0, 1.0]), 1.0, BrushMode::Paint, BrushBlend::Behind, false, None);
+        assert_eq!(&behind.bytes()[..4], &[255, 0, 0, 255]);
+        let under = merge_stroke(None, &stroke_of([0.0, 0.0, 1.0, 1.0]), 1.0, BrushMode::Paint, BrushBlend::Behind, false, None);
+        assert_eq!(&under.bytes()[..4], &[0, 0, 255, 255]);
+        // Screen lightens.
+        let screen = merge_stroke(Some(&filled([100, 100, 100, 255])), &stroke_of([0.5, 0.5, 0.5, 1.0]), 1.0, BrushMode::Paint, BrushBlend::Screen, false, None);
+        assert!(screen.bytes()[0] > 100);
     }
 }

@@ -43,6 +43,86 @@ pub enum BrushMode {
     Erase,
 }
 
+/// How a stroke's colour mixes with the layer's pixels under it (Clip Studio's
+/// brush blending modes): like a layer blend mode, but applied as the stroke
+/// lands on the pixels of the same layer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum BrushBlend {
+    #[default]
+    Normal,
+    /// Paints only where the layer is transparent (under what's there).
+    Behind,
+    Darken,
+    Multiply,
+    ColorBurn,
+    LinearBurn,
+    Lighten,
+    Screen,
+    ColorDodge,
+    Add,
+    Overlay,
+    SoftLight,
+    HardLight,
+    Difference,
+}
+
+impl BrushBlend {
+    pub const ALL: [BrushBlend; 14] = [
+        BrushBlend::Normal,
+        BrushBlend::Behind,
+        BrushBlend::Darken,
+        BrushBlend::Multiply,
+        BrushBlend::ColorBurn,
+        BrushBlend::LinearBurn,
+        BrushBlend::Lighten,
+        BrushBlend::Screen,
+        BrushBlend::ColorDodge,
+        BrushBlend::Add,
+        BrushBlend::Overlay,
+        BrushBlend::SoftLight,
+        BrushBlend::HardLight,
+        BrushBlend::Difference,
+    ];
+
+    /// The layer blend mode it mixes with (`None` for Behind).
+    pub fn layer_mode(self) -> Option<crate::blend::BlendMode> {
+        use crate::blend::BlendMode as M;
+        Some(match self {
+            BrushBlend::Normal => M::Normal,
+            BrushBlend::Behind => return None,
+            BrushBlend::Darken => M::Darken,
+            BrushBlend::Multiply => M::Multiply,
+            BrushBlend::ColorBurn => M::ColorBurn,
+            BrushBlend::LinearBurn => M::LinearBurn,
+            BrushBlend::Lighten => M::Lighten,
+            BrushBlend::Screen => M::Screen,
+            BrushBlend::ColorDodge => M::ColorDodge,
+            BrushBlend::Add => M::Add,
+            BrushBlend::Overlay => M::Overlay,
+            BrushBlend::SoftLight => M::SoftLight,
+            BrushBlend::HardLight => M::HardLight,
+            BrushBlend::Difference => M::Difference,
+        })
+    }
+
+    pub fn name(self) -> &'static str {
+        match self.layer_mode() {
+            Some(m) => m.name(),
+            None => "Behind",
+        }
+    }
+
+    /// The brush mode mixing like layer mode `m`.
+    pub fn from_layer_mode(m: crate::blend::BlendMode) -> BrushBlend {
+        BrushBlend::ALL.into_iter().find(|b| b.layer_mode() == Some(m)).unwrap_or_default()
+    }
+
+    /// The id the GPU stroke preview understands: the layer mode's, or 100 for Behind.
+    pub fn shader_id(self) -> u32 {
+        self.layer_mode().map_or(100, |m| m.shader_id())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum SmoothingMethod {
     /// Moving average over the last N input samples.
@@ -218,6 +298,9 @@ impl RotationDynamics {
 pub struct BrushSettings {
     pub name: String,
     pub mode: BrushMode,
+    /// How the stroke mixes with the layer under it.
+    #[serde(default)]
+    pub blend: BrushBlend,
     /// Diameter in canvas pixels at full pressure.
     pub size: f32,
     /// Fraction of `size` used at zero pressure when `pressure_size` is on.
@@ -379,6 +462,7 @@ impl BrushSettings {
         Self {
             name: "G-Pen".into(),
             mode: BrushMode::Paint,
+            blend: BrushBlend::Normal,
             size: 12.0,
             min_size_ratio: 0.1,
             pressure_size: true,

@@ -849,8 +849,8 @@ impl PainterApp {
         let Some(tiles) = self.plane_tiles_mut(stroke.plane) else {
             return;
         };
-        let (opacity, mode) = (stroke.settings.opacity, stroke.settings.mode);
-        commit_stroke(tiles, &stroke.before, &result, opacity, mode, stroke.alpha_locked, selection.as_ref());
+        let (opacity, mode, blend) = (stroke.settings.opacity, stroke.settings.mode, stroke.settings.blend);
+        commit_stroke(tiles, &stroke.before, &result, opacity, mode, blend, stroke.alpha_locked, selection.as_ref());
         self.upload_tiles(stroke.plane, result.dirty);
     }
 
@@ -864,6 +864,7 @@ impl PainterApp {
             style: stroke.style.clone(),
             opacity: stroke.settings.opacity,
             erase: stroke.settings.mode == BrushMode::Erase,
+            blend: stroke.settings.blend.shader_id(),
             alpha_locked: stroke.alpha_locked,
             respect_selection: stroke.respect_selection,
         })
@@ -880,7 +881,7 @@ impl PainterApp {
             return;
         };
         let before = tiles.clone();
-        commit_stroke(tiles, &before, stroke, 1.0, mode, alpha_locked, selection.as_ref());
+        commit_stroke(tiles, &before, stroke, 1.0, mode, painter_core::BrushBlend::Normal, alpha_locked, selection.as_ref());
         self.upload_tiles(plane, stroke.dirty.iter().copied());
     }
 
