@@ -732,7 +732,8 @@ mod tests {
         assert!(dark > 200, "{name}: black letters ({dark} px)");
         assert!(white > 100, "{name}: a white outline ({white} px)");
         // Japanese in a Latin font: drawn from a fallback font, when this computer has one.
-        if FALLBACK_FONTS.iter().any(|f| font_names().iter().any(|n| n == f)) {
+        let has_kana = |f: &&str| *f != name && has_font(f) && font(f).is_some_and(|font| font.glyph_id('あ').0 != 0);
+        if FALLBACK_FONTS.iter().any(has_kana) {
             let kana = TextItem { text: "あ".into(), ..item.clone() };
             let mut fonts = Fonts::new(font(&kana.font).unwrap());
             let placed = layout(&kana, &mut fonts).0;
