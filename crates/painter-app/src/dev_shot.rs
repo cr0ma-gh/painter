@@ -74,6 +74,10 @@ impl PainterApp {
                     self.dev_host(port);
                     continue;
                 }
+                if let Some(text) = c.strip_prefix("dev.chat:") {
+                    self.dev_chat(text);
+                    continue;
+                }
                 if let Some(addr) = c.strip_prefix("dev.join:") {
                     self.dev_join(addr);
                     continue;

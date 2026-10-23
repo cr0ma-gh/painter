@@ -479,31 +479,33 @@ impl PainterApp {
             .into_iter()
             .find(|n| n == "Comic Sans MS" || n == "Arial" || n.starts_with("DejaVu Sans"))
             .unwrap_or_default();
-        let base = TextItem { font, size: w / 30.0, ..Default::default() };
+        // Sized by the short side, so it fits portrait pages and landscape pictures alike.
+        let u = w.min(h);
+        let base = TextItem { font, size: u / 22.0, ..Default::default() };
         self.new_text(TextItem {
             text: "Meanwhile, in the city…".into(),
-            pos: [w * 0.5, h * 0.08],
-            outline: w / 300.0,
+            pos: [w * 0.5, h * 0.07],
+            outline: u / 250.0,
             ..base.clone()
         });
         self.finish_text();
         self.new_text(TextItem {
             text: "Shout!".into(),
-            pos: [w * 0.72, h * 0.62],
-            size: w / 20.0,
-            balloon: Some(Balloon { shape: BalloonShape::Burst, radii: [w * 0.2, w * 0.13], width: w / 400.0, ..Default::default() }),
+            pos: [w * 0.78, h * 0.7],
+            size: u / 14.0,
+            balloon: Some(Balloon { shape: BalloonShape::Burst, radii: [u * 0.24, u * 0.15], width: u / 350.0, ..Default::default() }),
             ..base.clone()
         });
         self.finish_text();
-        self.new_text(TextItem { text: "縦書き\nTEST".into(), vertical: true, pos: [w * 0.15, h * 0.55], ..base.clone() });
+        self.new_text(TextItem { text: "縦書き\nTEST".into(), vertical: true, pos: [w * 0.08, h * 0.62], ..base.clone() });
         self.finish_text();
         self.new_text(TextItem {
             text: "Hello!\nCan you hear me?".into(),
-            pos: [w * 0.45, h * 0.3],
+            pos: [w * 0.33, h * 0.32],
             balloon: Some(Balloon {
-                radii: [w * 0.22, w * 0.12],
-                width: w / 400.0,
-                tail: Some([w * 0.3, h * 0.45]),
+                radii: [u * 0.27, u * 0.15],
+                width: u / 350.0,
+                tail: Some([w * 0.22, h * 0.55]),
                 ..Default::default()
             }),
             ..base

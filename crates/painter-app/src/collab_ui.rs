@@ -827,3 +827,14 @@ impl PainterApp {
         self.join_session(address, String::new());
     }
 }
+
+impl PainterApp {
+    /// For screenshot runs (`dev.chat:TEXT`): says TEXT in the session.
+    pub(crate) fn dev_chat(&mut self, text: &str) {
+        if let Some(s) = self.session.as_mut() {
+            let me = s.me;
+            s.chat.push((s.name_of(me), text.to_string()));
+            s.broadcast(&Message::Chat { from: me, text: text.to_string() }, None);
+        }
+    }
+}
