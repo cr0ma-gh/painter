@@ -123,6 +123,9 @@ struct DocumentFile {
     /// Colour mode; RGB in older files.
     #[serde(default)]
     mode: crate::color_mode::ColorMode,
+    /// Colour profile; sRGB in older files.
+    #[serde(default)]
+    profile: crate::color_profile::ColorProfile,
 }
 
 fn default_dpi() -> u32 {
@@ -257,6 +260,7 @@ fn write_to<W: Write + Seek>(doc: &Document, extras: &Extras, writer: W) -> Resu
         selection,
         channels,
         mode: doc.mode,
+        profile: doc.profile,
     };
     zip.start_file(DOCUMENT_ENTRY, packed)?;
     serde_json::to_writer_pretty(&mut zip, &file)?;
@@ -340,6 +344,7 @@ fn read_from<R: Read + Seek>(reader: R) -> Result<(Document, Extras), ProjectErr
         doc.selection = Some(read_plane(&mut zip, &name)?);
     }
     doc.mode = file.mode;
+    doc.profile = file.profile;
     for (name, entry) in file.channels {
         doc.channels.push(crate::document::SavedChannel { name, mask: read_plane(&mut zip, &entry)? });
     }

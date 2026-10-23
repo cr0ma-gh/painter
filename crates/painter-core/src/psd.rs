@@ -124,6 +124,9 @@ pub fn packbits_decode(data: &[u8], expected: usize) -> Option<Vec<u8>> {
 /// Image resource holding the print resolution.
 const RESOLUTION_INFO: u16 = 0x03ED;
 
+/// Image resource holding the ICC colour profile.
+const ICC_PROFILE: u16 = 0x040F;
+
 /// Horizontal resolution in pixels per inch from the image resources, if
 /// present (stored as 16.16 fixed point, per inch or per centimetre).
 fn resolution(mut resources: &[u8]) -> Option<u32> {
@@ -392,6 +395,18 @@ pub fn write(doc: &Document) -> Vec<u8> {
         w.u32(doc.dpi.min(0x7fff) << 16); // 16.16 fixed pixels per inch
         w.u16(1); // shown as pixels per inch
         w.u16(1); // size shown in inches
+    }
+    // The colour profile (an RGB file: a grey profile is left out).
+    if !doc.profile.is_gray() {
+        let icc = doc.profile.icc();
+        w.bytes(b"8BIM");
+        w.u16(ICC_PROFILE);
+        w.u16(0);
+        w.u32(icc.len() as u32);
+        w.bytes(&icc);
+        if icc.len() % 2 == 1 {
+            w.u8(0);
+        }
     }
     w.end_len(resources);
 

@@ -398,7 +398,7 @@ impl PainterApp {
                 })
                 .response
                 .on_hover_text(format!("{w_mm:.1} × {h_mm:.1} mm at {} dpi", self.doc.dpi));
-                ui.label(self.doc.mode.short()).on_hover_text(format!("{} (Edit > Mode)", self.doc.mode.name()));
+                ui.label(self.doc.mode.short()).on_hover_text(format!("{}, {} (Edit > Mode)", self.doc.mode.name(), self.doc.profile.name()));
                 ui.separator();
                 ui.label(format!("{:.0}%", self.view.zoom * 100.0));
                 ui.separator();

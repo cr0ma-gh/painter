@@ -242,9 +242,21 @@ pub fn export_png(doc: &Document, path: &Path) -> Result<(), ImageError> {
         *px = unpremultiply(*px);
     }
     let image = RgbaImage::from_raw(doc.width, doc.height, pixels).expect("buffer matches canvas size");
+    // Grey and black-and-white images as grey PNGs with a grey profile; colour with its own.
+    let gray = doc.mode != crate::color_mode::ColorMode::Rgb || doc.profile.is_gray();
+    let profile = match (gray, doc.profile.is_gray()) {
+        (true, false) => crate::color_profile::ColorProfile::GrayGamma22,
+        (false, true) => crate::color_profile::ColorProfile::Srgb,
+        _ => doc.profile,
+    };
     let mut bytes = Vec::new();
-    image.write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)?;
-    std::fs::write(path, png_with_dpi(&bytes, doc.dpi)).map_err(ImageError::IoError)
+    if gray {
+        image::DynamicImage::ImageRgba8(image).to_luma_alpha8().write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)?;
+    } else {
+        image.write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)?;
+    }
+    let tagged = png_with_icc(&png_with_dpi(&bytes, doc.dpi), profile.name(), &profile.icc());
+    std::fs::write(path, tagged).map_err(ImageError::IoError)
 }
 
 /// Reads a PNG (or any format `image` knows); `dpi` comes from a PNG's `pHYs`.
@@ -285,6 +297,35 @@ pub fn png_with_dpi(png: &[u8], dpi: u32) -> Vec<u8> {
     out
 }
 
+
+/// A PNG with an `iCCP` chunk (the colour profile, zlib-compressed) right
+/// after `IHDR`, before `IDAT` as the spec asks. Anything that isn't a PNG
+/// comes back unchanged.
+pub fn png_with_icc(png: &[u8], name: &str, icc: &[u8]) -> Vec<u8> {
+    use std::io::Write;
+    let after_ihdr = 8 + 4 + 4 + 13 + 4;
+    if png.len() < after_ihdr || &png[..8] != PNG_SIGNATURE || &png[12..16] != b"IHDR" {
+        return png.to_vec();
+    }
+    let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    if z.write_all(icc).is_err() {
+        return png.to_vec();
+    }
+    let Ok(compressed) = z.finish() else { return png.to_vec() };
+    // Keyword (1–79 Latin-1 characters), a NUL, compression method 0, the profile.
+    let keyword: String = name.chars().filter(|c| c.is_ascii_graphic() || *c == ' ').take(79).collect();
+    let mut typed = b"iCCP".to_vec();
+    typed.extend_from_slice(keyword.as_bytes());
+    typed.extend_from_slice(&[0, 0]);
+    typed.extend_from_slice(&compressed);
+    let mut out = Vec::with_capacity(png.len() + typed.len() + 8);
+    out.extend_from_slice(&png[..after_ihdr]);
+    out.extend_from_slice(&((typed.len() - 4) as u32).to_be_bytes());
+    out.extend_from_slice(&typed);
+    out.extend_from_slice(&crc32(&typed).to_be_bytes());
+    out.extend_from_slice(&png[after_ihdr..]);
+    out
+}
 /// A PNG's resolution from its `pHYs` chunk, when it's given in metres.
 pub fn png_dpi(png: &[u8]) -> Option<u32> {
     if png.get(..8)? != PNG_SIGNATURE {
@@ -340,6 +381,28 @@ mod tests {
         let plain = png_with_dpi(b"not a png", 300);
         assert_eq!(plain, b"not a png");
         assert_eq!(png_dpi(&plain), None);
+    }
+
+    #[test]
+    fn png_profiles_round_trip() {
+        use crate::color_profile::ColorProfile;
+        use image::ImageDecoder;
+        for (mode, profile, gray) in [
+            (crate::color_mode::ColorMode::Rgb, ColorProfile::DisplayP3, false),
+            (crate::color_mode::ColorMode::Grayscale, ColorProfile::GrayGamma22, true),
+        ] {
+            let mut doc = Document::new(4, 4);
+            doc.mode = mode;
+            doc.profile = profile;
+            let path = std::env::temp_dir().join(format!("painter-icc-{}-{gray}.png", std::process::id()));
+            export_png(&doc, &path).unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+            std::fs::remove_file(&path).ok();
+            let mut decoder = image::codecs::png::PngDecoder::new(Cursor::new(&bytes)).unwrap();
+            assert_eq!(decoder.icc_profile().unwrap(), Some(profile.icc()), "{profile:?}");
+            assert_eq!(decoder.color_type() == image::ColorType::La8, gray);
+            assert_eq!(png_dpi(&bytes), Some(doc.dpi), "the resolution is still there");
+        }
     }
 
     #[test]

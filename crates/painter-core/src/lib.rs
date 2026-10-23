@@ -10,6 +10,7 @@ pub mod brush;
 pub mod channels;
 pub mod clip;
 pub mod color_mode;
+pub mod color_profile;
 pub mod document;
 pub mod fill_tool;
 pub mod gif;

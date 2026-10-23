@@ -111,6 +111,9 @@ pub(crate) struct NewCanvas {
     print: bool,
     bleed_mm: f64,
     safe_mm: f64,
+    /// Colour mode and profile the document starts in.
+    mode: painter_core::color_mode::ColorMode,
+    profile: painter_core::color_profile::ColorProfile,
 }
 
 impl NewCanvas {
@@ -123,6 +126,8 @@ impl NewCanvas {
             print: false,
             bleed_mm: STANDARD_BLEED_MM,
             safe_mm: STANDARD_SAFE_MM,
+            mode: Default::default(),
+            profile: Default::default(),
         }
     }
 
@@ -193,6 +198,41 @@ impl PainterApp {
                                     s.size_mm = s.size_mm.map(|mm| px_to_mm(Unit::Px.from_mm(mm, before).round(), s.dpi));
                                 }
                             });
+                            ui.end_row();
+                            ui.label("Colour mode");
+                            ui.horizontal(|ui| {
+                                use painter_core::color_mode::ColorMode;
+                                use painter_core::color_profile::ColorProfile;
+                                egui::ComboBox::from_id_salt("new_canvas_mode").selected_text(s.mode.name()).show_ui(ui, |ui| {
+                                    for (mode, label) in [(ColorMode::Rgb, "RGB Color"), (ColorMode::Grayscale, "Grayscale"), (ColorMode::Bitmap, "Black and White (Bitmap)")] {
+                                        if ui.selectable_label(s.mode == mode, label).clicked() {
+                                            s.mode = mode;
+                                            // A profile of the mode's kind.
+                                            if (mode == ColorMode::Rgb) == s.profile.is_gray() {
+                                                s.profile = if mode == ColorMode::Rgb { ColorProfile::Srgb } else { ColorProfile::GrayGamma22 };
+                                            }
+                                        }
+                                    }
+                                    ui.add_enabled(false, egui::SelectableLabel::new(false, "CMYK Color")).on_disabled_hover_text(
+                                        "Not available: Painter paints in RGB. CMYK needs print profiles (e.g. FOGRA39) and a colour engine Painter doesn't have yet",
+                                    );
+                                });
+                                ui.label("8 bit");
+                            });
+                            ui.end_row();
+                            ui.label("Profile");
+                            {
+                                use painter_core::color_mode::ColorMode;
+                                use painter_core::color_profile::ColorProfile;
+                                let choices: &[ColorProfile] = if s.mode == ColorMode::Rgb { &ColorProfile::RGB } else { &ColorProfile::GRAY };
+                                egui::ComboBox::from_id_salt("new_canvas_profile").selected_text(s.profile.name()).width(180.0).show_ui(ui, |ui| {
+                                    for p in choices {
+                                        ui.selectable_value(&mut s.profile, *p, p.name());
+                                    }
+                                })
+                                .response
+                                .on_hover_text("Written into PNG and PSD exports so other programs read the colours as meant");
+                            }
                             ui.end_row();
                             ui.label("Screen");
                             ui.horizontal(|ui| {
@@ -268,6 +308,8 @@ impl PainterApp {
             let preset = s.preset();
             let mut doc = Document::new(w, h);
             doc.dpi = s.dpi;
+            doc.mode = s.mode;
+            doc.profile = s.profile;
             self.set_document(doc, None);
             // Print guides: a comic page without panels draws trim, safe area and crop marks.
             if let Some(preset) = preset {

@@ -38,6 +38,7 @@ impl PainterApp {
                 let canvas = self.doc.canvas();
                 color_mode::gray_layers(&mut self.doc.layers, canvas);
                 self.doc.mode = ColorMode::Grayscale;
+                self.doc.profile = painter_core::color_profile::ColorProfile::GrayGamma22;
                 self.resync_gpu();
                 self.status = "Grayscale: colours are grey from now on (Edit > Mode > RGB Color brings colour back)".into();
             }
@@ -45,6 +46,9 @@ impl PainterApp {
                 self.next_label = Some("Mode: RGB Color".into());
                 self.checkpoint();
                 self.doc.mode = ColorMode::Rgb;
+                if self.doc.profile.is_gray() {
+                    self.doc.profile = painter_core::color_profile::ColorProfile::Srgb;
+                }
                 self.status = "RGB Color: colour can be used again".into();
             }
         }
@@ -64,6 +68,7 @@ impl PainterApp {
         self.doc.layers = vec![layer];
         self.doc.active = id;
         self.doc.mode = ColorMode::Bitmap;
+        self.doc.profile = painter_core::color_profile::ColorProfile::GrayGamma22;
         self.resync_gpu();
         self.status = format!("Bitmap: flattened to black and white in {} ms", started.elapsed().as_millis());
     }
@@ -133,6 +138,19 @@ impl PainterApp {
             }
             ui.separator();
             ui.add_enabled(false, egui::Label::new("8 Bits/Channel"));
+            ui.separator();
+            // Photoshop's Assign Profile: the colours' meaning in exports; pixels don't change.
+            ui.menu_button("Assign Profile", |ui| {
+                use painter_core::color_profile::ColorProfile;
+                let choices: &[ColorProfile] = if self.doc.mode == ColorMode::Rgb { &ColorProfile::RGB } else { &ColorProfile::GRAY };
+                for p in choices {
+                    if ui.radio(self.doc.profile == *p, p.name()).clicked() {
+                        self.doc.profile = *p;
+                        self.dirty = true;
+                        ui.close_menu();
+                    }
+                }
+            });
         });
     }
 }

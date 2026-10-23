@@ -104,6 +104,15 @@ cargo run --release -p painter-app -- drawing.painter
   diffusion dither or a halftone screen of any cell size and angle, and
   painting stays black and white). Undo brings the colours back; 8 bits per
   channel only.
+- **Colour profiles:** New Canvas picks the colour mode (RGB, Grayscale,
+  black and white) and the profile (sRGB, Display P3, Adobe RGB (1998), Gray
+  Gamma 2.2); Edit → Mode → Assign Profile changes it. The profile is saved
+  in the project and embedded in PNG (grey images as grey PNGs) and PSD
+  exports; Painter shows the numbers as they are and converts nothing. CMYK
+  isn't available: Painter paints in RGB.
+- **Clock and battery** (View → Clock and Battery): the time and the
+  battery's charge in a small chip in the canvas's corner; right-click it to
+  hide it.
 - **Channels** (Window → Panels → Channels, as in Photoshop): show red, green
   or blue alone (in grey) or in pairs; click a channel to paint, fill and
   stamp only in it (Shift-click for several, Ctrl+2…5 from the keyboard);
