@@ -9,6 +9,7 @@ pub mod blend;
 pub mod brush;
 pub mod channels;
 pub mod clip;
+pub mod collab;
 pub mod color_mode;
 pub mod color_profile;
 pub mod document;

@@ -41,9 +41,9 @@ const CLIP_TEMPLATE: &str = "clip-studio-template.clip";
 /// plane (rebuilt from `before`, see `painter_core::raster`) when the pen lifts.
 pub(crate) struct ActiveStroke {
     id: u64,
-    plane: Plane,
+    pub(crate) plane: Plane,
     engine: StrokeEngine,
-    before: TileStore,
+    pub(crate) before: TileStore,
     rasterizer: BackgroundRasterizer,
     /// Dabs not yet handed to the GPU preview.
     pending_gpu: Vec<Dab>,
@@ -227,6 +227,9 @@ pub struct PainterApp {
     pub(crate) tool_groups: crate::tool_groups::ToolGroups,
     /// The clock and battery chip over the canvas.
     pub(crate) clock: crate::clock_widget::ClockWidget,
+    /// The shared drawing session, if any, and the Session panel's fields.
+    pub(crate) session: Option<crate::collab_ui::Session>,
+    pub(crate) session_form: crate::collab_ui::SessionForm,
     /// Decoded pictures of file object layers' files.
     pub(crate) file_objects: crate::file_object::FileObjectCache,
     /// A layer being renamed in its row (double-click): id, text, field just opened.
@@ -390,6 +393,8 @@ impl PainterApp {
             text: Default::default(),
             tool_groups: Default::default(),
             clock: Default::default(),
+            session: None,
+            session_form: Default::default(),
             file_objects: Default::default(),
             layer_rename: None,
             updater: Default::default(),
@@ -937,6 +942,9 @@ impl PainterApp {
         };
         let (opacity, mode, blend) = (stroke.settings.opacity, stroke.settings.mode, stroke.settings.blend);
         commit_stroke(tiles, &stroke.before, &result, opacity, mode, blend, stroke.alpha_locked, selection.as_ref());
+        // A shared session: the stroke goes to the others to merge.
+        let erase = mode == BrushMode::Erase;
+        self.session_stroke(stroke.plane, &result.buffer, &result.dirty, opacity, erase, blend, stroke.alpha_locked, selection.as_ref());
         self.finish_edit(stroke.plane, &stroke.before, result.dirty.iter().copied());
         self.upload_tiles(stroke.plane, result.dirty);
     }
@@ -1001,6 +1009,8 @@ impl PainterApp {
         };
         let before = tiles.clone();
         commit_stroke(tiles, &before, stroke, 1.0, mode, painter_core::BrushBlend::Normal, alpha_locked, selection.as_ref());
+        let erase = mode == BrushMode::Erase;
+        self.session_stroke(plane, &stroke.buffer, &stroke.dirty, 1.0, erase, painter_core::BrushBlend::Normal, alpha_locked, selection.as_ref());
         self.finish_edit(plane, &before, stroke.dirty.iter().copied());
         self.upload_tiles(plane, stroke.dirty.iter().copied());
     }
@@ -1687,6 +1697,7 @@ impl eframe::App for PainterApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.next_label = None;
         self.dev_shot_tick(ctx);
+        self.session_tick(ctx);
         self.file_objects_tick();
         self.updater_tick(ctx);
         self.tablet.poll(frame);

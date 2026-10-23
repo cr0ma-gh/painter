@@ -241,6 +241,15 @@ impl History {
         }
     }
 
+    /// Applies `f` to the layers of every kept state, done and undone: in a
+    /// shared session, changes made by others reach the past states too, so
+    /// undoing your own step doesn't take theirs away.
+    pub fn edit_snapshots(&mut self, mut f: impl FnMut(&mut Vec<Layer>)) {
+        for s in self.undo.iter_mut().chain(self.redo.iter_mut()) {
+            f(&mut s.layers);
+        }
+    }
+
     /// Makes `layers` (a state called `label`) what the history brush paints from.
     pub fn set_source(&mut self, label: &str, layers: Vec<Layer>) {
         self.source = Some((label.to_string(), layers));

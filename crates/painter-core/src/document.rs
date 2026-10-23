@@ -78,6 +78,19 @@ impl Document {
         self.next_id
     }
 
+    /// New ids come after every id in the document (after layers arrived from elsewhere).
+    pub fn reserve_ids(&mut self) {
+        let max = all_ids(&self.layers).into_iter().map(|id| id.0).max().unwrap_or(0);
+        self.next_id = self.next_id.max(max + 1);
+    }
+
+    /// New ids start at `start` or later: each person in a shared session
+    /// gets a range of their own, so layers made at once don't clash.
+    pub fn ids_from(&mut self, start: u64) {
+        self.next_id = self.next_id.max(start);
+        self.reserve_ids();
+    }
+
     /// Rebuilds a document from saved parts.
     pub fn from_parts(width: u32, height: u32, layers: Vec<Layer>, active: LayerId, next_id: u64) -> Self {
         let max_id = all_ids(&layers).into_iter().map(|id| id.0).max().unwrap_or(0);

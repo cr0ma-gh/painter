@@ -19,6 +19,10 @@ pub(crate) struct DevShot {
     commands: Vec<String>,
     path: Option<std::path::PathBuf>,
     requested: bool,
+    /// `dev.wait:MS`: the commands left wait until then.
+    resume_at: Option<std::time::Instant>,
+    /// The frame the last commands ran on.
+    done_frame: u32,
 }
 
 impl DevShot {
@@ -42,13 +46,38 @@ impl PainterApp {
         let Some(shot) = &mut self.dev_shot else { return };
         shot.frames += 1;
         ctx.request_repaint();
-        if shot.frames == SETTLE {
-            let commands = std::mem::take(&mut shot.commands);
+        // A wait that's over: nothing holds the picture back any more.
+        if shot.resume_at.is_some_and(|t| std::time::Instant::now() >= t) && shot.commands.is_empty() {
+            shot.resume_at = None;
+            shot.done_frame = shot.frames;
+        }
+        let ready = shot.frames >= SETTLE && !shot.commands.is_empty() && shot.resume_at.is_none_or(|t| std::time::Instant::now() >= t);
+        if shot.frames == SETTLE && !shot.commands.is_empty() && !shot.commands.iter().any(|c| c == "dev.welcome") {
             // `dev.welcome` keeps the welcome screen; otherwise commands go straight to the canvas.
-            if !commands.is_empty() && !commands.iter().any(|c| c == "dev.welcome") {
-                self.welcome_open = false;
-            }
-            for c in commands {
+            self.welcome_open = false;
+        }
+        if ready {
+            shot.resume_at = None;
+            shot.done_frame = shot.frames;
+            let mut commands = std::mem::take(&mut shot.commands).into_iter();
+            for c in commands.by_ref() {
+                // `dev.wait:MS`: the rest of the commands later.
+                if let Some(ms) = c.strip_prefix("dev.wait:").and_then(|n| n.parse::<u64>().ok()) {
+                    if let Some(shot) = self.dev_shot.as_mut() {
+                        shot.resume_at = Some(std::time::Instant::now() + std::time::Duration::from_millis(ms));
+                        shot.commands = commands.collect();
+                    }
+                    break;
+                }
+                // `dev.host:PORT` and `dev.join:ADDRESS`: a shared session.
+                if let Some(port) = c.strip_prefix("dev.host:").and_then(|n| n.parse::<u16>().ok()) {
+                    self.dev_host(port);
+                    continue;
+                }
+                if let Some(addr) = c.strip_prefix("dev.join:") {
+                    self.dev_join(addr);
+                    continue;
+                }
                 // `dev.float:N`: panel N (EditorType::ALL order) as a large floating window.
                 if let Some(i) = c.strip_prefix("dev.float:").and_then(|n| n.parse::<usize>().ok()) {
                     if let Some(e) = ui_workspace::EditorType::ALL.get(i) {
@@ -119,7 +148,8 @@ impl PainterApp {
             return;
         }
         let Some(shot) = &mut self.dev_shot else { return };
-        if shot.frames == SETTLE * 3 && shot.path.is_some() && !shot.requested {
+        let idle = shot.commands.is_empty() && shot.resume_at.is_none() && shot.frames >= shot.done_frame + 2 * SETTLE;
+        if shot.frames >= SETTLE * 3 && idle && shot.path.is_some() && !shot.requested {
             shot.requested = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
         }

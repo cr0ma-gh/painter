@@ -52,6 +52,10 @@ impl PainterApp {
                         ui.close_menu();
                         self.open_dialog();
                     }
+                    if ui.button("Shared Session...").on_hover_text("Draw together with others: host this document or join one").clicked() {
+                        ui.close_menu();
+                        self.show_editor(ui_workspace::EditorType::Session);
+                    }
                     // The files opened or saved lately.
                     ui.add_enabled_ui(!self.recent.files.is_empty(), |ui| {
                         ui.menu_button("Open Recent", |ui| {

@@ -902,6 +902,7 @@ impl PainterApp {
             EditorType::History => self.history_panel(ui),
             EditorType::Channels => self.channels_panel(ui),
             EditorType::Actions => self.actions_panel(ui),
+            EditorType::Session => self.session_panel(ui),
             EditorType::Timeline | EditorType::NodeGraph => {
                 ui.label(format!("{}: not available yet.", editor.title()));
                 ui.small("The area is kept in the layout; switch it to another editor from the menu at its top left.");
@@ -1010,11 +1011,12 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 79] = [
+        let fixed: [FixedCommand; 80] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
             ("file.open", "Open...", C::File, "Ctrl+O", &["load"], true),
+            ("file.session", "Shared Session...", C::File, "", &["collaborate", "drawpile", "together", "multiplayer", "network", "host", "join"], true),
             ("file.save", "Save", C::File, "Ctrl+S", &[], true),
             ("file.save_as", "Save As...", C::File, "Ctrl+Shift+S", &[], true),
             ("file.types", "Set Up File Types...", C::File, "", &["file association", "thumbnails", "explorer", "open with", "default app"], true),
@@ -1153,6 +1155,7 @@ impl PainterApp {
             "file.new_clipboard" => self.new_from_clipboard(),
             "file.comic" => self.comic_wizard = Some(crate::comic_ui::ComicWizard::open()),
             "file.open" => self.open_dialog(),
+            "file.session" => self.show_editor(EditorType::Session),
             "file.save" => self.save(),
             "file.save_as" => self.save_as(),
             "file.types" => self.file_types_open = true,

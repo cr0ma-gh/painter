@@ -144,6 +144,7 @@ pub fn editor_icon(editor: ui_workspace::tiles::EditorType) -> Icon {
         E::History => Icon::Redo,
         E::Channels => Icon::LayerMask,
         E::Actions => Icon::Preset,
+        E::Session => Icon::Visible,
     }
 }
 

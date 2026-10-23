@@ -119,6 +119,18 @@ cargo run --release -p painter-app -- drawing.painter
   Ctrl-click loads a channel as a selection. Save selections as named
   channels (Select → Save Selection as Channel), kept in the project, and
   load them back (Shift adds, Alt subtracts).
+- **Shared sessions** (File → Shared Session, inspired by Drawpile; in the
+  app on Windows, macOS, Linux, iPad and Android, no browser): one person
+  hosts the open document (a port, an optional password), the others join
+  with the host's address and get it in a new tab. Strokes and fills travel
+  as strokes to merge, so two people painting in one spot both keep their
+  paint; every other change (layers, their settings, filters, texts) travels
+  as the tiles and layer tree that changed. Each person sees the others'
+  pointers with their names; there's a chat, a list of who's there and
+  Resync when something looks out of step. Undo takes back your own changes
+  and leaves others' strokes. Over the internet the host's port has to be
+  reachable (forwarded on the router, or a VPN such as Tailscale); the
+  session is not encrypted.
 - **Actions** (Window → Panels → Actions, like Photoshop's actions and Clip
   Studio's auto actions): record the menu and palette commands you run,
   untick or remove steps, play them back; each action is also a command

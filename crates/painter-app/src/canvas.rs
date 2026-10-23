@@ -128,6 +128,7 @@ impl PainterApp {
         self.draw_stamp_overlay(&painter, rect);
         self.draw_magnetic(&painter, rect);
         self.draw_text_overlay(&painter, rect);
+        self.draw_session_cursors(&painter, rect);
         self.draw_clock(ui, rect);
         self.draw_brush_cursor(&painter, rect, &response);
         self.draw_eyedropper(&painter);

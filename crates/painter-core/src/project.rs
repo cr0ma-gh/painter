@@ -320,6 +320,83 @@ fn layer_file<'a>(layer: &'a Layer, planes: &mut Vec<(String, &'a TileStore)>) -
     }
 }
 
+/// A document's layer tree and settings without its pixels: what a
+/// collaboration session sends when layers change.
+#[derive(Serialize, Deserialize)]
+struct StructureFile {
+    width: u32,
+    height: u32,
+    dpi: u32,
+    #[serde(default)]
+    mode: crate::color_mode::ColorMode,
+    #[serde(default)]
+    profile: crate::color_profile::ColorProfile,
+    layers: Vec<LayerFile>,
+}
+
+/// The layer tree and settings of `doc`, as JSON (no pixels).
+pub fn structure(doc: &Document) -> Vec<u8> {
+    let mut planes = Vec::new();
+    let file = StructureFile {
+        width: doc.width,
+        height: doc.height,
+        dpi: doc.dpi,
+        mode: doc.mode,
+        profile: doc.profile,
+        layers: doc.layers.iter().map(|l| layer_file(l, &mut planes)).collect(),
+    };
+    serde_json::to_vec(&file).unwrap_or_default()
+}
+
+/// Rebuilds `layers` from a [`structure`]: layers keep the pixels they have
+/// here (by id), new ones start empty. Returns the canvas size, resolution,
+/// mode and profile it carries.
+pub fn apply_structure_to(
+    layers: &mut Vec<Layer>,
+    json: &[u8],
+) -> Result<((u32, u32), u32, crate::color_mode::ColorMode, crate::color_profile::ColorProfile), ProjectError> {
+    let file: StructureFile = serde_json::from_slice(json)?;
+    if file.width == 0 || file.height == 0 || file.width > crate::MAX_CANVAS_SIZE || file.height > crate::MAX_CANVAS_SIZE {
+        return Err(ProjectError::Format("structure: bad canvas size".into()));
+    }
+    // The planes here, by the entry names layer_file gives them.
+    let mut here: std::collections::HashMap<String, TileStore> = std::collections::HashMap::new();
+    fn collect(layers: &[Layer], out: &mut std::collections::HashMap<String, TileStore>) {
+        for l in layers {
+            if let LayerKind::Raster(t) = &l.kind {
+                out.insert(format!("planes/layer-{}.tiles", l.id.0), t.clone());
+            }
+            if let Some(m) = &l.mask {
+                out.insert(format!("planes/mask-{}.tiles", l.id.0), m.tiles.clone());
+            }
+            if let LayerKind::Folder(f) = &l.kind {
+                collect(&f.children, out);
+            }
+        }
+    }
+    collect(layers, &mut here);
+    let canvas = (file.width, file.height);
+    let mut plane = |name: &str| Ok(here.remove(name).unwrap_or_default());
+    let rebuilt = file.layers.into_iter().map(|l| read_layer(l, &mut plane, canvas)).collect::<Result<Vec<_>, _>>()?;
+    *layers = rebuilt;
+    Ok((canvas, file.dpi.clamp(1, 100_000), file.mode, file.profile))
+}
+
+/// [`apply_structure_to`] on a document: its layers, size, resolution,
+/// mode and profile; the active layer stays when it still exists.
+pub fn apply_structure(doc: &mut Document, json: &[u8]) -> Result<(), ProjectError> {
+    let (canvas, dpi, mode, profile) = apply_structure_to(&mut doc.layers, json)?;
+    (doc.width, doc.height) = canvas;
+    doc.dpi = dpi;
+    doc.mode = mode;
+    doc.profile = profile;
+    doc.reserve_ids();
+    if doc.find(doc.active).is_none() {
+        doc.active = doc.raster_layer_ids().last().copied().or_else(|| doc.layers.last().map(|l| l.id)).unwrap_or(doc.active);
+    }
+    Ok(())
+}
+
 fn read_from<R: Read + Seek>(reader: R) -> Result<(Document, Extras), ProjectError> {
     let mut zip = ZipArchive::new(reader)?;
     let file: DocumentFile = {
@@ -335,7 +412,7 @@ fn read_from<R: Read + Seek>(reader: R) -> Result<(Document, Extras), ProjectErr
     let canvas = (file.width, file.height);
     let mut layers = Vec::with_capacity(file.layers.len());
     for layer in file.layers {
-        layers.push(read_layer(layer, &mut zip, canvas)?);
+        layers.push(read_layer(layer, &mut |name| read_plane(&mut zip, name), canvas)?);
     }
     let mut doc = Document::from_parts(file.width, file.height, layers, LayerId(file.active), file.next_id);
     doc.dpi = file.dpi.clamp(1, 100_000);
@@ -361,16 +438,17 @@ fn read_from<R: Read + Seek>(reader: R) -> Result<(Document, Extras), ProjectErr
     Ok((doc, extras))
 }
 
-fn read_layer<R: Read + Seek>(file: LayerFile, zip: &mut ZipArchive<R>, canvas: (u32, u32)) -> Result<Layer, ProjectError> {
+/// A layer from its description; `plane` gives the pixels of a plane by its entry name.
+fn read_layer(file: LayerFile, plane: &mut dyn FnMut(&str) -> Result<TileStore, ProjectError>, canvas: (u32, u32)) -> Result<Layer, ProjectError> {
     let kind = match file.content {
-        ContentFile::Raster { tiles } => LayerKind::Raster(read_plane(zip, &tiles)?),
+        ContentFile::Raster { tiles } => LayerKind::Raster(plane(&tiles)?),
         ContentFile::Vector { strokes, texts } => {
             let mut layer = VectorLayer { strokes, texts, cache: TileStore::new() };
             vector::rasterize(&mut layer, canvas);
             LayerKind::Vector(layer)
         }
         ContentFile::Folder { pass_through, children } => {
-            let children = children.into_iter().map(|c| read_layer(c, zip, canvas)).collect::<Result<_, _>>()?;
+            let children = children.into_iter().map(|c| read_layer(c, plane, canvas)).collect::<Result<_, _>>()?;
             LayerKind::Folder(Folder { children, pass_through })
         }
         ContentFile::Fill { color } => LayerKind::Fill { color },
@@ -379,7 +457,7 @@ fn read_layer<R: Read + Seek>(file: LayerFile, zip: &mut ZipArchive<R>, canvas: 
         ContentFile::Adjustment { adjustment } => LayerKind::Adjustment(adjustment),
     };
     let mask = match file.mask {
-        Some(m) => Some(Mask { enabled: m.enabled, tiles: read_plane(zip, &m.tiles)? }),
+        Some(m) => Some(Mask { enabled: m.enabled, tiles: plane(&m.tiles)? }),
         None => None,
     };
     Ok(Layer {

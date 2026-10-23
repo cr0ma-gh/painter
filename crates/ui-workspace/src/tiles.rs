@@ -38,6 +38,8 @@ pub enum EditorType {
     History,
     /// Photoshop's Channels: view and edit red, green and blue apart, saved selections.
     Channels,
+    /// Shared drawing sessions (as Drawpile): host or join, who's there, chat.
+    Session,
     /// Photoshop's Actions: record a series of commands, play it back.
     Actions,
     /// Krita's extended gamut selector: shapes and colour models.
@@ -45,7 +47,7 @@ pub enum EditorType {
 }
 
 impl EditorType {
-    pub const ALL: [EditorType; 23] = [
+    pub const ALL: [EditorType; 24] = [
         EditorType::Canvas,
         EditorType::Reference,
         EditorType::Viewport3D,
@@ -69,6 +71,7 @@ impl EditorType {
         EditorType::History,
         EditorType::Channels,
         EditorType::Actions,
+        EditorType::Session,
     ];
 
     pub fn title(self) -> &'static str {
@@ -96,6 +99,7 @@ impl EditorType {
             EditorType::History => "History",
             EditorType::Channels => "Channels",
             EditorType::Actions => "Actions",
+            EditorType::Session => "Session",
         }
     }
 
