@@ -117,6 +117,9 @@ struct DocumentFile {
     next_id: u64,
     layers: Vec<LayerFile>,
     selection: Option<String>,
+    /// Saved selections: name and plane entry. Absent in older files.
+    #[serde(default)]
+    channels: Vec<(String, String)>,
 }
 
 fn default_dpi() -> u32 {
@@ -224,6 +227,16 @@ fn write_to<W: Write + Seek>(doc: &Document, extras: &Extras, writer: W) -> Resu
         planes.push((name.clone(), s));
         name
     });
+    let channels = doc
+        .channels
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let name = format!("planes/channel-{i}.tiles");
+            planes.push((name.clone(), &c.mask));
+            (c.name.clone(), name)
+        })
+        .collect();
     let file = DocumentFile {
         format: FORMAT_VERSION,
         width: doc.width,
@@ -234,6 +247,7 @@ fn write_to<W: Write + Seek>(doc: &Document, extras: &Extras, writer: W) -> Resu
         next_id: doc.next_id(),
         layers,
         selection,
+        channels,
     };
     zip.start_file(DOCUMENT_ENTRY, packed)?;
     serde_json::to_writer_pretty(&mut zip, &file)?;
@@ -315,6 +329,9 @@ fn read_from<R: Read + Seek>(reader: R) -> Result<(Document, Extras), ProjectErr
     doc.rulers = file.rulers;
     if let Some(name) = file.selection {
         doc.selection = Some(read_plane(&mut zip, &name)?);
+    }
+    for (name, entry) in file.channels {
+        doc.channels.push(crate::document::SavedChannel { name, mask: read_plane(&mut zip, &entry)? });
     }
     if doc.find(doc.active).is_none() {
         doc.active = doc.raster_layer_ids().last().copied().unwrap_or(doc.layers[doc.layers.len() - 1].id);
@@ -464,6 +481,7 @@ mod tests {
         tone.visible = false;
         doc.add_layer(tone);
         doc.selection = Some(crate::selection::rect_mask([2.0, 2.0], [20.0, 9.0], doc.canvas()));
+        doc.channels.push(crate::document::SavedChannel { name: "Eyes".into(), mask: crate::selection::rect_mask([25.0, 25.0], [40.0, 40.0], doc.canvas()) });
         doc.active = v;
         doc
     }
@@ -489,6 +507,9 @@ mod tests {
         assert_eq!(back.find(LayerId(3)).unwrap().name, "Folder ✓");
         assert!(back.find(doc.active).unwrap().clip);
         assert_eq!(back.selection.as_ref().unwrap().pixel(5, 5)[3], 255);
+        assert_eq!(back.channels.len(), 1);
+        assert_eq!(back.channels[0].name, "Eyes");
+        assert_eq!(back.channels[0].mask.pixel(30, 30)[3], 255);
         // New layers never reuse saved ids.
         let mut back = back;
         assert!(back.alloc_id().0 >= doc.next_id());

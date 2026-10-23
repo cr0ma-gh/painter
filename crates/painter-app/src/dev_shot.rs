@@ -61,6 +61,18 @@ impl PainterApp {
                     self.add_file_object(std::path::Path::new(path));
                     continue;
                 }
+                // `dev.color:RRGGBB`: the main colour.
+                if let Some(rgb) = c.strip_prefix("dev.color:").and_then(|h| u32::from_str_radix(h, 16).ok()) {
+                    self.color = egui::Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8).into();
+                    continue;
+                }
+                // `dev.channel:N`: show and edit only red (0), green (1) or blue (2).
+                if let Some(c) = c.strip_prefix("dev.channel:").and_then(|n| n.parse::<usize>().ok()).filter(|c| *c < 3) {
+                    self.channels.edit = [false; 3];
+                    self.channels.edit[c] = true;
+                    self.channels.visible = self.channels.edit;
+                    continue;
+                }
                 // `dev.select_demo`: the magnetic lasso and object selection.
                 if c == "dev.select_demo" {
                     self.select_demo();

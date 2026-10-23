@@ -9,6 +9,13 @@ pub const MAX_CANVAS_SIZE: u32 = 8192;
 /// Resolution of a canvas made without one (pixels per inch).
 pub const DEFAULT_DPI: u32 = 300;
 
+/// A selection kept under a name (an alpha channel in Photoshop).
+#[derive(Clone, Debug)]
+pub struct SavedChannel {
+    pub name: String,
+    pub mask: TileStore,
+}
+
 #[derive(Clone, Debug)]
 pub struct Document {
     pub width: u32,
@@ -21,6 +28,8 @@ pub struct Document {
     /// Root layers, bottom to top.
     pub layers: Vec<Layer>,
     pub active: LayerId,
+    /// Saved selections (Photoshop's alpha channels), oldest first.
+    pub channels: Vec<SavedChannel>,
     /// `None`: no selection, everything is editable (see `selection`).
     pub selection: Option<TileStore>,
     next_id: u64,
@@ -37,6 +46,7 @@ impl Document {
             layers: Vec::new(),
             active: LayerId(0),
             selection: None,
+            channels: Vec::new(),
             next_id: 1,
         };
         let paper = doc.alloc_id();
@@ -73,6 +83,7 @@ impl Document {
             layers,
             active,
             selection: None,
+            channels: Vec::new(),
             next_id: next_id.max(max_id + 1),
         }
     }

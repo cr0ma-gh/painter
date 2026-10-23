@@ -213,6 +213,10 @@ pub struct PainterApp {
     pub(crate) clone_source: crate::stamp_tool::CloneSource,
     /// The magnetic lasso in progress.
     pub(crate) magnetic: crate::magnetic::MagneticLasso,
+    /// Colour channels shown and edited (the Channels panel).
+    pub(crate) channels: crate::channels_ui::ChannelState,
+    /// Recorded actions (the Actions panel).
+    pub(crate) actions: crate::actions::Actions,
     /// Decoded pictures of file object layers' files.
     pub(crate) file_objects: crate::file_object::FileObjectCache,
     /// A layer being renamed in its row (double-click): id, text, field just opened.
@@ -367,6 +371,8 @@ impl PainterApp {
             shape: Default::default(),
             clone_source: Default::default(),
             magnetic: Default::default(),
+            channels: Default::default(),
+            actions: crate::actions::Actions::load(),
             file_objects: Default::default(),
             layer_rename: None,
             updater: Default::default(),
@@ -518,7 +524,7 @@ impl PainterApp {
         }
     }
 
-    fn plane_tiles_mut(&mut self, plane: Plane) -> Option<&mut TileStore> {
+    pub(crate) fn plane_tiles_mut(&mut self, plane: Plane) -> Option<&mut TileStore> {
         match plane {
             Plane::Color(id) => self.doc.find_mut(id).and_then(|l| l.tiles_mut()),
             Plane::Mask(id) => self.doc.find_mut(id).and_then(|l| l.mask.as_mut()).map(|m| &mut m.tiles),
@@ -913,6 +919,7 @@ impl PainterApp {
         };
         let (opacity, mode, blend) = (stroke.settings.opacity, stroke.settings.mode, stroke.settings.blend);
         commit_stroke(tiles, &stroke.before, &result, opacity, mode, blend, stroke.alpha_locked, selection.as_ref());
+        self.restrict_channels(stroke.plane, &stroke.before, result.dirty.iter().copied());
         self.upload_tiles(stroke.plane, result.dirty);
     }
 
@@ -960,6 +967,7 @@ impl PainterApp {
             stroke.alpha_locked,
             selection.as_ref(),
         );
+        self.restrict_channels(stroke.plane, &stroke.before, touched.iter().copied());
         self.upload_tiles(stroke.plane, touched);
     }
 
@@ -975,6 +983,7 @@ impl PainterApp {
         };
         let before = tiles.clone();
         commit_stroke(tiles, &before, stroke, 1.0, mode, painter_core::BrushBlend::Normal, alpha_locked, selection.as_ref());
+        self.restrict_channels(plane, &before, stroke.dirty.iter().copied());
         self.upload_tiles(plane, stroke.dirty.iter().copied());
     }
 
@@ -1773,6 +1782,10 @@ impl eframe::App for PainterApp {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        // Screenshot runs (PAINTER_COMMANDS / PAINTER_SCREENSHOT) leave the settings alone.
+        if self.dev_shot.is_some() {
+            return;
+        }
         self.brush_library.autosave(&self.brushes, true);
         self.docs.reference.autosave(true);
         self.ws.save(storage);

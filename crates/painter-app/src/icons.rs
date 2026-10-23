@@ -142,6 +142,8 @@ pub fn editor_icon(editor: ui_workspace::tiles::EditorType) -> Icon {
         E::ColorMixing => Icon::Smudge,
         E::SearchLayer => Icon::Zoom,
         E::History => Icon::Redo,
+        E::Channels => Icon::LayerMask,
+        E::Actions => Icon::Preset,
     }
 }
 

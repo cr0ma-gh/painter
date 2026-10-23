@@ -16,6 +16,7 @@ struct View {
     time: f32,
     show_selection: f32,
     flip: f32,
+    hidden: vec4<f32>,
 };
 
 @group(0) @binding(0) var canvas: texture_2d<f32>;
@@ -64,6 +65,16 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     let odd = (i32(cell.x) + i32(cell.y)) & 1;
     let checker = select(1.0, 0.82, odd == 1);
     var rgb = color.rgb + vec3<f32>(checker) * (1.0 - color.a);
+    // Channels: only the visible ones; one alone as grey.
+    let shown = vec3<f32>(1.0) - view.hidden.rgb;
+    let count = shown.r + shown.g + shown.b;
+    if (count < 0.5) {
+        rgb = vec3<f32>(0.0);
+    } else if (count < 1.5) {
+        rgb = vec3<f32>(dot(rgb, shown));
+    } else if (count < 2.5) {
+        rgb = rgb * shown;
+    }
 
     if (view.show_selection > 0.5) {
         let p = vec2<i32>(floor(input.uv * view.doc_size));

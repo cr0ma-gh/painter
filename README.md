@@ -87,6 +87,16 @@ cargo run --release -p painter-app -- drawing.painter
   included.
 - **Shortcuts:** hold E for the eraser until you let go (a tap switches);
   double-click the main or sub colour chip for a picker (wheel, RGB, hex).
+- **Channels** (Window → Panels → Channels, as in Photoshop): show red, green
+  or blue alone (in grey) or in pairs; click a channel to paint, fill and
+  stamp only in it (Shift-click for several, Ctrl+2…5 from the keyboard);
+  Ctrl-click loads a channel as a selection. Save selections as named
+  channels (Select → Save Selection as Channel), kept in the project, and
+  load them back (Shift adds, Alt subtracts).
+- **Actions** (Window → Panels → Actions, like Photoshop's actions and Clip
+  Studio's auto actions): record the menu and palette commands you run,
+  untick or remove steps, play them back; each action is also a command
+  ("Play Action: …") for the palette and the toolbar.
 - **History** (Window → Panels → History, as in Clip Studio): every undo step
   by name ("G-Pen · “Inks”", "New Layer “Colours”", "Layer Properties"…);
   click one to go back or forward to it; how many steps are kept.

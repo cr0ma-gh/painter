@@ -78,6 +78,32 @@ impl Tool {
         Tool::Hand,
     ];
 
+    /// The tools by command id (`tool.N`): only ever appended to, so saved
+    /// toolbar buttons and recent commands keep pointing at the same tool.
+    pub const COMMANDS: [Tool; 21] = [
+        Tool::Brush,
+        Tool::Fill,
+        Tool::Gradient,
+        Tool::Eyedropper,
+        Tool::Select(SelectShape::Rect),
+        Tool::Select(SelectShape::Ellipse),
+        Tool::Select(SelectShape::Lasso),
+        Tool::Select(SelectShape::Magic),
+        Tool::Transform,
+        Tool::Crop,
+        Tool::Frame,
+        Tool::Scene3D,
+        Tool::Ruler,
+        Tool::VectorEdit,
+        Tool::Hand,
+        Tool::Shape,
+        Tool::Stamp(StampKind::Clone),
+        Tool::Stamp(StampKind::Pattern),
+        Tool::Stamp(StampKind::History),
+        Tool::Select(SelectShape::Magnetic),
+        Tool::Select(SelectShape::Object),
+    ];
+
     pub fn icon(self) -> Icon {
         match self {
             Tool::Brush => Icon::Paintbrush,
@@ -486,6 +512,7 @@ impl PainterApp {
             return;
         }
         self.scene_shortcuts(ctx);
+        self.channel_shortcuts(ctx);
         self.ruler_shortcuts(ctx);
         self.transform_shortcuts(ctx);
         self.frame_shortcuts(ctx);
@@ -676,6 +703,14 @@ impl PainterApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_tool_has_a_command() {
+        for tool in Tool::ALL {
+            assert_eq!(Tool::COMMANDS.iter().filter(|t| **t == tool).count(), 1, "{tool:?}");
+        }
+        assert_eq!(Tool::ALL.len(), Tool::COMMANDS.len());
+    }
 
     #[test]
     fn brushes_fall_into_toolbar_groups() {

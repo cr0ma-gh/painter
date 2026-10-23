@@ -36,12 +36,16 @@ pub enum EditorType {
     SearchLayer,
     /// Clip Studio's History: every undo step by name; click one to go back to it.
     History,
+    /// Photoshop's Channels: view and edit red, green and blue apart, saved selections.
+    Channels,
+    /// Photoshop's Actions: record a series of commands, play it back.
+    Actions,
     /// Krita's extended gamut selector: shapes and colour models.
     GamutSelector,
 }
 
 impl EditorType {
-    pub const ALL: [EditorType; 21] = [
+    pub const ALL: [EditorType; 23] = [
         EditorType::Canvas,
         EditorType::Reference,
         EditorType::Viewport3D,
@@ -63,6 +67,8 @@ impl EditorType {
         EditorType::SearchLayer,
         EditorType::GamutSelector,
         EditorType::History,
+        EditorType::Channels,
+        EditorType::Actions,
     ];
 
     pub fn title(self) -> &'static str {
@@ -88,6 +94,8 @@ impl EditorType {
             EditorType::SearchLayer => "Search Layer",
             EditorType::GamutSelector => "Extended Color Selector",
             EditorType::History => "History",
+            EditorType::Channels => "Channels",
+            EditorType::Actions => "Actions",
         }
     }
 

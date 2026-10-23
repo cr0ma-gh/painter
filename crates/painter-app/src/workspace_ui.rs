@@ -847,6 +847,8 @@ impl PainterApp {
             EditorType::ColorMixing => self.color_mixing_panel(ui),
             EditorType::SearchLayer => self.search_layer_panel(ui),
             EditorType::History => self.history_panel(ui),
+            EditorType::Channels => self.channels_panel(ui),
+            EditorType::Actions => self.actions_panel(ui),
             EditorType::Timeline | EditorType::NodeGraph => {
                 ui.label(format!("{}: not available yet.", editor.title()));
                 ui.small("The area is kept in the layout; switch it to another editor from the menu at its top left.");
@@ -955,7 +957,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 73] = [
+        let fixed: [FixedCommand; 74] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -985,6 +987,7 @@ impl PainterApp {
             ("select.all", "Select All", C::Select, "Ctrl+A", &[], true),
             ("select.none", "Deselect", C::Select, "Ctrl+D", &["clear selection"], has_sel),
             ("select.invert", "Invert Selection", C::Select, "Ctrl+Shift+I", &[], true),
+            ("select.save_channel", "Save Selection as Channel", C::Select, "", &["alpha channel", "store", "keep selection"], has_sel),
             ("layer.raster", "New Raster Layer", C::Layer, "", &["add layer"], true),
             ("layer.vector", "New Vector Layer", C::Layer, "", &[], true),
             ("layer.folder", "New Folder", C::Layer, "", &["group"], true),
@@ -1038,7 +1041,7 @@ impl PainterApp {
             c.enabled = enabled;
             r.register(c);
         }
-        for (i, tool) in Tool::ALL.iter().enumerate() {
+        for (i, tool) in Tool::COMMANDS.iter().enumerate() {
             let mut c = Command::new(&format!("tool.{i}"), tool.name(), C::Tool).keywords(&["tool"]);
             if let Some(keys) = tool.shortcut() {
                 c = c.shortcut(keys);
@@ -1051,6 +1054,9 @@ impl PainterApp {
         }
         for (i, w) in self.ws.set.workspaces.iter().enumerate() {
             r.register(Command::new(&format!("workspace.{i}"), &format!("Workspace: {}", w.name), C::Workspace));
+        }
+        for (i, a) in self.actions.list.iter().enumerate() {
+            r.register(Command::new(&format!("action.{i}"), &format!("Play Action: {}", a.name), C::Edit).keywords(&["action", "macro", "batch", "repeat"]));
         }
         for (i, t) in self.ws.themes.themes.iter().enumerate() {
             r.register(Command::new(&format!("theme.{i}"), &format!("Theme: {}", t.name), C::View).keywords(&["colour scheme"]));
@@ -1081,6 +1087,7 @@ impl PainterApp {
             }
         }
         self.ws.commands.note_used(id);
+        self.actions.record(id);
         self.next_label = self.ws.commands.get(id).map(|c| c.label.trim_end_matches("...").trim_end_matches('…').to_string());
         let index = |prefix: &str| id.strip_prefix(prefix).and_then(|n| n.parse::<usize>().ok());
         match id {
@@ -1109,6 +1116,7 @@ impl PainterApp {
             "select.all" => self.select_all(),
             "select.none" => self.deselect(),
             "select.invert" => self.invert_selection(),
+            "select.save_channel" => self.save_selection_channel(),
             "layer.raster" => self.add_raster_layer(),
             "layer.vector" => self.add_vector_layer(),
             "layer.folder" => self.add_folder(),
@@ -1170,7 +1178,7 @@ impl PainterApp {
             }
             _ => {
                 if let Some(i) = index("tool.") {
-                    match Tool::ALL.get(i) {
+                    match Tool::COMMANDS.get(i) {
                         Some(Tool::Brush) => self.select_brush(self.last_paint_brush),
                         Some(tool) => self.tool = *tool,
                         None => {}
@@ -1179,6 +1187,8 @@ impl PainterApp {
                     if i < self.brushes.len() {
                         self.select_brush(i);
                     }
+                } else if let Some(i) = index("action.") {
+                    self.play_action(i);
                 } else if let Some(i) = index("workspace.") {
                     self.ws.set.activate(i);
                 } else if let Some(i) = index("theme.") {

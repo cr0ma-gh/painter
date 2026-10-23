@@ -55,6 +55,8 @@ pub struct ViewUniform {
     show_selection: f32,
     /// 1 = mirrored left-right.
     flip: f32,
+    /// 1 per colour channel hidden (red, green, blue; the 4th is padding).
+    hidden: [f32; 4],
 }
 
 impl ViewUniform {
@@ -67,6 +69,12 @@ impl ViewUniform {
     /// Mirrors the view left-right.
     pub fn with_flip(self, flip: bool) -> Self {
         Self { flip: if flip { 1.0 } else { 0.0 }, ..self }
+    }
+
+    /// Shows only the visible colour channels; one alone shows as grey.
+    pub fn with_channels(self, visible: [bool; 3]) -> Self {
+        let h = |v: bool| if v { 0.0 } else { 1.0 };
+        Self { hidden: [h(visible[0]), h(visible[1]), h(visible[2]), 0.0], ..self }
     }
 
     /// Draws animated marching ants along the selection edge.
@@ -900,8 +908,8 @@ mod tests {
 
     #[test]
     fn uniform_layouts_match_wgsl() {
-        // WGSL `View` and `Params` structs are 48 and 80 bytes.
-        assert_eq!(std::mem::size_of::<ViewUniform>(), 48);
+        // WGSL `View` and `Params` structs are 64 and 80 bytes.
+        assert_eq!(std::mem::size_of::<ViewUniform>(), 64);
         assert_eq!(std::mem::size_of::<CompositeParams>(), 80);
     }
 }

@@ -2,6 +2,7 @@
 //! own way (`main.rs` on the desktop and iPadOS, `android_main` in the
 //! `painter-android` crate on Android).
 
+mod actions;
 mod adjust_ui;
 #[cfg(target_os = "android")]
 mod android;
@@ -17,6 +18,7 @@ mod shape_tool;
 mod smart_shape;
 mod stamp_tool;
 mod canvas;
+mod channels_ui;
 mod comic_ui;
 mod curve;
 mod dev_shot;

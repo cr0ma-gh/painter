@@ -7,6 +7,7 @@
 pub mod adjust;
 pub mod blend;
 pub mod brush;
+pub mod channels;
 pub mod clip;
 pub mod document;
 pub mod fill_tool;
@@ -37,7 +38,7 @@ pub mod zipfile;
 pub use adjust::{AdjustOp, Adjustment};
 pub use blend::BlendMode;
 pub use brush::{AntiAlias, BrushBlend, BrushMode, BrushSettings, ColorJitter, Dab, PressureCurve, Scatter, SmoothingMethod};
-pub use document::{Document, DEFAULT_DPI, MAX_CANVAS_SIZE};
+pub use document::{Document, SavedChannel, DEFAULT_DPI, MAX_CANVAS_SIZE};
 pub use history::History;
 pub use layer::{clip_targets, ClipTo, FileObject, Folder, Layer, LayerId, LayerKind, Mask, VectorLayer, VectorStroke};
 pub use procedural::{Gradient, GradientShape, Tone};
