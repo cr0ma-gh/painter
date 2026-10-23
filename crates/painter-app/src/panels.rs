@@ -797,6 +797,10 @@ impl PainterApp {
                 widgets::group_header(ui, Icon::Curve, "Vector Points");
                 self.vector_edit_panel(ui);
             }
+            Tool::Shape => {
+                widgets::group_header(ui, Icon::Shapes, "Shape");
+                self.shape_panel(ui);
+            }
             Tool::Hand => {
                 widgets::group_header(ui, Icon::Move, "Hand");
                 ui.label("Drag to pan. Wheel zooms, , and . rotate, 0 fits.");

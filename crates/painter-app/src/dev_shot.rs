@@ -44,6 +44,10 @@ impl PainterApp {
         ctx.request_repaint();
         if shot.frames == SETTLE {
             let commands = std::mem::take(&mut shot.commands);
+            // `dev.welcome` keeps the welcome screen; otherwise commands go straight to the canvas.
+            if !commands.is_empty() && !commands.iter().any(|c| c == "dev.welcome") {
+                self.welcome_open = false;
+            }
             for c in commands {
                 // `dev.float:N`: panel N (EditorType::ALL order) as a large floating window.
                 if let Some(i) = c.strip_prefix("dev.float:").and_then(|n| n.parse::<usize>().ok()) {
@@ -55,6 +59,11 @@ impl PainterApp {
                 // `dev.file_object:PATH`: a file object layer showing PATH.
                 if let Some(path) = c.strip_prefix("dev.file_object:") {
                     self.add_file_object(std::path::Path::new(path));
+                    continue;
+                }
+                // `dev.shape_demo`: a filled rounded rectangle, an outlined ellipse and a line.
+                if c == "dev.shape_demo" {
+                    self.shape_demo();
                     continue;
                 }
                 // `dev.vector_demo`: a vector layer of crossing lines, one picked in Vector Points.
@@ -83,6 +92,8 @@ impl PainterApp {
             if let Some(img) = image::RgbaImage::from_raw(w as u32, h as u32, rgba) {
                 let _ = img.save(&path);
             }
+            // No "save changes?" question for a screenshot run.
+            self.allow_close = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }

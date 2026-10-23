@@ -32,6 +32,8 @@ pub enum Tool {
     Ruler,
     /// Vector layers: pick a line, move it, reshape it by its control points.
     VectorEdit,
+    /// Rectangles, ellipses, lines and polygons, outlined with the brush or filled.
+    Shape,
     Hand,
 }
 
@@ -45,10 +47,11 @@ pub enum SelectShape {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 15] = [
+    pub const ALL: [Tool; 16] = [
         Tool::Brush,
         Tool::Fill,
         Tool::Gradient,
+        Tool::Shape,
         Tool::Eyedropper,
         Tool::Select(SelectShape::Rect),
         Tool::Select(SelectShape::Ellipse),
@@ -79,6 +82,7 @@ impl Tool {
             Tool::Ruler => Icon::Path,
             Tool::Eyedropper => Icon::ColorPicker,
             Tool::VectorEdit => Icon::Curve,
+            Tool::Shape => Icon::Shapes,
             Tool::Hand => Icon::Move,
         }
     }
@@ -97,6 +101,7 @@ impl Tool {
             Tool::Ruler => "ruler",
             Tool::Eyedropper => "eyedropper",
             Tool::VectorEdit => "vector_edit",
+            Tool::Shape => "shape",
             Tool::Hand => "hand",
         }
     }
@@ -117,6 +122,7 @@ impl Tool {
             Tool::Ruler => "Rulers and Guides",
             Tool::Eyedropper => "Eyedropper",
             Tool::VectorEdit => "Vector Points",
+            Tool::Shape => "Shape",
             Tool::Hand => "Hand (pan)",
         }
     }
@@ -136,6 +142,7 @@ impl Tool {
             Tool::Scene3D | Tool::Ruler => return None,
             Tool::Eyedropper => "I",
             Tool::VectorEdit => "O",
+            Tool::Shape => "R",
             Tool::Hand => "H",
         })
     }
@@ -156,6 +163,7 @@ impl Tool {
             Tool::Ruler => "Rulers: perspective, symmetry, special rulers and guides. Drag their handles; Ctrl+1 toggles snapping",
             Tool::Eyedropper => "Eyedropper (I): pick a colour from the canvas or the current layer. Alt with a brush, or hold a finger still on an iPad",
             Tool::VectorEdit => "Vector points (O): pick a vector line, drag its control points to reshape it, drag the line to move it",
+            Tool::Shape => "Shapes (R): rectangles, ellipses, lines and polygons. Shift constrains, Alt draws from the centre",
             Tool::Hand => "Pan the canvas (H, or hold Space)",
         }
     }
@@ -233,6 +241,8 @@ pub struct ToolOptions {
     pub vector_erase: VectorErase,
     /// Only a pen draws; fingers move the view (the default on iPad).
     pub pencil_only: bool,
+    /// The Shape tool's kind and style.
+    pub shapes: crate::shape_tool::ShapeOptions,
 }
 
 impl Default for ToolOptions {
@@ -248,6 +258,7 @@ impl Default for ToolOptions {
             vector_erase: VectorErase::ToIntersection,
             smart_shape: true,
             pencil_only: cfg!(target_os = "ios"),
+            shapes: Default::default(),
         }
     }
 }
@@ -288,6 +299,13 @@ impl PainterApp {
             Tool::Scene3D => self.scene_press(at),
             Tool::Ruler => self.ruler_press(at),
             Tool::VectorEdit => self.vector_edit_press(at, modifiers.alt),
+            Tool::Shape => {
+                let double = self.egui_ctx.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary));
+                self.shape_press(at, double);
+                if self.shape.start.is_some() {
+                    self.drag = Some(ToolDrag { start: at, current: at, points: vec![at], op: SelectionOp::Replace });
+                }
+            }
             Tool::Eyedropper => {
                 self.eyedrop_at(at);
                 self.drag = Some(ToolDrag { start: at, current: at, points: vec![at], op: SelectionOp::Replace });
@@ -309,6 +327,7 @@ impl PainterApp {
             Tool::Scene3D => self.scene_move(at),
             Tool::Ruler => self.ruler_move(at),
             Tool::VectorEdit => self.vector_edit_move(at),
+            Tool::Shape => self.shape_move(at),
             Tool::Eyedropper => self.eyedrop_at(at),
             _ => {}
         }
@@ -331,6 +350,7 @@ impl PainterApp {
             Tool::Scene3D => return self.scene_release(),
             Tool::Ruler => return self.ruler_release(),
             Tool::VectorEdit => return self.vector_edit_release(),
+            Tool::Shape => return self.shape_release(),
             _ => {}
         }
         let canvas = self.doc.canvas();
@@ -544,6 +564,9 @@ impl PainterApp {
         }
         if key(Key::H, false) {
             self.tool = Tool::Hand;
+        }
+        if key(Key::R, false) {
+            self.tool = Tool::Shape;
         }
         if key(Key::X, false) {
             std::mem::swap(&mut self.color, &mut self.sub_color);

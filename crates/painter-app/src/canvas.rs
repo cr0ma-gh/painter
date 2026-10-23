@@ -85,6 +85,7 @@ impl PainterApp {
         self.canvas_input(ui, rect, &response);
         self.smart_tick(ui.ctx());
         self.pose_grab_keys(ui.ctx());
+        self.shape_keys(ui.ctx());
 
         if !self.uploads.is_empty() {
             self.doc_touched = true;
@@ -121,6 +122,7 @@ impl PainterApp {
         self.draw_line_guide(&painter, rect);
         self.draw_smart_shape(&painter, rect);
         self.draw_vector_edit(&painter, rect);
+        self.draw_shape_draft(&painter, rect);
         self.draw_brush_cursor(&painter, rect, &response);
         self.draw_eyedropper(&painter);
         self.transform_hud(ui.ctx(), rect);
@@ -241,6 +243,10 @@ impl PainterApp {
                 Event::PointerMoved(pos) if self.drag.is_some() => {
                     let p = to_doc(&self.view, *pos);
                     self.tool_move(p);
+                }
+                // A polygon's next side follows the pointer between clicks.
+                Event::PointerMoved(pos) if self.tool == Tool::Shape && !self.shape.corners.is_empty() => {
+                    self.shape.current = to_doc(&self.view, *pos);
                 }
                 Event::PointerButton { button: PointerButton::Primary, pressed: false, .. } | Event::PointerGone => {
                     if self.line.is_some() {

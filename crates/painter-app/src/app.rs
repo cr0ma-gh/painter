@@ -205,6 +205,8 @@ pub struct PainterApp {
     pub(crate) pose_chain: usize,
     /// The Vector Points tool: the picked line and the drag.
     pub(crate) vector_edit: crate::vector_edit::VectorEditState,
+    /// The Shape tool's drag or polygon in progress.
+    pub(crate) shape: crate::shape_tool::ShapeDraft,
     /// Decoded pictures of file object layers' files.
     pub(crate) file_objects: crate::file_object::FileObjectCache,
     /// A layer being renamed in its row (double-click): id, text, field just opened.
@@ -356,6 +358,7 @@ impl PainterApp {
             pose_ik: true,
             pose_chain: 2,
             vector_edit: Default::default(),
+            shape: Default::default(),
             file_objects: Default::default(),
             layer_rename: None,
             updater: Default::default(),
@@ -689,7 +692,7 @@ impl PainterApp {
     // ---- strokes -------------------------------------------------------------
 
     /// The plane a brush or fill on the active layer edits, if editable.
-    fn target_plane(&mut self) -> Option<Plane> {
+    pub(crate) fn target_plane(&mut self) -> Option<Plane> {
         let layer = self.doc.active_layer()?;
         if self.edit_mask && layer.mask.is_some() {
             if layer.locked {
@@ -896,7 +899,7 @@ impl PainterApp {
     // ---- fill, gradient, clear -----------------------------------------------
 
     /// Commits a prepared stroke buffer onto the edited plane, as a fill would.
-    fn commit_region(&mut self, plane: Plane, stroke: &RasterizedStroke, mode: BrushMode) {
+    pub(crate) fn commit_region(&mut self, plane: Plane, stroke: &RasterizedStroke, mode: BrushMode) {
         let selection = self.doc.selection.clone();
         let alpha_locked = matches!(plane, Plane::Color(_)) && self.doc.active_layer().is_some_and(|l| l.alpha_locked);
         self.checkpoint();

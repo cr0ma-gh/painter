@@ -13,6 +13,7 @@ mod clipboard_image;
 mod chip_picker;
 mod color_panels;
 mod search_layer;
+mod shape_tool;
 mod smart_shape;
 mod canvas;
 mod comic_ui;

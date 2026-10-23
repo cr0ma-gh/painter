@@ -72,6 +72,11 @@ cargo run --release -p painter-app -- drawing.painter
 - **Smart shape:** draw a line, circle, ellipse, rectangle or triangle and
   keep the pen still for half a second: it turns into the clean shape (shown
   as a guide) and is drawn with the brush on release. Off in Tool Settings.
+- **Shape tool** (R, as Clip Studio's Figure and Photoshop's shapes):
+  rectangles (with rounded corners), ellipses, lines and polygons, outlined
+  with the current brush, filled with the main colour, or both. Shift makes
+  squares and circles (lines in 15° steps), Alt draws from the centre;
+  polygons close on the first corner, a double-click or Enter.
 - **Shortcuts:** hold E for the eraser until you let go (a tap switches);
   double-click the main or sub colour chip for a picker (wheel, RGB, hex).
 - **History** (Window → Panels → History, as in Clip Studio): every undo step
