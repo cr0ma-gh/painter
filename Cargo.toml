@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/painter-core", "crates/painter-render", "crates/painter-app", "crates/brush-io", "crates/scanner-io", "crates/vector-export", "crates/transform-tools", "crates/comic-layout", "crates/scene-3d", "crates/ui-workspace", "crates/painter-android", "crates/painter-shell"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
