@@ -311,6 +311,9 @@ pub struct Chrome {
     /// The crosshair over the brush outline (off: the outline alone).
     #[serde(default = "yes")]
     pub brush_crosshair: bool,
+    /// The small clock and battery over the canvas.
+    #[serde(default = "yes")]
+    pub clock: bool,
 }
 
 fn yes() -> bool {
@@ -326,7 +329,7 @@ pub const UI_SCALE_RANGE: (f32, f32) = (0.5, 3.0);
 
 impl Default for Chrome {
     fn default() -> Self {
-        Self { menu_bar: true, toolbar: true, workspace_tabs: true, status_bar: true, zen: false, ui_scale: 1.0, ruler_bar: false, ruler_bar_mm: false, brush_crosshair: true }
+        Self { menu_bar: true, toolbar: true, workspace_tabs: true, status_bar: true, zen: false, ui_scale: 1.0, ruler_bar: false, ruler_bar_mm: false, brush_crosshair: true, clock: true }
     }
 }
 

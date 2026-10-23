@@ -227,3 +227,12 @@ void painter_open_url(const char *url) {
         if (target) [UIApplication.sharedApplication openURL:target options:@{} completionHandler:nil];
     });
 }
+
+// Battery charge 0..1 (-1 when unknown); *charging is 1 while plugged in.
+double painter_battery_level(int *charging) {
+    UIDevice *device = UIDevice.currentDevice;
+    if (!device.batteryMonitoringEnabled) device.batteryMonitoringEnabled = YES;
+    UIDeviceBatteryState state = device.batteryState;
+    *charging = (state == UIDeviceBatteryStateCharging || state == UIDeviceBatteryStateFull) ? 1 : 0;
+    return device.batteryLevel;
+}

@@ -285,6 +285,7 @@ impl PainterApp {
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.ws.bars.tool_strip, "Tool Strip").on_hover_text("The tools on the left");
                     ui.checkbox(&mut self.ws.bars.command_bar, "Command Bar").on_hover_text("The icon buttons under the menu");
+                    ui.checkbox(&mut self.ws.chrome.clock, "Clock and Battery").on_hover_text("The time and the battery's charge in the canvas's corner");
                     ui.menu_button("Screen Mode", |ui| {
                         let ctx = ui.ctx().clone();
                         for (mode, label) in [(0u8, "Standard"), (1, "Full Screen with Menus"), (2, "Full Screen")] {

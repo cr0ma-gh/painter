@@ -1010,7 +1010,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 78] = [
+        let fixed: [FixedCommand; 79] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -1072,6 +1072,7 @@ impl PainterApp {
             ("view.screen.2", "Screen Mode: Full Screen", C::View, "", &["fullscreen", "canvas only", "presentation", "screen mode"], true),
             ("view.ruler_bar", "Ruler Bar", C::View, "Ctrl+R", &["rulers", "measure", "guides", "units"], true),
             ("view.brush_crosshair", "Brush Crosshair On / Off", C::View, "", &["cursor", "pointer", "cross"], true),
+            ("view.clock", "Clock and Battery On / Off", C::View, "", &["time", "hour", "battery", "charge", "widget"], true),
             ("view.modifier_keys", "On-Screen Modifier Keys", C::View, "", &["ctrl", "shift", "alt", "touch", "keyboard"], true),
             ("layer.duplicate", "Duplicate Layers", C::Layer, "Ctrl+J", &["copy", "clone"], true),
             ("layer.group", "Group Layers into Folder", C::Layer, "Ctrl+G", &["folder", "group"], true),
@@ -1209,6 +1210,7 @@ impl PainterApp {
             "view.screen.2" => { let ctx = self.egui_ctx.clone(); self.set_screen_mode(&ctx, 2) }
             "view.ruler_bar" => self.ws.chrome.ruler_bar = !self.ws.chrome.ruler_bar,
             "view.brush_crosshair" => self.ws.chrome.brush_crosshair = !self.ws.chrome.brush_crosshair,
+            "view.clock" => self.ws.chrome.clock = !self.ws.chrome.clock,
             "view.ui_bigger" => self.step_ui_scale(1),
             "color.transparent" => self.toggle_transparent(),
             "layer.duplicate" => self.duplicate_selected_layers(),

@@ -225,6 +225,8 @@ pub struct PainterApp {
     pub(crate) text: crate::text_tool::TextState,
     /// Tool families on the strip: last used, open flyout.
     pub(crate) tool_groups: crate::tool_groups::ToolGroups,
+    /// The clock and battery chip over the canvas.
+    pub(crate) clock: crate::clock_widget::ClockWidget,
     /// Decoded pictures of file object layers' files.
     pub(crate) file_objects: crate::file_object::FileObjectCache,
     /// A layer being renamed in its row (double-click): id, text, field just opened.
@@ -387,6 +389,7 @@ impl PainterApp {
             actions: crate::actions::Actions::load(),
             text: Default::default(),
             tool_groups: Default::default(),
+            clock: Default::default(),
             file_objects: Default::default(),
             layer_rename: None,
             updater: Default::default(),
