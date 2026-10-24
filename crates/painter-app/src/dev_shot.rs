@@ -196,6 +196,12 @@ impl PainterApp {
                     self.tool = crate::tools::Tool::Ruler;
                     continue;
                 }
+                // `dev.relative_brush`: the current brush's size relative to the canvas.
+                if c == "dev.relative_brush" {
+                    let long = self.canvas_long_side();
+                    self.current_brush_mut().set_relative(true, long);
+                    continue;
+                }
                 // `dev.lang:CODE`: the interface in that language (not saved).
                 if let Some(code) = c.strip_prefix("dev.lang:") {
                     crate::i18n::set_language(code);

@@ -197,7 +197,10 @@ cargo run --release -p painter-app -- drawing.painter
 - **Ruler bar** (View → Ruler Bar, Ctrl+R): pixel or millimetre strips along
   the canvas with the pointer marked; drag a guide out of them, drag it back
   to remove it.
-- **Brushes:** pressure curves for size and density (with an editor),
+- **Brushes:** size in pixels or, as Clip Studio's option, relative to the
+  canvas (a share of its longer side, so a brush looks the same on a small
+  or a large document and after resizing it), pressure curves for size and
+  density (with an editor),
   per-stroke opacity, per-dab density, spacing, hardness, anti-aliasing,
   stabilisation (weighted average or pulled string), erasers. Blending modes
   per brush (as in Clip Studio: Multiply, Screen, Overlay, Add, Difference…

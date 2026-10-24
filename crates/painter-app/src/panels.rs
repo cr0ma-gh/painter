@@ -943,8 +943,34 @@ impl PainterApp {
             );
         });
         let vector_eraser = &mut self.tools.vector_erase;
+        let long = self.doc.width.max(self.doc.height).max(1) as f32;
         let brush = &mut self.brushes[self.brush].settings;
-        prop_slider(ui, "Brush Size", &mut brush.size, 0.5..=2000.0, "", 1, true);
+        // Size in pixels, or (as Clip Studio's option) a share of the canvas that follows the document.
+        match brush.size_relative {
+            Some(mut f) => {
+                let mut pct = f * 100.0;
+                if prop_slider(ui, "Brush Size", &mut pct, 0.01..=25.0, "%", 2, true) {
+                    f = pct / 100.0;
+                    brush.size_relative = Some(f);
+                    brush.size = brush.size_on(long);
+                    self.brush_px = Some((self.brush, brush.size, long));
+                }
+            }
+            None => {
+                prop_slider(ui, "Brush Size", &mut brush.size, 0.5..=2000.0, "", 1, true);
+            }
+        }
+        ui.horizontal(|ui| {
+            let mut relative = brush.size_relative.is_some();
+            let hint = tr("The size is a share of the canvas: the brush looks the same on a small or a large document, and after resizing it");
+            if ui.checkbox(&mut relative, tr("Size relative to the canvas")).on_hover_text(hint).changed() {
+                brush.set_relative(relative, long);
+                self.brush_px = relative.then_some((self.brush, brush.size, long));
+            }
+            if brush.size_relative.is_some() {
+                ui.label(egui::RichText::new(format!("= {:.1} px", brush.size)).small().color(theme::text_dim()));
+            }
+        });
         if brush.pressure_size {
             prop_percent(ui, "Minimum size", &mut brush.min_size_ratio, 0.0..=100.0);
         }

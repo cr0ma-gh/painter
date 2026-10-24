@@ -303,6 +303,11 @@ pub struct BrushSettings {
     pub blend: BrushBlend,
     /// Diameter in canvas pixels at full pressure.
     pub size: f32,
+    /// Size relative to the canvas (as Clip Studio's option): the diameter as
+    /// a fraction of the canvas's longer side, `size` following it on every
+    /// document. `None`: `size` is fixed in pixels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_relative: Option<f32>,
     /// Fraction of `size` used at zero pressure when `pressure_size` is on.
     pub min_size_ratio: f32,
     pub pressure_size: bool,
@@ -458,12 +463,25 @@ impl Default for BrushSettings {
 }
 
 impl BrushSettings {
+    /// The diameter in pixels on a canvas whose longer side is `long` pixels:
+    /// the relative size there, or the fixed size.
+    pub fn size_on(&self, long: f32) -> f32 {
+        self.size_relative.map_or(self.size, |f| (f * long).clamp(0.5, 5000.0))
+    }
+
+    /// Turns the relative size on (from the current size on a canvas `long` pixels
+    /// across) or off (the size stays as it is now).
+    pub fn set_relative(&mut self, on: bool, long: f32) {
+        self.size_relative = on.then(|| self.size / long.max(1.0));
+    }
+
     pub fn g_pen() -> Self {
         Self {
             name: "G-Pen".into(),
             mode: BrushMode::Paint,
             blend: BrushBlend::Normal,
             size: 12.0,
+            size_relative: None,
             min_size_ratio: 0.1,
             pressure_size: true,
             size_curve: PressureCurve::linear(),
@@ -599,6 +617,23 @@ impl Dab {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relative_sizes_follow_the_canvas() {
+        let mut b = BrushSettings { size: 20.0, ..BrushSettings::g_pen() };
+        assert_eq!(b.size_on(4000.0), 20.0, "fixed by default");
+        b.set_relative(true, 1000.0);
+        assert_eq!(b.size_relative, Some(0.02));
+        assert_eq!(b.size_on(1000.0), 20.0);
+        assert_eq!(b.size_on(4000.0), 80.0, "four times the canvas, four times the brush");
+        b.set_relative(false, 4000.0);
+        assert_eq!((b.size_relative, b.size_on(4000.0)), (None, 20.0));
+        // Saved with the brush; older brushes load fixed.
+        let r = BrushSettings { size_relative: Some(0.01), ..BrushSettings::g_pen() };
+        let back: BrushSettings = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+        assert_eq!(back.size_relative, Some(0.01));
+        assert_eq!(serde_json::from_str::<BrushSettings>(&serde_json::to_string(&BrushSettings::g_pen()).unwrap()).unwrap().size_relative, None);
+    }
 
     #[test]
     fn curve_interpolates() {

@@ -194,6 +194,9 @@ pub struct PainterApp {
     pub(crate) duotone_dialog: Option<crate::color_mode_ui::DuotoneDialog>,
     /// A Layer Properties slider is being dragged (one undo step for the drag).
     pub(crate) layer_props_drag: bool,
+    /// The brush whose size is relative to the canvas, the pixel size it was
+    /// given and the canvas side it was for (see `sync_brush_size`).
+    pub(crate) brush_px: Option<(usize, f32, f32)>,
     /// The Layers panel's thumbnails.
     pub(crate) layer_thumbs: crate::layer_thumbs::LayerThumbs,
     pub(crate) indexed_dialog: Option<crate::color_mode_ui::IndexedDialog>,
@@ -399,6 +402,7 @@ impl PainterApp {
             bitmap_dialog: None,
             duotone_dialog: None,
             layer_props_drag: false,
+            brush_px: None,
             layer_thumbs: Default::default(),
             indexed_dialog: None,
             color_table: None,
@@ -484,6 +488,32 @@ impl PainterApp {
 
     pub(crate) fn current_brush_mut(&mut self) -> &mut BrushSettings {
         &mut self.brushes[self.brush].settings
+    }
+
+    /// The canvas's longer side, which relative brush sizes are fractions of.
+    pub(crate) fn canvas_long_side(&self) -> f32 {
+        self.doc.width.max(self.doc.height).max(1) as f32
+    }
+
+    /// A brush with a size relative to the canvas: its pixel size follows the
+    /// document, and a size set in pixels (slider, [ and ], the Brush Size
+    /// palette) becomes its new share of the canvas. Every frame.
+    pub(crate) fn sync_brush_size(&mut self) {
+        let long = self.canvas_long_side();
+        let i = self.brush.min(self.brushes.len().saturating_sub(1));
+        let Some(settings) = self.brushes.get_mut(i).map(|b| &mut b.settings) else { return };
+        if settings.size_relative.is_none() {
+            self.brush_px = None;
+            return;
+        }
+        // Changed in pixels on this canvas since it was last set: that's the new size.
+        if let Some((bi, px, l)) = self.brush_px {
+            if bi == i && l == long && (settings.size - px).abs() > 1e-3 {
+                settings.size_relative = Some(settings.size / long);
+            }
+        }
+        settings.size = settings.size_on(long);
+        self.brush_px = Some((i, settings.size, long));
     }
 
     pub(crate) fn select_brush(&mut self, index: usize) {
@@ -1761,6 +1791,7 @@ impl eframe::App for PainterApp {
         self.dev_shot_tick(ctx);
         self.session_tick(ctx);
         self.update_proofer();
+        self.sync_brush_size();
         self.file_objects_tick();
         self.updater_tick(ctx);
         self.tablet.poll(frame);
