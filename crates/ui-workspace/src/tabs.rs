@@ -314,6 +314,9 @@ pub struct Chrome {
     /// The small clock and battery over the canvas.
     #[serde(default = "yes")]
     pub clock: bool,
+    /// Layer thumbnails in the Layers panel: 0 none, 1 small, 2 large.
+    #[serde(default = "one")]
+    pub layer_thumbs: u8,
     /// The interface language ("it", "en"…); empty: the system's.
     #[serde(default)]
     pub language: LangCode,
@@ -357,6 +360,10 @@ impl From<LangCode> for String {
     }
 }
 
+fn one() -> u8 {
+    1
+}
+
 fn yes() -> bool {
     true
 }
@@ -370,7 +377,7 @@ pub const UI_SCALE_RANGE: (f32, f32) = (0.5, 3.0);
 
 impl Default for Chrome {
     fn default() -> Self {
-        Self { menu_bar: true, toolbar: true, workspace_tabs: true, status_bar: true, zen: false, ui_scale: 1.0, ruler_bar: false, ruler_bar_mm: false, brush_crosshair: true, clock: true, language: LangCode::default() }
+        Self { menu_bar: true, toolbar: true, workspace_tabs: true, status_bar: true, zen: false, ui_scale: 1.0, ruler_bar: false, ruler_bar_mm: false, brush_crosshair: true, clock: true, layer_thumbs: 1, language: LangCode::default() }
     }
 }
 

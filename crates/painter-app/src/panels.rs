@@ -1117,6 +1117,12 @@ impl PainterApp {
                 if icon_button(ui, Icon::Up, 16.0, false, "Move the selected layers up").clicked() {
                     self.move_selected_layers(true);
                 }
+                // Thumbnail size: small, large, none.
+                let sizes = [tr("Thumbnails: off"), tr("Thumbnails: small"), tr("Thumbnails: large")];
+                let now = self.ws.chrome.layer_thumbs.min(2) as usize;
+                if icon_button(ui, Icon::Template, 16.0, now > 0, sizes[now]).clicked() {
+                    self.ws.chrome.layer_thumbs = ((now + 1) % 3) as u8;
+                }
             });
         });
         // Comic pages: the panels, in stacking order, with their clip and border.
@@ -1134,6 +1140,19 @@ impl PainterApp {
         let mut toggle_rulers = None;
         let active = self.doc.active;
         let rows = self.doc.rows_top_down();
+        // Thumbnails, as Clip Studio's (none, small, large).
+        let thumb_side = match self.ws.chrome.layer_thumbs {
+            0 => None,
+            1 => Some(30.0),
+            _ => Some(48.0),
+        };
+        if let Some(side) = thumb_side {
+            let ids: Vec<painter_core::LayerId> = rows.iter().map(|(id, _)| *id).collect();
+            let ctx = ui.ctx().clone();
+            // Pixels for the screen's density, so they stay sharp.
+            self.update_layer_thumbs(&ctx, &ids, side * ctx.pixels_per_point());
+        }
+        let row_h = thumb_side.map_or(24.0, |s: f32| s + 6.0);
         let multi = self.selected_layers();
         let modifiers = ui.input(|i| i.modifiers);
         let mut drop: Option<(painter_core::LayerId, painter_core::layer_ops::LayerDrop)> = None;
@@ -1150,7 +1169,7 @@ impl PainterApp {
                 let Some(layer) = self.doc.find_mut(id) else {
                     continue;
                 };
-                let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 24.0), Sense::click_and_drag());
+                let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), row_h), Sense::click_and_drag());
                 // Dragged within the list it moves (above, below, or into a folder);
                 // onto a document tab or a reference view it's copied there.
                 if response.drag_started() {
@@ -1261,13 +1280,36 @@ impl PainterApp {
                     LayerKind::Tone(_) => Icon::Transparency,
                     LayerKind::Adjustment(_) => Icon::Curve,
                 };
-                kind_icon.paint(
-                    ui,
-                    egui::Rect::from_min_size(egui::pos2(x, rect.top()), Vec2::new(18.0, rect.height())),
-                    14.0,
-                    theme::text_dim(),
-                );
-                x += 22.0;
+                match (thumb_side, self.layer_thumbs.get(id)) {
+                    // The layer's thumbnail, in the canvas's shape, with a small badge for vector layers.
+                    (Some(side), Some(tex)) => {
+                        let s = tex.size_vec2();
+                        let fit = Vec2::new(s.x, s.y) * (side / s.x.max(s.y));
+                        let frame = egui::Rect::from_min_size(egui::pos2(x, rect.top() + 3.0), Vec2::new(side, side));
+                        let shown = egui::Rect::from_center_size(frame.center(), fit);
+                        ui.painter().image(tex.id(), shown, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+                        ui.painter().rect_stroke(shown, 0.0, Stroke::new(1.0_f32, theme::line()), egui::StrokeKind::Outside);
+                        if matches!(layer.kind, LayerKind::Vector(_)) {
+                            let badge = egui::Rect::from_min_size(shown.right_bottom() - Vec2::splat(12.0), Vec2::splat(12.0));
+                            ui.painter().rect_filled(badge, 2.0, theme::panel());
+                            Icon::Path.paint(ui, badge, 10.0, theme::text());
+                        }
+                        x += side + 6.0;
+                    }
+                    (Some(side), None) => {
+                        kind_icon.paint(ui, egui::Rect::from_min_size(egui::pos2(x, rect.top()), Vec2::new(side, rect.height())), 16.0, theme::text_dim());
+                        x += side + 6.0;
+                    }
+                    (None, _) => {
+                        kind_icon.paint(
+                            ui,
+                            egui::Rect::from_min_size(egui::pos2(x, rect.top()), Vec2::new(18.0, rect.height())),
+                            14.0,
+                            theme::text_dim(),
+                        );
+                        x += 22.0;
+                    }
+                }
                 let name_color = if !layer.visible || layer.draft { theme::text_dim() } else { theme::strong() };
                 match &mut renaming {
                     // Renaming: a text field where the name was. Enter or clicking away keeps it, Esc doesn't.

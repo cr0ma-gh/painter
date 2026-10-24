@@ -27,6 +27,9 @@ pub enum RulerKind {
     /// vertical; with two, vertical too.
     Perspective {
         vanishing: Vec<P>,
+        /// A grid in perspective on the ground and walls (Clip Studio's perspective grid).
+        #[serde(default, skip_serializing_if = "PerspectiveGrid::is_off")]
+        grid: PerspectiveGrid,
     },
     /// `lines` copies around `origin`; with `mirror`, each is also reflected
     /// (one line + mirror = left / right symmetry).
@@ -126,7 +129,10 @@ impl Ruler {
     pub fn scaled(&self, f: f32) -> Ruler {
         let s = |p: P| [p[0] * f, p[1] * f];
         let kind = match &self.kind {
-            RulerKind::Perspective { vanishing } => RulerKind::Perspective { vanishing: vanishing.iter().map(|v| s(*v)).collect() },
+            RulerKind::Perspective { vanishing, grid } => RulerKind::Perspective {
+                vanishing: vanishing.iter().map(|v| s(*v)).collect(),
+                grid: PerspectiveGrid { origin: grid.origin.map(s), cell: grid.cell * f, ..*grid },
+            },
             RulerKind::Symmetry { origin, angle, lines, mirror } => {
                 RulerKind::Symmetry { origin: s(*origin), angle: *angle, lines: *lines, mirror: *mirror }
             }
@@ -148,7 +154,7 @@ impl Ruler {
 
     pub fn label(&self) -> &'static str {
         match &self.kind {
-            RulerKind::Perspective { vanishing } => match vanishing.len() {
+            RulerKind::Perspective { vanishing, .. } => match vanishing.len() {
                 1 => "1-point perspective",
                 2 => "2-point perspective",
                 _ => "3-point perspective",
@@ -170,7 +176,13 @@ impl Ruler {
     /// Draggable points (canvas pixels) and what each one is.
     pub fn handles(&self) -> Vec<P> {
         match &self.kind {
-            RulerKind::Perspective { vanishing } => vanishing.clone(),
+            RulerKind::Perspective { vanishing, grid } => {
+                let mut out = vanishing.clone();
+                if grid.any() {
+                    out.push(grid.origin.unwrap_or(grid.default_origin(vanishing)));
+                }
+                out
+            }
             RulerKind::Symmetry { origin, angle, .. } => vec![*origin, along(*origin, *angle, HANDLE_ARM)],
             RulerKind::ParallelLines { .. } => Vec::new(),
             RulerKind::Concentric { center, .. } | RulerKind::RadialLines { center } => vec![*center],
@@ -186,9 +198,11 @@ impl Ruler {
     /// Moves handle `index` to `p`.
     pub fn drag_handle(&mut self, index: usize, p: P) {
         match &mut self.kind {
-            RulerKind::Perspective { vanishing } => {
+            RulerKind::Perspective { vanishing, grid } => {
                 if let Some(v) = vanishing.get_mut(index) {
                     *v = p;
+                } else {
+                    grid.origin = Some(p);
                 }
             }
             RulerKind::Symmetry { origin, angle, .. } => match index {
@@ -328,7 +342,7 @@ impl RulerSet {
             2 => vec![[-w * 0.35, horizon], [w * 1.35, horizon]],
             _ => vec![[-w * 0.35, horizon], [w * 1.35, horizon], [w * 0.5, h * 2.6]],
         };
-        Ruler::new(RulerKind::Perspective { vanishing })
+        Ruler::new(RulerKind::Perspective { vanishing, grid: PerspectiveGrid::default() })
     }
 
     /// A 4- or 5-point curvilinear ruler centred on a `w` × `h` canvas: the
@@ -395,7 +409,7 @@ pub fn candidate_guides(set: &RulerSet, start: P, near: f32) -> Vec<Guide> {
     let line = |dir: P| norm(dir).map(|dir| Guide::Line { origin: start, dir });
     for r in set.active() {
         match &r.kind {
-            RulerKind::Perspective { vanishing } => {
+            RulerKind::Perspective { vanishing, .. } => {
                 out.extend(vanishing.iter().filter_map(|v| line(sub(*v, start))));
                 if vanishing.len() <= 2 {
                     out.push(Guide::Line { origin: start, dir: [0.0, 1.0] });
@@ -574,6 +588,125 @@ fn compose(b: &Copy2D, a: &Copy2D) -> Copy2D {
     Copy2D { m, angle, mirror }
 }
 
+/// A perspective ruler's grid: square cells on the ground (the plane of the
+/// horizon's vanishing points) and on the two walls standing on it, drawn
+/// from `origin` towards the vanishing points (Clip Studio's perspective grid).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PerspectiveGrid {
+    pub ground: bool,
+    /// The wall towards the first vanishing point.
+    pub left: bool,
+    /// The wall across it (towards the second point, or facing you with one point).
+    pub right: bool,
+    /// The grid's corner, canvas pixels (`None`: under the horizon).
+    pub origin: Option<P>,
+    /// A cell's side next to the corner, canvas pixels.
+    pub cell: f32,
+    /// Cells along each side.
+    pub cells: u32,
+}
+
+impl Default for PerspectiveGrid {
+    fn default() -> Self {
+        Self { ground: false, left: false, right: false, origin: None, cell: 80.0, cells: 10 }
+    }
+}
+
+impl PerspectiveGrid {
+    pub fn any(&self) -> bool {
+        self.ground || self.left || self.right
+    }
+
+    pub fn is_off(&self) -> bool {
+        *self == PerspectiveGrid::default()
+    }
+
+    /// Under the horizon's middle, as far below it as the vanishing points are apart (or 400 px).
+    pub fn default_origin(&self, vanishing: &[P]) -> P {
+        match vanishing {
+            [] => [0.0, 0.0],
+            [v] => [v[0], v[1] + 400.0],
+            [a, b, ..] => {
+                let mid = [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0];
+                [mid[0], mid[1] + (len(sub(*b, *a)) * 0.25).max(200.0)]
+            }
+        }
+    }
+}
+
+/// The grid's lines (canvas pixels) for a perspective ruler with `vanishing` points.
+///
+/// Each plane maps grid coordinates through a homography whose axes head for
+/// the vanishing points (a direction at infinity when there's no point for
+/// it: across with one point, straight up with fewer than three), scaled so
+/// the first cell next to the origin is `cell` wide.
+pub fn perspective_grid_lines(vanishing: &[P], grid: &PerspectiveGrid) -> Vec<(P, P)> {
+    if vanishing.is_empty() || !grid.any() {
+        return Vec::new();
+    }
+    let o = grid.origin.unwrap_or(grid.default_origin(vanishing));
+    let cell = grid.cell.max(2.0);
+    let n = grid.cells.clamp(1, 100) as i32;
+    // An axis: its homogeneous step, and whether it heads for a point (so it runs 0..n).
+    let axis = |vp: Option<P>, at_infinity: P| -> ([f32; 3], bool) {
+        match vp {
+            Some(v) => {
+                let d = len(sub(v, o)).max(1e-3);
+                let f = (cell / d).min(0.9);
+                let a = f / (1.0 - f);
+                ([v[0] * a, v[1] * a, a], true)
+            }
+            None => ([at_infinity[0] * cell, at_infinity[1] * cell, 0.0], false),
+        }
+    };
+    let depth = axis(Some(vanishing[0]), [0.0, 0.0]);
+    let across = axis(vanishing.get(1).copied(), [1.0, 0.0]);
+    // Walls stand on the ground: they only go up.
+    let up = (axis(vanishing.get(2).copied(), [0.0, -1.0]).0, true);
+    let mut out = Vec::new();
+    let mut plane = |u: ([f32; 3], bool), v: ([f32; 3], bool), shift: [f32; 3]| {
+        let at = |s: f32, t: f32| -> P {
+            let p = [
+                o[0] + shift[0] + s * u.0[0] + t * v.0[0],
+                o[1] + shift[1] + s * u.0[1] + t * v.0[1],
+                1.0 + shift[2] + s * u.0[2] + t * v.0[2],
+            ];
+            [p[0] / p[2], p[1] / p[2]]
+        };
+        // Towards a vanishing point the grid runs 0..n; at infinity, both ways.
+        let range = |a: &([f32; 3], bool)| if a.1 { (0, n) } else { (-n, n) };
+        let ((s0, s1), (t0, t1)) = (range(&u), range(&v));
+        for s in s0..=s1 {
+            out.push((at(s as f32, t0 as f32), at(s as f32, t1 as f32)));
+        }
+        for t in t0..=t1 {
+            out.push((at(s0 as f32, t as f32), at(s1 as f32, t as f32)));
+        }
+    };
+    if grid.ground {
+        plane(across, depth, [0.0; 3]);
+    }
+    if across.1 {
+        // Two or three points: each wall heads for its own point.
+        if grid.left {
+            plane(depth, up, [0.0; 3]);
+        }
+        if grid.right {
+            plane(across, up, [0.0; 3]);
+        }
+    } else {
+        // One point: the walls are the sides of a corridor, at the ground's edges.
+        let side = |k: f32| [across.0[0] * k, across.0[1] * k, 0.0];
+        if grid.left {
+            plane(depth, up, side(-(n as f32)));
+        }
+        if grid.right {
+            plane(depth, up, side(n as f32));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -582,10 +715,53 @@ mod tests {
         (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3
     }
 
+    /// How far `p` is from the line through `a` and `b`.
+    fn off_line(p: P, (a, b): (P, P)) -> f32 {
+        let d = sub(b, a);
+        ((p[0] - a[0]) * d[1] - (p[1] - a[1]) * d[0]).abs() / len(d).max(1e-6)
+    }
+
+    #[test]
+    fn perspective_grids_head_for_their_vanishing_points() {
+        let off = PerspectiveGrid::default();
+        assert!(perspective_grid_lines(&[[500.0, 300.0]], &off).is_empty(), "off by default");
+        // One point: the ground's depth lines meet at it, the others stay level.
+        let vp = [500.0, 300.0];
+        let grid = PerspectiveGrid { ground: true, origin: Some([500.0, 900.0]), cell: 50.0, cells: 4, ..off };
+        let lines = perspective_grid_lines(&[vp], &grid);
+        assert_eq!(lines.len(), 9 + 5, "9 depth lines (both ways across) and 5 across");
+        for l in &lines[..9] {
+            assert!(off_line(vp, *l) < 0.01, "{l:?} heads for the point");
+        }
+        for l in &lines[9..] {
+            assert!((l.0[1] - l.1[1]).abs() < 1e-3, "level: {l:?}");
+        }
+        // Cells shrink towards the point.
+        let ys: Vec<f32> = lines[9..].iter().map(|l| l.0[1]).collect();
+        assert!(ys.windows(3).all(|w| (w[0] - w[1]) > (w[1] - w[2])), "{ys:?}");
+        assert!((ys[0] - ys[1] - 50.0).abs() < 1e-2, "the first cell is the set size: {ys:?}");
+        // Two points: the ground's lines meet at one or the other; walls stand up straight.
+        let (a, b) = ([-400.0, 300.0], [1400.0, 300.0]);
+        let grid = PerspectiveGrid { ground: true, left: true, origin: Some([500.0, 800.0]), cells: 3, ..off };
+        let lines = perspective_grid_lines(&[a, b], &grid);
+        assert_eq!(lines.len(), 8 + 4 + 4);
+        assert!(lines[..8].iter().all(|l| off_line(a, *l) < 0.05 || off_line(b, *l) < 0.05));
+        assert!(lines[8..12].iter().all(|l| (l.0[0] - l.1[0]).abs() < 1e-3 && l.1[1] < l.0[1]), "the wall stands straight up");
+        assert!(lines[12..].iter().all(|l| off_line(a, *l) < 0.05), "its other lines head for the first point");
+        // The grid's corner is a handle after the points.
+        let mut r = Ruler::new(RulerKind::Perspective { vanishing: vec![a, b], grid });
+        assert_eq!(r.handles().len(), 3);
+        r.drag_handle(2, [10.0, 20.0]);
+        assert!(matches!(r.kind, RulerKind::Perspective { grid: PerspectiveGrid { origin: Some([10.0, 20.0]), .. }, .. }));
+        // Older files without a grid still load.
+        let old: RulerKind = serde_json::from_str(r#"{"type":"perspective","vanishing":[[1,2]]}"#).unwrap();
+        assert!(matches!(old, RulerKind::Perspective { grid, .. } if grid.is_off()));
+    }
+
     #[test]
     fn perspective_strokes_head_for_the_vanishing_point_they_follow() {
         let mut set = RulerSet::default();
-        set.rulers.push(Ruler::new(RulerKind::Perspective { vanishing: vec![[0.0, 100.0], [1000.0, 100.0]] }));
+        set.rulers.push(Ruler::new(RulerKind::Perspective { vanishing: vec![[0.0, 100.0], [1000.0, 100.0]], grid: PerspectiveGrid::default() }));
         // Start at (500, 300); move roughly towards the right point.
         let mut s = StrokeSnap::new(&set, [500.0, 300.0], 10.0).unwrap();
         assert_eq!(s.apply([503.0, 300.0], 8.0), None, "too early to tell");

@@ -176,6 +176,26 @@ impl PainterApp {
                     self.upload_plane(painter_render::Plane::Color(id));
                     continue;
                 }
+                // `dev.perspective:N`: an N-point perspective ruler with its grid on (ground and walls).
+                if let Some(n) = c.strip_prefix("dev.perspective:").and_then(|n| n.parse::<usize>().ok()) {
+                    let (w, h) = self.doc.canvas();
+                    let (w, h) = (w as f32, h as f32);
+                    let mut ruler = painter_core::RulerSet::perspective(n.clamp(1, 3), w, h);
+                    if let painter_core::RulerKind::Perspective { grid, .. } = &mut ruler.kind {
+                        *grid = painter_core::PerspectiveGrid {
+                            ground: true,
+                            left: true,
+                            right: n == 1,
+                            origin: Some([w * 0.5, h * 0.92]),
+                            cell: w.min(h) / 14.0,
+                            cells: 8,
+                        };
+                    }
+                    self.doc.rulers.rulers.push(ruler);
+                    self.selected_ruler = Some(self.doc.rulers.rulers.len() - 1);
+                    self.tool = crate::tools::Tool::Ruler;
+                    continue;
+                }
                 // `dev.lang:CODE`: the interface in that language (not saved).
                 if let Some(code) = c.strip_prefix("dev.lang:") {
                     crate::i18n::set_language(code);

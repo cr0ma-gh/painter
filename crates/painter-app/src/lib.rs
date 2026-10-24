@@ -39,6 +39,7 @@ mod icons;
 mod i18n;
 pub mod po;
 mod layer_props;
+mod layer_thumbs;
 mod layers_ui;
 mod lines;
 mod magnetic;

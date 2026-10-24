@@ -110,7 +110,7 @@ msgstr "Annulla"
 msgid "Brush Size"
 msgstr "Dimensione pennello"
 
-#: crates/painter-app/src/advanced_tool.rs:50 crates/painter-app/src/panels.rs:1533
+#: crates/painter-app/src/advanced_tool.rs:50 crates/painter-app/src/panels.rs:1575
 msgid "Ink"
 msgstr "Inchiostro"
 
@@ -394,39 +394,39 @@ msgstr "MyPaint"
 msgid "GIMP"
 msgstr "GIMP"
 
-#: crates/painter-app/src/app.rs:740 crates/painter-app/src/layers_ui.rs:114
+#: crates/painter-app/src/app.rs:743 crates/painter-app/src/layers_ui.rs:114
 msgid "Can't delete the last layer"
 msgstr "Impossibile eliminare l'ultimo livello"
 
-#: crates/painter-app/src/app.rs:1075
+#: crates/painter-app/src/app.rs:1078
 msgid "Fill works on raster layers and masks, not vector layers"
 msgstr "Il riempimento funziona su livelli raster e maschere, non su livelli vettoriali"
 
-#: crates/painter-app/src/app.rs:1115
+#: crates/painter-app/src/app.rs:1118
 msgid "No reference layer: tick Reference on the ink layers in the Layers panel"
 msgstr "Nessun livello di riferimento: spunta Rif sui livelli d'inchiostro nel pannello Livelli"
 
-#: crates/painter-app/src/app.rs:1170
+#: crates/painter-app/src/app.rs:1173
 msgid "Gradients paint on raster layers and masks"
 msgstr "Le sfumature si dipingono su livelli raster e maschere"
 
-#: crates/painter-app/src/app.rs:1199
+#: crates/painter-app/src/app.rs:1202
 msgid "Nothing selected"
 msgstr "Nessuna selezione"
 
-#: crates/painter-app/src/app.rs:1206
+#: crates/painter-app/src/app.rs:1209
 msgid "Use the vector eraser on vector layers"
 msgstr "Usa la gomma vettoriale sui livelli vettoriali"
 
-#: crates/painter-app/src/app.rs:1352
+#: crates/painter-app/src/app.rs:1355
 msgid "This brush isn't one of the built-in ones: it has no default to go back to"
 msgstr "Questo pennello non è uno di quelli predefiniti: non ha un'impostazione originale a cui tornare"
 
-#: crates/painter-app/src/app.rs:1393
+#: crates/painter-app/src/app.rs:1396
 msgid "The brush list is back to the default brushes"
 msgstr "L'elenco dei pennelli è tornato ai pennelli predefiniti"
 
-#: crates/painter-app/src/app.rs:1683
+#: crates/painter-app/src/app.rs:1686
 msgid "Clip Studio export needs one .clip saved by Clip Studio (any, even an empty canvas) as a template"
 msgstr "L'esportazione per Clip Studio richiede come modello un .clip salvato da Clip Studio (qualsiasi, anche una tela vuota)"
 
@@ -642,7 +642,7 @@ msgstr "Dithering a diffusione"
 msgid "Halftone Screen"
 msgstr "Retino mezzetinte"
 
-#: crates/painter-app/src/color_mode_ui.rs:253
+#: crates/painter-app/src/color_mode_ui.rs:253 crates/painter-app/src/rulers_ui.rs:505
 msgid "Cell size"
 msgstr "Dimensione cella"
 
@@ -1146,7 +1146,7 @@ msgstr "Un livello ciascuna, stesso ritaglio e pulizia"
 msgid "Remove page"
 msgstr "Rimuovi pagina"
 
-#: crates/painter-app/src/dialogs.rs:730 crates/painter-app/src/rulers_ui.rs:351 crates/painter-core/src/selection.rs:23
+#: crates/painter-app/src/dialogs.rs:730 crates/painter-app/src/rulers_ui.rs:356 crates/painter-core/src/selection.rs:23
 msgid "Add"
 msgstr "Aggiungi"
 
@@ -1326,7 +1326,7 @@ msgstr "Disponi"
 msgid "Lay the pictures (or the selected ones) out in rows"
 msgstr "Disponi le immagini (o quelle selezionate) in righe"
 
-#: crates/painter-app/src/document_manager/split_viewport.rs:843 crates/painter-app/src/rulers_ui.rs:487
+#: crates/painter-app/src/document_manager/split_viewport.rs:843 crates/painter-app/src/rulers_ui.rs:512
 msgid "Mirror"
 msgstr "Specchia"
 
@@ -1426,7 +1426,7 @@ msgstr "Cancella i suoi segni"
 msgid "Remove  (Delete)"
 msgstr "Rimuovi  (Canc)"
 
-#: crates/painter-app/src/document_manager/tab_bar.rs:132 crates/painter-app/src/rulers_ui.rs:441
+#: crates/painter-app/src/document_manager/tab_bar.rs:132 crates/painter-app/src/rulers_ui.rs:446
 msgid "x"
 msgstr "x"
 
@@ -1474,7 +1474,7 @@ msgstr "Livello corrente"
 msgid "Only the layer being edited"
 msgstr "Solo il livello in modifica"
 
-#: crates/painter-app/src/eyedropper.rs:256 crates/painter-app/src/layer_props.rs:167 crates/painter-app/src/scene_ui.rs:923
+#: crates/painter-app/src/eyedropper.rs:256 crates/painter-app/src/layer_props.rs:167 crates/painter-app/src/scene_ui.rs:928
 msgid "Range"
 msgstr "Area"
 
@@ -2158,7 +2158,7 @@ msgstr "Ripristina predefinito"
 msgid "Imported brushes have no default to go back to"
 msgstr "I pennelli importati non hanno un'impostazione predefinita a cui tornare"
 
-#: crates/painter-app/src/panels.rs:623 crates/painter-app/src/panels.rs:1438
+#: crates/painter-app/src/panels.rs:623 crates/painter-app/src/panels.rs:1480
 msgid "Duplicate"
 msgstr "Duplica"
 
@@ -2262,7 +2262,7 @@ msgstr "Maiusc: aggiungi · Alt: sottrai · Maiusc+Alt: interseca. Clic per dese
 msgid "Shared with the fill bucket."
 msgstr "Condivisa con il secchiello."
 
-#: crates/painter-app/src/panels.rs:825 crates/painter-app/src/scene_ui.rs:785 crates/painter-app/src/tools.rs:177
+#: crates/painter-app/src/panels.rs:825 crates/painter-app/src/scene_ui.rs:790 crates/painter-app/src/tools.rs:177
 msgid "Transform"
 msgstr "Trasforma"
 
@@ -2406,79 +2406,91 @@ msgstr "Curva di pressione"
 msgid "Zoom"
 msgstr "Zoom"
 
-#: crates/painter-app/src/panels.rs:1218
+#: crates/painter-app/src/panels.rs:1121
+msgid "Thumbnails: off"
+msgstr "Miniature: spente"
+
+#: crates/painter-app/src/panels.rs:1121
+msgid "Thumbnails: small"
+msgstr "Miniature: piccole"
+
+#: crates/painter-app/src/panels.rs:1121
+msgid "Thumbnails: large"
+msgstr "Miniature: grandi"
+
+#: crates/painter-app/src/panels.rs:1237
 msgid "Show / hide (all the selected layers, when this one is selected)"
 msgstr "Mostra / nascondi (tutti i livelli selezionati, quando questo è selezionato)"
 
-#: crates/painter-app/src/panels.rs:1241
+#: crates/painter-app/src/panels.rs:1260
 msgid "Select or deselect this layer (Shift: the range from the active one)"
 msgstr "Seleziona o deseleziona questo livello (Maiusc: l'intervallo da quello attivo)"
 
-#: crates/painter-app/src/panels.rs:1319
+#: crates/painter-app/src/panels.rs:1361
 msgid "This layer has rulers: click to show or hide them"
 msgstr "Questo livello ha dei righelli: clicca per mostrarli o nasconderli"
 
-#: crates/painter-app/src/panels.rs:1418
+#: crates/painter-app/src/panels.rs:1460
 msgid "Blend (all)"
 msgstr "Fusione (tutti)"
 
-#: crates/painter-app/src/panels.rs:1428
+#: crates/painter-app/src/panels.rs:1470
 msgid "Opacity (all)"
 msgstr "Opacità (tutti)"
 
-#: crates/painter-app/src/panels.rs:1441
+#: crates/painter-app/src/panels.rs:1483
 msgid "Group"
 msgstr "Raggruppa"
 
-#: crates/painter-app/src/panels.rs:1444
+#: crates/painter-app/src/panels.rs:1486
 msgid "Draft on / off"
 msgstr "Bozza sì / no"
 
-#: crates/painter-app/src/panels.rs:1468
+#: crates/painter-app/src/panels.rs:1510
 msgid "Opacity: drag sideways or type"
 msgstr "Opacità: trascina di lato o scrivi"
 
-#: crates/painter-app/src/panels.rs:1509
+#: crates/painter-app/src/panels.rs:1551
 msgid "Pass-through blending"
 msgstr "Fusione passante"
 
-#: crates/painter-app/src/panels.rs:1513
+#: crates/painter-app/src/panels.rs:1555
 msgid "Paper colour"
 msgstr "Colore della carta"
 
-#: crates/painter-app/src/panels.rs:1519
+#: crates/painter-app/src/panels.rs:1561
 msgid "From"
 msgstr "Da"
 
-#: crates/painter-app/src/panels.rs:1521
+#: crates/painter-app/src/panels.rs:1563
 msgid "To"
 msgstr "A"
 
-#: crates/painter-app/src/panels.rs:1529
+#: crates/painter-app/src/panels.rs:1571
 msgid "Drag with the Gradient tool to place it."
 msgstr "Trascina con lo strumento Sfumatura per posizionarla."
 
-#: crates/painter-app/src/panels.rs:1536
+#: crates/painter-app/src/panels.rs:1578
 msgid "Dot pitch"
 msgstr "Passo dei punti"
 
-#: crates/painter-app/src/panels.rs:1557
+#: crates/painter-app/src/panels.rs:1599
 msgid "Mask"
 msgstr "Maschera"
 
-#: crates/painter-app/src/panels.rs:1558
+#: crates/painter-app/src/panels.rs:1600
 msgid "Edit mask"
 msgstr "Modifica maschera"
 
-#: crates/painter-app/src/panels.rs:1559
+#: crates/painter-app/src/panels.rs:1601
 msgid "Brush hides, eraser reveals, fill/gradient hide"
 msgstr "Il pennello nasconde, la gomma rivela, riempimento/sfumatura nascondono"
 
-#: crates/painter-app/src/panels.rs:1560
+#: crates/painter-app/src/panels.rs:1602
 msgid "Delete the mask"
 msgstr "Elimina la maschera"
 
-#: crates/painter-app/src/panels.rs:1611
+#: crates/painter-app/src/panels.rs:1653
 msgid "(imported)"
 msgstr "(importato)"
 
@@ -2610,211 +2622,235 @@ msgstr "Unità della barra righelli: clicca per passare tra pixel e millimetri"
 msgid "Guide added: move it with the Ruler tool, or drag it back onto the ruler bar"
 msgstr "Guida aggiunta: spostala con lo strumento Righello, o trascinala di nuovo sulla barra righelli"
 
-#: crates/painter-app/src/rulers_ui.rs:346
+#: crates/painter-app/src/rulers_ui.rs:351
 msgid "Snap to rulers  (Ctrl+1)"
 msgstr "Aggancia ai righelli  (Ctrl+1)"
 
-#: crates/painter-app/src/rulers_ui.rs:352 crates/painter-app/src/scene_ui.rs:834
+#: crates/painter-app/src/rulers_ui.rs:357 crates/painter-app/src/scene_ui.rs:839
 msgid "Perspective"
 msgstr "Prospettiva"
 
-#: crates/painter-app/src/rulers_ui.rs:370
+#: crates/painter-app/src/rulers_ui.rs:375
 msgid "Symmetry"
 msgstr "Simmetria"
 
-#: crates/painter-app/src/rulers_ui.rs:380
+#: crates/painter-app/src/rulers_ui.rs:385
 msgid "Special"
 msgstr "Speciale"
 
-#: crates/painter-app/src/rulers_ui.rs:394
+#: crates/painter-app/src/rulers_ui.rs:399
 msgid "Guide"
 msgstr "Guida"
 
-#: crates/painter-app/src/rulers_ui.rs:395
+#: crates/painter-app/src/rulers_ui.rs:400
 msgid "Horizontal"
 msgstr "Orizzontale"
 
-#: crates/painter-app/src/rulers_ui.rs:399 crates/painter-app/src/text_tool.rs:974
+#: crates/painter-app/src/rulers_ui.rs:404 crates/painter-app/src/text_tool.rs:974
 msgid "Vertical"
 msgstr "Verticale"
 
-#: crates/painter-app/src/rulers_ui.rs:410
+#: crates/painter-app/src/rulers_ui.rs:415
 msgid "No rulers yet. Add one above, then drag its handles on the canvas."
 msgstr "Ancora nessun righello. Aggiungine uno qui sopra, poi trascina le sue maniglie sulla tela."
 
-#: crates/painter-app/src/rulers_ui.rs:432
+#: crates/painter-app/src/rulers_ui.rs:437
 msgid "Show"
 msgstr "Mostra"
 
-#: crates/painter-app/src/rulers_ui.rs:433
+#: crates/painter-app/src/rulers_ui.rs:438
 msgid "Snap strokes to it"
 msgstr "Aggancia i tratti a questo"
 
-#: crates/painter-app/src/rulers_ui.rs:437
+#: crates/painter-app/src/rulers_ui.rs:442
 msgid "Not active on the layer being edited"
 msgstr "Non attivo sul livello in modifica"
 
-#: crates/painter-app/src/rulers_ui.rs:457
+#: crates/painter-app/src/rulers_ui.rs:462
 msgid "Applies to"
 msgstr "Si applica a"
 
-#: crates/painter-app/src/rulers_ui.rs:466
+#: crates/painter-app/src/rulers_ui.rs:471
 msgid "Give the ruler to the layer being edited"
 msgstr "Assegna il righello al livello in modifica"
 
-#: crates/painter-app/src/rulers_ui.rs:483
+#: crates/painter-app/src/rulers_ui.rs:488
 msgid "Drag the points on the canvas. Strokes follow the line towards the point they head for; one and two points also give vertical (and horizontal) lines."
 msgstr "Trascina i punti sulla tela. I tratti seguono la linea verso il punto a cui puntano; uno e due punti danno anche linee verticali (e orizzontali)."
 
-#: crates/painter-app/src/rulers_ui.rs:486
+#: crates/painter-app/src/rulers_ui.rs:491
+msgid "Perspective grid"
+msgstr "Griglia prospettica"
+
+#: crates/painter-app/src/rulers_ui.rs:494
+msgid "Ground"
+msgstr "Pavimento"
+
+#: crates/painter-app/src/rulers_ui.rs:495
+msgid "Left wall"
+msgstr "Parete sinistra"
+
+#: crates/painter-app/src/rulers_ui.rs:496
+msgid "Right wall"
+msgstr "Parete destra"
+
+#: crates/painter-app/src/rulers_ui.rs:506
+msgid "Cells"
+msgstr "Celle"
+
+#: crates/painter-app/src/rulers_ui.rs:507
+msgid "Drag the grid's corner (the last handle) to move it along the ground."
+msgstr "Trascina l'angolo della griglia (l'ultima maniglia) per spostarla sul pavimento."
+
+#: crates/painter-app/src/rulers_ui.rs:511
 msgid "Lines"
 msgstr "Linee"
 
-#: crates/painter-app/src/rulers_ui.rs:489
+#: crates/painter-app/src/rulers_ui.rs:514
 msgid "Drag the centre, and the second handle to turn the axis."
 msgstr "Trascina il centro, e la seconda maniglia per ruotare l'asse."
 
-#: crates/painter-app/src/rulers_ui.rs:495
+#: crates/painter-app/src/rulers_ui.rs:520
 msgid "Ellipse ratio"
 msgstr "Rapporto dell'ellisse"
 
-#: crates/painter-app/src/rulers_ui.rs:502
+#: crates/painter-app/src/rulers_ui.rs:527
 msgid "Fifth point (fisheye)"
 msgstr "Quinto punto (fisheye)"
 
-#: crates/painter-app/src/rulers_ui.rs:502
+#: crates/painter-app/src/rulers_ui.rs:527
 msgid "Lines also run straight out of the centre"
 msgstr "Le linee partono anche dritte dal centro"
 
-#: crates/painter-app/src/rulers_ui.rs:508
+#: crates/painter-app/src/rulers_ui.rs:533
 msgid "Drag the centre, the right point (turns the horizon) and the lower point. Strokes bend into arcs through the pair of points they head for."
 msgstr "Trascina il centro, il punto destro (ruota l'orizzonte) e il punto inferiore. I tratti si curvano in archi attraverso la coppia di punti verso cui vanno."
 
-#: crates/painter-app/src/rulers_ui.rs:511
+#: crates/painter-app/src/rulers_ui.rs:536
 msgid "Drag its handles on the canvas."
 msgstr "Trascina le sue maniglie sulla tela."
 
-#: crates/painter-app/src/rulers_ui.rs:517
+#: crates/painter-app/src/rulers_ui.rs:542
 msgid "Show grid  (Ctrl+')"
 msgstr "Mostra griglia  (Ctrl+')"
 
-#: crates/painter-app/src/rulers_ui.rs:522
+#: crates/painter-app/src/rulers_ui.rs:547
 msgid "Subdivisions"
 msgstr "Suddivisioni"
 
-#: crates/painter-app/src/scene_ui.rs:263
+#: crates/painter-app/src/scene_ui.rs:268
 msgid "Select a 3D layer to add the model to"
 msgstr "Seleziona un livello 3D a cui aggiungere il modello"
 
-#: crates/painter-app/src/scene_ui.rs:701 crates/painter-app/src/workspace_ui.rs:883
+#: crates/painter-app/src/scene_ui.rs:706 crates/painter-app/src/workspace_ui.rs:883
 msgid "The active layer isn't a 3D layer."
 msgstr "Il livello attivo non è un livello 3D."
 
-#: crates/painter-app/src/scene_ui.rs:702
+#: crates/painter-app/src/scene_ui.rs:707
 msgid "New 3D layer from a model…"
 msgstr "Nuovo livello 3D da un modello…"
 
-#: crates/painter-app/src/scene_ui.rs:702
+#: crates/painter-app/src/scene_ui.rs:707
 msgid ".blend (Blender 3.4+), .obj, .fbx, .gltf or .glb"
 msgstr ".blend (Blender 3.4+), .obj, .fbx, .gltf o .glb"
 
-#: crates/painter-app/src/scene_ui.rs:705 crates/painter-app/src/workspace_ui.rs:888
+#: crates/painter-app/src/scene_ui.rs:710 crates/painter-app/src/workspace_ui.rs:888
 msgid "New 3D layer from the perspective ruler"
 msgstr "Nuovo livello 3D dal righello prospettico"
 
-#: crates/painter-app/src/scene_ui.rs:705
+#: crates/painter-app/src/scene_ui.rs:710
 msgid "Turns the drawing's vanishing points into a 3D space; drop models on the canvas to place them"
 msgstr "Trasforma i punti di fuga del disegno in uno spazio 3D; trascina i modelli sulla tela per posizionarli"
 
-#: crates/painter-app/src/scene_ui.rs:750
+#: crates/painter-app/src/scene_ui.rs:755
 msgid "Local"
 msgstr "Locale"
 
-#: crates/painter-app/src/scene_ui.rs:750
+#: crates/painter-app/src/scene_ui.rs:755
 msgid "Gizmo along the object's own axes"
 msgstr "Gizmo lungo gli assi dell'oggetto"
 
-#: crates/painter-app/src/scene_ui.rs:757
+#: crates/painter-app/src/scene_ui.rs:762
 msgid "Objects"
 msgstr "Oggetti"
 
-#: crates/painter-app/src/scene_ui.rs:810
+#: crates/painter-app/src/scene_ui.rs:815
 msgid "Colour"
 msgstr "Colore"
 
-#: crates/painter-app/src/scene_ui.rs:830
+#: crates/painter-app/src/scene_ui.rs:835
 msgid "Camera"
 msgstr "Fotocamera"
 
-#: crates/painter-app/src/scene_ui.rs:838
+#: crates/painter-app/src/scene_ui.rs:843
 msgid "Orthographic"
 msgstr "Ortografica"
 
-#: crates/painter-app/src/scene_ui.rs:845
+#: crates/painter-app/src/scene_ui.rs:850
 msgid "FOV"
 msgstr "FOV"
 
-#: crates/painter-app/src/scene_ui.rs:866
+#: crates/painter-app/src/scene_ui.rs:871
 msgid "Orbit"
 msgstr "Orbita"
 
-#: crates/painter-app/src/scene_ui.rs:867
+#: crates/painter-app/src/scene_ui.rs:872
 msgid "Turntable"
 msgstr "Piatto rotante"
 
-#: crates/painter-app/src/scene_ui.rs:868
+#: crates/painter-app/src/scene_ui.rs:873
 msgid "Trackball"
 msgstr "Trackball"
 
-#: crates/painter-app/src/scene_ui.rs:872
+#: crates/painter-app/src/scene_ui.rs:877
 msgid "Blender Camera"
 msgstr "Fotocamera Blender"
 
-#: crates/painter-app/src/scene_ui.rs:875
+#: crates/painter-app/src/scene_ui.rs:880
 msgid "Perspective Ruler from View"
 msgstr "Righello prospettico dalla vista"
 
-#: crates/painter-app/src/scene_ui.rs:876
+#: crates/painter-app/src/scene_ui.rs:881
 msgid "Set this layer's perspective ruler to the vanishing points of the scene's axes in this view"
 msgstr "Imposta il righello prospettico di questo livello sui punti di fuga degli assi della scena in questa vista"
 
-#: crates/painter-app/src/scene_ui.rs:879
+#: crates/painter-app/src/scene_ui.rs:884
 msgid "Middle drag orbits · Shift pans · Ctrl or wheel zooms"
 msgstr "Trascina col tasto centrale per orbitare · Maiusc sposta · Ctrl o rotella zooma"
 
-#: crates/painter-app/src/scene_ui.rs:882
+#: crates/painter-app/src/scene_ui.rs:887
 msgid "Lights"
 msgstr "Luci"
 
-#: crates/painter-app/src/scene_ui.rs:883
+#: crates/painter-app/src/scene_ui.rs:888
 msgid "Ambient"
 msgstr "Ambiente"
 
-#: crates/painter-app/src/scene_ui.rs:896
+#: crates/painter-app/src/scene_ui.rs:901
 msgid "Intensity"
 msgstr "Intensità"
 
-#: crates/painter-app/src/scene_ui.rs:904
+#: crates/painter-app/src/scene_ui.rs:909
 msgid "Azimuth"
 msgstr "Azimut"
 
-#: crates/painter-app/src/scene_ui.rs:905
+#: crates/painter-app/src/scene_ui.rs:910
 msgid "Elevation"
 msgstr "Elevazione"
 
-#: crates/painter-app/src/scene_ui.rs:915
+#: crates/painter-app/src/scene_ui.rs:920
 msgid "Position"
 msgstr "Posizione"
 
-#: crates/painter-app/src/scene_ui.rs:935
+#: crates/painter-app/src/scene_ui.rs:940
 msgid "+ Sun"
 msgstr "+ Sole"
 
-#: crates/painter-app/src/scene_ui.rs:944
+#: crates/painter-app/src/scene_ui.rs:949
 msgid "+ Point"
 msgstr "+ Punto"
 
-#: crates/painter-app/src/scene_ui.rs:992
+#: crates/painter-app/src/scene_ui.rs:997
 msgid "3D layer flattened to pixels"
 msgstr "Livello 3D appiattito in pixel"
 
@@ -2994,7 +3030,7 @@ msgstr "Mantieni lo stesso scostamento da un tratto al successivo"
 msgid "Sample"
 msgstr "Campiona"
 
-#: crates/painter-app/src/stamp_tool.rs:201 crates/painter-core/src/fill_tool/reference_mask.rs:31 crates/painter-core/src/rulers.rs:94
+#: crates/painter-app/src/stamp_tool.rs:201 crates/painter-core/src/fill_tool/reference_mask.rs:31 crates/painter-core/src/rulers.rs:97
 msgid "All layers"
 msgstr "Tutti i livelli"
 
@@ -4398,67 +4434,67 @@ msgstr "Lineare"
 msgid "Radial"
 msgstr "Radiale"
 
-#: crates/painter-core/src/rulers.rs:92
+#: crates/painter-core/src/rulers.rs:95
 msgid "Only its layer"
 msgstr "Solo il suo livello"
 
-#: crates/painter-core/src/rulers.rs:93
+#: crates/painter-core/src/rulers.rs:96
 msgid "Layers in the same folder"
 msgstr "Livelli nella stessa cartella"
 
-#: crates/painter-core/src/rulers.rs:152
+#: crates/painter-core/src/rulers.rs:158
 msgid "1-point perspective"
 msgstr "Prospettiva a 1 punto"
 
-#: crates/painter-core/src/rulers.rs:153
+#: crates/painter-core/src/rulers.rs:159
 msgid "2-point perspective"
 msgstr "Prospettiva a 2 punti"
 
-#: crates/painter-core/src/rulers.rs:154
+#: crates/painter-core/src/rulers.rs:160
 msgid "3-point perspective"
 msgstr "Prospettiva a 3 punti"
 
-#: crates/painter-core/src/rulers.rs:156
+#: crates/painter-core/src/rulers.rs:162
 msgid "Mirror symmetry"
 msgstr "Simmetria speculare"
 
-#: crates/painter-core/src/rulers.rs:157
+#: crates/painter-core/src/rulers.rs:163
 msgid "Kaleidoscope"
 msgstr "Caleidoscopio"
 
-#: crates/painter-core/src/rulers.rs:158
+#: crates/painter-core/src/rulers.rs:164
 msgid "Rotational symmetry"
 msgstr "Simmetria rotazionale"
 
-#: crates/painter-core/src/rulers.rs:159
+#: crates/painter-core/src/rulers.rs:165
 msgid "Parallel lines"
 msgstr "Linee parallele"
 
-#: crates/painter-core/src/rulers.rs:160
+#: crates/painter-core/src/rulers.rs:166
 msgid "Concentric circles"
 msgstr "Cerchi concentrici"
 
-#: crates/painter-core/src/rulers.rs:161
+#: crates/painter-core/src/rulers.rs:167
 msgid "Radial lines"
 msgstr "Linee radiali"
 
-#: crates/painter-core/src/rulers.rs:162
+#: crates/painter-core/src/rulers.rs:168
 msgid "Straight ruler"
 msgstr "Righello dritto"
 
-#: crates/painter-core/src/rulers.rs:163
+#: crates/painter-core/src/rulers.rs:169
 msgid "Vertical guide"
 msgstr "Guida verticale"
 
-#: crates/painter-core/src/rulers.rs:164
+#: crates/painter-core/src/rulers.rs:170
 msgid "Horizontal guide"
 msgstr "Guida orizzontale"
 
-#: crates/painter-core/src/rulers.rs:165
+#: crates/painter-core/src/rulers.rs:171
 msgid "4-point curvilinear perspective"
 msgstr "Prospettiva curvilinea a 4 punti"
 
-#: crates/painter-core/src/rulers.rs:166
+#: crates/painter-core/src/rulers.rs:172
 msgid "5-point curvilinear perspective"
 msgstr "Prospettiva curvilinea a 5 punti"
 

@@ -235,7 +235,12 @@ impl PainterApp {
             return None;
         }
         let count = vanishing.len();
-        let kind = RulerKind::Perspective { vanishing };
+        // The grid the ruler had stays.
+        let grid = existing.and_then(|i| match &rulers[i].kind {
+            RulerKind::Perspective { grid, .. } => Some(*grid),
+            _ => None,
+        });
+        let kind = RulerKind::Perspective { vanishing, grid: grid.unwrap_or_default() };
         match existing {
             Some(i) => rulers[i].kind = kind,
             None => rulers.push(Ruler { scope: RulerScope::AllLayers, ..Ruler::on_layer(kind, id.0) }),
@@ -285,7 +290,7 @@ impl PainterApp {
         let applies = |r: &&Ruler| r.visible && (r.layer.is_none() || r.layer == Some(active) || matches!(r.scope, RulerScope::AllLayers));
         let ruler = rulers.iter().filter(perspective).find(applies).or_else(|| rulers.iter().find(perspective))?;
         match &ruler.kind {
-            RulerKind::Perspective { vanishing } => Some(vanishing.clone()),
+            RulerKind::Perspective { vanishing, .. } => Some(vanishing.clone()),
             _ => None,
         }
     }

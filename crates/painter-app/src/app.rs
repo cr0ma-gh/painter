@@ -194,6 +194,8 @@ pub struct PainterApp {
     pub(crate) duotone_dialog: Option<crate::color_mode_ui::DuotoneDialog>,
     /// A Layer Properties slider is being dragged (one undo step for the drag).
     pub(crate) layer_props_drag: bool,
+    /// The Layers panel's thumbnails.
+    pub(crate) layer_thumbs: crate::layer_thumbs::LayerThumbs,
     pub(crate) indexed_dialog: Option<crate::color_mode_ui::IndexedDialog>,
     pub(crate) color_table: Option<crate::color_mode_ui::ColorTableDialog>,
     pub(crate) last_duotone: painter_core::duotone::Duotone,
@@ -397,6 +399,7 @@ impl PainterApp {
             bitmap_dialog: None,
             duotone_dialog: None,
             layer_props_drag: false,
+            layer_thumbs: Default::default(),
             indexed_dialog: None,
             color_table: None,
             last_duotone: Default::default(),

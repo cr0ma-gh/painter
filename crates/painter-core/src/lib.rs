@@ -52,7 +52,7 @@ pub use document::{Document, SavedChannel, DEFAULT_DPI, MAX_CANVAS_SIZE};
 pub use history::History;
 pub use layer::{clip_targets, ClipTo, FileObject, Folder, Layer, LayerId, LayerKind, Mask, VectorLayer, VectorStroke};
 pub use procedural::{Gradient, GradientShape, Tone};
-pub use rulers::{Grid, Ruler, RulerKind, RulerScope, RulerSet};
+pub use rulers::{Grid, PerspectiveGrid, Ruler, RulerKind, RulerScope, RulerSet};
 pub use selection::SelectionOp;
 pub use smoothing::{Smoother, StrokePoint};
 pub use stroke::StrokeEngine;

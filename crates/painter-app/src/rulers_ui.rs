@@ -132,7 +132,12 @@ impl PainterApp {
             let color = if on { ACTIVE } else { Color32::from_rgba_unmultiplied(150, 150, 150, 150) };
             let color = if selected { color } else { color.gamma_multiply(0.75) };
             match &r.kind {
-                RulerKind::Perspective { vanishing } => {
+                RulerKind::Perspective { vanishing, grid } => {
+                    // The perspective grid on the ground and walls, under the fan.
+                    let grid_color = Color32::from_rgba_unmultiplied(255, 150, 60, if selected { 150 } else { 110 });
+                    for (a, b) in painter_core::rulers::perspective_grid_lines(vanishing, grid) {
+                        line(a, b, grid_color, 1.0);
+                    }
                     // A fan of lines from each vanishing point across the canvas.
                     for v in vanishing {
                         for k in 0..24 {
@@ -468,7 +473,7 @@ impl PainterApp {
                 changed = true;
             }
             match &mut r.kind {
-                RulerKind::Perspective { vanishing } => {
+                RulerKind::Perspective { vanishing, grid } => {
                     ui.horizontal(|ui| {
                         ui.label(format!("{} vanishing point(s)", vanishing.len()));
                         if ui.add_enabled(vanishing.len() < 3, egui::Button::new(tr("+"))).clicked() {
@@ -481,6 +486,26 @@ impl PainterApp {
                         }
                     });
                     ui.small(tr("Drag the points on the canvas. Strokes follow the line towards the point they head for; one and two points also give vertical (and horizontal) lines."));
+                    // The perspective grid (Clip Studio's): ground and walls in perspective.
+                    ui.separator();
+                    ui.label(tr("Perspective grid"));
+                    ui.horizontal(|ui| {
+                        let was_off = !grid.any();
+                        changed |= ui.checkbox(&mut grid.ground, tr("Ground")).changed();
+                        changed |= ui.checkbox(&mut grid.left, tr("Left wall")).changed();
+                        changed |= ui.checkbox(&mut grid.right, tr("Right wall")).changed();
+                        // First time on: a corner low on the canvas, cells sized to it.
+                        if was_off && grid.any() && grid.origin.is_none() {
+                            let horizon_y = vanishing.iter().take(2).map(|v| v[1]).sum::<f32>() / vanishing.len().min(2) as f32;
+                            grid.origin = Some([w * 0.5, (h * 0.85).max(horizon_y + h * 0.1)]);
+                            grid.cell = (w.min(h) / 12.0).max(4.0);
+                        }
+                    });
+                    if grid.any() {
+                        changed |= ui.add(egui::Slider::new(&mut grid.cell, 4.0..=2000.0).logarithmic(true).text(tr("Cell size")).suffix(" px")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut grid.cells, 1..=40).text(tr("Cells"))).changed();
+                        ui.small(tr("Drag the grid's corner (the last handle) to move it along the ground."));
+                    }
                 }
                 RulerKind::Symmetry { angle, lines, mirror, .. } => {
                     changed |= ui.add(egui::Slider::new(lines, 1..=32).text(tr("Lines"))).changed();

@@ -43,7 +43,8 @@ cargo run --release -p painter-app -- drawing.painter
 - **Layers:** raster, vector, folders (pass-through or isolated), paper,
   gradient and screentone layers. Each has 13 blend modes, opacity, locks,
   clipping to the layer below, and layer masks. The Layer palette works like Clip
-  Studio's (double-click a layer to rename it): Ctrl / Shift + click, or the selection checkbox on each row
+  Studio's, with a thumbnail of each layer (small, large or off; the button
+  beside the arrows) (double-click a layer to rename it): Ctrl / Shift + click, or the selection checkbox on each row
   (and "Select all" above the list), selects several layers; drag them above,
   below or into a folder; duplicate (Ctrl+J, folders with their contents),
   group into a folder (Ctrl+G), delete, show / hide, lock or change opacity
@@ -265,7 +266,10 @@ cargo run --release -p painter-app -- drawing.painter
   selection, with a live preview computed off the UI thread and one undo step.
 - **Rulers and guides** (Ruler tool; geometry in `painter_core::rulers`):
   1-, 2- and 3-point perspective (strokes follow the line towards the
-  vanishing point they head for, plus verticals / horizontals), 4-point
+  vanishing point they head for, plus verticals / horizontals; a perspective
+  grid on the ground and walls, as Clip Studio's, with cell size, number of
+  cells and a draggable corner; with one point the walls are a corridor's
+  sides), 4-point
   curvilinear perspective (strokes bend into arcs through the left / right or
   top / bottom vanishing points) and 5-point fisheye (plus lines out of the
   centre), mirror,
