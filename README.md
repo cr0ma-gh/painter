@@ -345,7 +345,8 @@ cargo run --release -p painter-app -- drawing.painter
 - **Brush library:** the brush list (built-in and imported brushes, edits,
   order, tips and textures) is saved to `%APPDATA%\Painter\brushes.rustbrush`
   and comes back at the next launch. Right-click a brush to reset it to its
-  default settings (built-in brushes), duplicate or delete it; Tool Settings
+  default settings (built-in brushes), rename (or double-click it), duplicate
+  ("… copy") or delete it; a renamed brush stays in its group; Tool Settings
   has a Reset button too. Right-click the import button to reset every
   built-in brush, reset the whole list (with a warning about imported
   brushes), or add

@@ -300,8 +300,12 @@ impl BrushGroup {
         }
     }
 
-    /// Erasers by mode; the rest by keywords in the name, defaulting to Brush.
+    /// A pinned group first (see `BrushSettings::group`); then erasers by mode,
+    /// the rest by keywords in the name, defaulting to Brush.
     pub fn of(settings: &BrushSettings) -> BrushGroup {
+        if let Some(pinned) = BrushGroup::ALL.into_iter().find(|g| settings.group.as_deref() == Some(crate::toolbar::group_key(*g))) {
+            return pinned;
+        }
         if settings.mode == BrushMode::Erase {
             return BrushGroup::Eraser;
         }

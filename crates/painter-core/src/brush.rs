@@ -297,6 +297,10 @@ impl RotationDynamics {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BrushSettings {
     pub name: String,
+    /// The toolbar group ("pen", "pencil", "brush", "airbrush", "eraser") when
+    /// pinned, e.g. by a rename; `None`: it follows from the mode and the name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
     pub mode: BrushMode,
     /// How the stroke mixes with the layer under it.
     #[serde(default)]
@@ -478,6 +482,7 @@ impl BrushSettings {
     pub fn g_pen() -> Self {
         Self {
             name: "G-Pen".into(),
+            group: None,
             mode: BrushMode::Paint,
             blend: BrushBlend::Normal,
             size: 12.0,

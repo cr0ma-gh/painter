@@ -262,6 +262,8 @@ pub struct PainterApp {
     pub(crate) file_objects: crate::file_object::FileObjectCache,
     /// A layer being renamed in its row (double-click): id, text, field just opened.
     pub(crate) layer_rename: Option<(painter_core::LayerId, String, bool)>,
+    /// A brush being renamed in the Tool Group panel: its index, the new name, whether the field has had focus.
+    pub(crate) brush_rename: Option<(usize, String, bool)>,
     /// Help → Check for Updates, and the daily check.
     pub(crate) updater: crate::updater::Updater,
     /// Files opened or saved lately (welcome screen, File → Open Recent).
@@ -444,6 +446,7 @@ impl PainterApp {
             session_form: Default::default(),
             file_objects: Default::default(),
             layer_rename: None,
+            brush_rename: None,
             updater: Default::default(),
             recent: crate::recent::Recent::load(),
             screen_mode: 0,
@@ -1444,10 +1447,28 @@ impl PainterApp {
         self.group_brush.clear();
     }
 
+    /// Gives brush `index` a new name (trimmed; an empty one is ignored).
+    pub(crate) fn rename_brush(&mut self, index: usize, name: &str) {
+        let name = name.trim();
+        let Some(brush) = self.brushes.get_mut(index).filter(|_| !name.is_empty()) else {
+            return;
+        };
+        if brush.settings.name != name {
+            // The group came from the old name: keep it where it is.
+            let group = BrushGroup::of(&brush.settings);
+            brush.settings.group = Some(crate::toolbar::group_key(group).to_string());
+            brush.settings.name = name.to_string();
+            self.group_brush.clear();
+            if index == self.brush {
+                self.select_brush(index);
+            }
+        }
+    }
+
     /// Copies a brush in place, right after the original, and selects the copy.
     pub(crate) fn duplicate_brush(&mut self, index: usize) {
         let mut copy = self.brushes[index].clone();
-        copy.settings.name = format!("{} copy", copy.settings.name);
+        copy.settings.name = copy_name(&copy.settings.name, |n| self.brushes.iter().any(|b| b.settings.name == n));
         self.brushes.insert(index + 1, copy);
         let fix = |i: usize| if i > index { i + 1 } else { i };
         self.last_paint_brush = fix(self.last_paint_brush);
@@ -1960,4 +1981,33 @@ fn file_name(path: &std::path::Path) -> String {
 
 pub(crate) fn file_stem(path: &std::path::Path) -> String {
     path.file_stem().map_or_else(|| "Image".into(), |s| s.to_string_lossy().into_owned())
+}
+
+/// "G-Pen copy", then "G-Pen copy 2", … : the first name not `taken`.
+fn copy_name(name: &str, taken: impl Fn(&str) -> bool) -> String {
+    let base = format!("{name} copy");
+    if !taken(&base) {
+        return base;
+    }
+    (2..).map(|n| format!("{base} {n}")).find(|n| !taken(n)).unwrap_or(base)
+}
+
+#[cfg(test)]
+mod brush_name_tests {
+    use super::*;
+
+    #[test]
+    fn copies_get_free_names() {
+        assert_eq!(copy_name("G-Pen", |_| false), "G-Pen copy");
+        assert_eq!(copy_name("G-Pen", |n| n == "G-Pen copy" || n == "G-Pen copy 2"), "G-Pen copy 3");
+    }
+
+    #[test]
+    fn a_renamed_brush_stays_in_its_group() {
+        let mut settings = BrushSettings::g_pen();
+        assert_eq!(BrushGroup::of(&settings), BrushGroup::Pen);
+        settings.group = Some(crate::toolbar::group_key(BrushGroup::Pen).into());
+        settings.name = "My favourite".into();
+        assert_eq!(BrushGroup::of(&settings), BrushGroup::Pen, "the name no longer says pen, the pin does");
+    }
 }

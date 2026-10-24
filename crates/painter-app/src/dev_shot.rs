@@ -202,6 +202,11 @@ impl PainterApp {
                     self.current_brush_mut().set_relative(true, long);
                     continue;
                 }
+                // `dev.rename_brush`: the current brush's name field open, as a double-click does.
+                if c == "dev.rename_brush" {
+                    self.brush_rename = Some((self.brush, self.brushes[self.brush].settings.name.clone(), false));
+                    continue;
+                }
                 // `dev.lang:CODE`: the interface in that language (not saved).
                 if let Some(code) = c.strip_prefix("dev.lang:") {
                     crate::i18n::set_language(code);

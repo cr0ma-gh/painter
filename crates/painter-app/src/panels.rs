@@ -568,8 +568,10 @@ impl PainterApp {
         let list_height = (ui.available_height() - footer).max(60.0);
         let indices = self.brushes_in(group);
         let mut picked = None;
-        // What a brush's right-click menu asked for: (brush, 0 reset, 1 duplicate, 2 delete).
+        // What a brush's right-click menu asked for: (brush, 0 reset, 1 duplicate, 2 delete, 3 rename).
         let mut menu: Option<(usize, u8)> = None;
+        // A rename finished: the new name, or None when cancelled.
+        let mut rename_end: Option<Option<String>> = None;
         let builtin: Vec<String> = crate::app::default_brushes().into_iter().map(|b| b.settings.name).collect();
         egui::Frame::new().fill(theme::well()).show(ui, |ui| {
             ui.set_min_height(list_height);
@@ -619,6 +621,23 @@ impl PainterApp {
                     if response.clicked() {
                         picked = Some(i);
                     }
+                    if response.double_clicked() {
+                        menu = Some((i, 3));
+                    }
+                    // The name field over the row while renaming: Enter or a click elsewhere keeps it, Esc cancels.
+                    if let Some((_, text, focused)) = self.brush_rename.as_mut().filter(|r| r.0 == i) {
+                        let field = egui::Rect::from_min_max(rect.left_top() + Vec2::new(6.0, 8.0), rect.right_bottom() - Vec2::new(6.0, 8.0));
+                        let edit = ui.put(field, egui::TextEdit::singleline(text).font(egui::FontId::proportional(12.0)));
+                        if !*focused {
+                            edit.request_focus();
+                            *focused = true;
+                        }
+                        if ui.input(|inp| inp.key_pressed(egui::Key::Escape)) {
+                            rename_end = Some(None);
+                        } else if edit.lost_focus() {
+                            rename_end = Some(Some(text.clone()));
+                        }
+                    }
                     let is_builtin = builtin.contains(&self.brushes[i].settings.name);
                     response.context_menu(|ui| {
                         if ui
@@ -627,6 +646,10 @@ impl PainterApp {
                             .clicked()
                         {
                             menu = Some((i, 0));
+                            ui.close_menu();
+                        }
+                        if ui.button(tr("Rename")).clicked() {
+                            menu = Some((i, 3));
                             ui.close_menu();
                         }
                         if ui.button(tr("Duplicate")).clicked() {
@@ -653,7 +676,14 @@ impl PainterApp {
             Some((i, 0)) => self.reset_brush(i),
             Some((i, 1)) => self.duplicate_brush(i),
             Some((i, 2)) => self.delete_brush(i),
+            Some((i, 3)) => self.brush_rename = Some((i, self.brushes[i].settings.name.clone(), false)),
             _ => {}
+        }
+        if let Some(end) = rename_end {
+            if let (Some(name), Some((i, _, _))) = (end, self.brush_rename.take()) {
+                self.rename_brush(i, &name);
+            }
+            self.brush_rename = None;
         }
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
@@ -693,6 +723,9 @@ impl PainterApp {
                 }
                 if icon_button(ui, Icon::Duplicate, 16.0, false, "Duplicate brush").clicked() {
                     self.duplicate_brush(self.brush);
+                }
+                if icon_button(ui, Icon::Text, 16.0, false, "Rename brush (or double-click it)").clicked() {
+                    self.brush_rename = Some((self.brush, self.brushes[self.brush].settings.name.clone(), false));
                 }
             });
         });

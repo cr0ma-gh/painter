@@ -22,7 +22,7 @@ pub(crate) enum Item {
     Separator,
 }
 
-fn group_key(g: BrushGroup) -> &'static str {
+pub(crate) fn group_key(g: BrushGroup) -> &'static str {
     match g {
         BrushGroup::Pen => "pen",
         BrushGroup::Pencil => "pencil",
