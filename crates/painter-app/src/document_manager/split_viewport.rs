@@ -14,6 +14,7 @@
 //! Layers dragged onto a document's picture are copied into that document.
 
 use std::collections::HashMap;
+use crate::i18n::tr;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
@@ -660,7 +661,7 @@ impl PainterApp {
             }
         }
         if rest.is_empty() && r.message.is_none() {
-            self.status = "Added to the reference board".into();
+            self.status = tr("Added to the reference board").into();
         }
         rest
     }
@@ -801,25 +802,25 @@ impl PainterApp {
                 }
             }
             if r.tool != BoardTool::Select {
-                ui.color_edit_button_srgba(&mut r.pen_color).on_hover_text("Pen colour");
+                ui.color_edit_button_srgba(&mut r.pen_color).on_hover_text(tr("Pen colour"));
                 ui.add(egui::DragValue::new(&mut r.pen_width).range(1.0..=60.0).speed(0.2).suffix(" px"))
-                    .on_hover_text("Pen width on screen");
+                    .on_hover_text(tr("Pen width on screen"));
             }
             ui.separator();
             let mut add_images = false;
             let mut paste = false;
             let mut add_doc = None;
-            ui.menu_button("+", |ui| {
-                if ui.button("Pictures or documents...").on_hover_text("PNG, JPEG, BMP; PSD, Krita, OpenRaster, Painter and Clip Studio files as pictures").clicked() {
+            ui.menu_button(tr("+"), |ui| {
+                if ui.button(tr("Pictures or documents...")).on_hover_text(tr("PNG, JPEG, BMP; PSD, Krita, OpenRaster, Painter and Clip Studio files as pictures")).clicked() {
                     ui.close_menu();
                     add_images = true;
                 }
-                if ui.button("Paste picture (Ctrl+V)").clicked() {
+                if ui.button(tr("Paste picture (Ctrl+V)")).clicked() {
                     ui.close_menu();
                     paste = true;
                 }
                 ui.separator();
-                ui.label("Live picture of a document:");
+                ui.label(tr("Live picture of a document:"));
                 for (id, name) in &others {
                     if ui.button(name).clicked() {
                         ui.close_menu();
@@ -828,52 +829,52 @@ impl PainterApp {
                 }
             })
             .response
-            .on_hover_text("Add pictures (you can also drop image files here)");
+            .on_hover_text(tr("Add pictures (you can also drop image files here)"));
             let r = &mut self.docs.reference;
-            if ui.button("Fit").on_hover_text("Show everything · F").clicked() {
+            if ui.button(tr("Fit")).on_hover_text(tr("Show everything · F")).clicked() {
                 r.fit_pending = true;
             }
-            if ui.button("Arrange").on_hover_text("Lay the pictures (or the selected ones) out in rows").clicked() {
+            if ui.button(tr("Arrange")).on_hover_text(tr("Lay the pictures (or the selected ones) out in rows")).clicked() {
                 r.checkpoint();
                 let ids = (!r.selection.is_empty()).then(|| r.selection.clone());
                 r.board.arrange(ids.as_deref(), 16.0);
                 r.fit_pending = true;
             }
-            ui.toggle_value(&mut r.mirror, "Mirror").on_hover_text("Mirror the view");
+            ui.toggle_value(&mut r.mirror, tr("Mirror")).on_hover_text(tr("Mirror the view"));
             ui.add_enabled_ui(!r.undo.is_empty(), |ui| {
-                if ui.small_button("⟲").on_hover_text("Undo · Ctrl+Z").clicked() {
+                if ui.small_button(tr("⟲")).on_hover_text(tr("Undo · Ctrl+Z")).clicked() {
                     r.undo();
                 }
             });
             ui.add_enabled_ui(!r.redo.is_empty(), |ui| {
-                if ui.small_button("⟳").on_hover_text("Redo · Ctrl+Shift+Z").clicked() {
+                if ui.small_button(tr("⟳")).on_hover_text(tr("Redo · Ctrl+Shift+Z")).clicked() {
                     r.redo();
                 }
             });
             let mut open = false;
             let mut save = false;
-            ui.menu_button("Board", |ui| {
-                if ui.button("Open board...").clicked() {
+            ui.menu_button(tr("Board"), |ui| {
+                if ui.button(tr("Open board...")).clicked() {
                     ui.close_menu();
                     open = true;
                 }
-                if ui.button("Save board as...").clicked() {
+                if ui.button(tr("Save board as...")).clicked() {
                     ui.close_menu();
                     save = true;
                 }
                 ui.separator();
                 let r = &mut self.docs.reference;
-                if ui.add_enabled(!r.board.marks.is_empty(), egui::Button::new("Clear all marks")).clicked() {
+                if ui.add_enabled(!r.board.marks.is_empty(), egui::Button::new(tr("Clear all marks"))).clicked() {
                     ui.close_menu();
                     r.checkpoint();
                     r.board.marks.clear();
                 }
-                if ui.add_enabled(r.board.items.iter().any(|i| i.locked), egui::Button::new("Unlock all")).clicked() {
+                if ui.add_enabled(r.board.items.iter().any(|i| i.locked), egui::Button::new(tr("Unlock all"))).clicked() {
                     ui.close_menu();
                     r.checkpoint();
                     r.board.items.iter_mut().for_each(|i| i.locked = false);
                 }
-                if ui.add_enabled(r.board != Board::default(), egui::Button::new("Clear the board")).clicked() {
+                if ui.add_enabled(r.board != Board::default(), egui::Button::new(tr("Clear the board"))).clicked() {
                     ui.close_menu();
                     r.checkpoint();
                     r.board = Board::default();
@@ -945,7 +946,7 @@ impl PainterApp {
                         self.transfer_layer_to(i, payload.layer);
                     }
                 }
-                _ => self.status = "Drop the layer on a document's picture to copy it there".into(),
+                _ => self.status = tr("Drop the layer on a document's picture to copy it there").into(),
             }
         }
         let layer_hover = response.dnd_hover_payload::<LayerDrag>().is_some();
@@ -1264,15 +1265,15 @@ impl PainterApp {
         response.context_menu(|ui| {
             let r = &mut self.docs.reference;
             if r.selection.is_empty() {
-                if ui.button("Paste picture").clicked() {
+                if ui.button(tr("Paste picture")).clicked() {
                     ui.close_menu();
                     r.paste_report(None);
                 }
-                if ui.button("Select all").clicked() {
+                if ui.button(tr("Select all")).clicked() {
                     ui.close_menu();
                     r.select_all();
                 }
-                if ui.button("Fit").clicked() {
+                if ui.button(tr("Fit")).clicked() {
                     ui.close_menu();
                     r.fit_pending = true;
                 }
@@ -1281,7 +1282,7 @@ impl PainterApp {
             let first = r.selection[0];
             let item = r.board.find(first).cloned();
             if let Some(Source::Document { slot }) = item.as_ref().map(|i| &i.source) {
-                if ui.button("Edit this document").clicked() {
+                if ui.button(tr("Edit this document")).clicked() {
                     ui.close_menu();
                     edit = Some(*slot);
                 }
@@ -1293,34 +1294,34 @@ impl PainterApp {
                     ui.close_menu();
                     r.media.toggle(&r.selection.clone());
                 }
-                if ui.button("Restart  (Home)").clicked() {
+                if ui.button(tr("Restart  (Home)")).clicked() {
                     ui.close_menu();
                     r.media.seek(&r.selection.clone(), Some(0), 0);
                 }
                 ui.separator();
             }
-            if ui.button("Bring to front").clicked() {
+            if ui.button(tr("Bring to front")).clicked() {
                 ui.close_menu();
                 r.checkpoint();
                 r.board.restack(&r.selection.clone(), true);
             }
-            if ui.button("Send to back").clicked() {
+            if ui.button(tr("Send to back")).clicked() {
                 ui.close_menu();
                 r.checkpoint();
                 r.board.restack(&r.selection.clone(), false);
             }
-            if ui.button("Mirror  (H)").clicked() {
+            if ui.button(tr("Mirror  (H)")).clicked() {
                 ui.close_menu();
                 r.edit_selection(|i| i.flip = !i.flip);
             }
             let grey = item.as_ref().is_some_and(|i| i.grey);
-            if ui.selectable_label(grey, "Grey").clicked() {
+            if ui.selectable_label(grey, tr("Grey")).clicked() {
                 ui.close_menu();
                 r.edit_selection(|i| i.grey = !grey);
             }
             if let Some(item) = &item {
                 let mut opacity = item.opacity * 100.0;
-                if ui.add(egui::Slider::new(&mut opacity, 5.0..=100.0).text("Opacity").suffix("%")).changed() {
+                if ui.add(egui::Slider::new(&mut opacity, 5.0..=100.0).text(tr("Opacity")).suffix("%")).changed() {
                     if !r.undo.last().is_some_and(|b| b.find(first).is_some_and(|i| i.opacity != item.opacity)) {
                         r.checkpoint();
                     }
@@ -1332,31 +1333,31 @@ impl PainterApp {
                     }
                 }
             }
-            if ui.button("Reset size and turn").clicked() {
+            if ui.button(tr("Reset size and turn")).clicked() {
                 ui.close_menu();
                 r.edit_selection(|i| {
                     i.scale = 1.0;
                     i.rotation = 0.0;
                 });
             }
-            if ui.button("Duplicate  (Ctrl+D)").clicked() {
+            if ui.button(tr("Duplicate  (Ctrl+D)")).clicked() {
                 ui.close_menu();
                 r.duplicate_selection();
             }
-            if ui.button("Lock").on_hover_text("Clicks go through it; unlock from Board → Unlock all").clicked() {
+            if ui.button(tr("Lock")).on_hover_text(tr("Clicks go through it; unlock from Board → Unlock all")).clicked() {
                 ui.close_menu();
                 r.edit_selection(|i| i.locked = true);
                 r.selection.clear();
             }
             let has_marks = r.board.marks.iter().any(|m| m.on.is_some_and(|on| r.selection.contains(&on)));
-            if ui.add_enabled(has_marks, egui::Button::new("Clear its marks")).clicked() {
+            if ui.add_enabled(has_marks, egui::Button::new(tr("Clear its marks"))).clicked() {
                 ui.close_menu();
                 r.checkpoint();
                 let sel = r.selection.clone();
                 r.board.marks.retain(|m| m.on.is_none_or(|on| !sel.contains(&on)));
             }
             ui.separator();
-            if ui.button("Remove  (Delete)").clicked() {
+            if ui.button(tr("Remove  (Delete)")).clicked() {
                 ui.close_menu();
                 r.delete_selection();
             }

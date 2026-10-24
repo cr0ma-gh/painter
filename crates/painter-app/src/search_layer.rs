@@ -2,6 +2,7 @@
 //! Studio's palette of that name). A click makes the layer the active one.
 
 use eframe::egui::{self, Sense, Vec2};
+use crate::i18n::tr;
 use painter_core::{Layer, LayerId, LayerKind};
 
 use crate::app::PainterApp;
@@ -96,16 +97,16 @@ impl PainterApp {
     pub(crate) fn search_layer_panel(&mut self, ui: &mut egui::Ui) {
         let search = &mut self.layer_search;
         ui.horizontal(|ui| {
-            egui::ComboBox::from_id_salt("search_layer_kind").selected_text(search.kind.label()).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("search_layer_kind").selected_text(tr(search.kind.label())).show_ui(ui, |ui| {
                 for k in KindFilter::ALL {
-                    ui.selectable_value(&mut search.kind, k, k.label());
+                    ui.selectable_value(&mut search.kind, k, tr(k.label()));
                 }
             });
-            ui.add(egui::TextEdit::singleline(&mut search.query).hint_text("Type search keywords").desired_width(f32::INFINITY));
+            ui.add(egui::TextEdit::singleline(&mut search.query).hint_text(tr("Type search keywords")).desired_width(f32::INFINITY));
         });
         let (kind, query) = (search.kind, search.query.clone());
         if kind == KindFilter::All && query.trim().is_empty() {
-            ui.label(egui::RichText::new("Type a name, or choose a kind of layer.").color(theme::text_dim()));
+            ui.label(egui::RichText::new(tr("Type a name, or choose a kind of layer.")).color(theme::text_dim()));
             return;
         }
         // Every layer, top first, with the folders it sits in.

@@ -15,6 +15,7 @@
 //!   there goes back to the model as you work (and when you switch tabs).
 
 use std::collections::HashMap;
+use crate::i18n::tr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -94,7 +95,7 @@ impl PainterApp {
         let Some(scene) = self.scenes.get(&id).map(|l| &l.scene) else { return };
         let Some(sel) = scene.selected.filter(|&i| i < scene.objects.len()) else {
             if self.model_paint.is_some() {
-                ui.small("Painting on a model: select its object to see the texture.");
+                ui.small(tr("Painting on a model: select its object to see the texture."));
             }
             return;
         };
@@ -103,10 +104,10 @@ impl PainterApp {
         let has_uvs = object.mesh.vertices.iter().any(|v| v.uv != [0.0, 0.0]);
         let painting = self.model_paint.is_some_and(|p| p.scene_layer == id && p.object == sel);
         let mut action = None;
-        egui::CollapsingHeader::new("Texture painting").id_salt("scene_texture").default_open(true).show(ui, |ui| {
+        egui::CollapsingHeader::new(tr("Texture painting")).id_salt("scene_texture").default_open(true).show(ui, |ui| {
             match texture {
                 Some((w, h)) => ui.label(format!("Texture: {w} × {h}")),
-                None => ui.label("No texture yet: the object shows its colour."),
+                None => ui.label(tr("No texture yet: the object shows its colour.")),
             };
             if !has_uvs {
                 ui.colored_label(
@@ -123,43 +124,43 @@ impl PainterApp {
                             ui.selectable_value(&mut self.new_texture_size, s, format!("{s} × {s}"));
                         }
                     });
-                if ui.button("New").on_hover_text("A new transparent texture over the colour (replaces the current one)").clicked() {
+                if ui.button(tr("New")).on_hover_text(tr("A new transparent texture over the colour (replaces the current one)")).clicked() {
                     action = Some(Action::New);
                 }
-                if ui.button("Load…").on_hover_text("An image file as the texture").clicked() {
+                if ui.button(tr("Load…")).on_hover_text(tr("An image file as the texture")).clicked() {
                     action = Some(Action::Load);
                 }
             });
             ui.horizontal(|ui| {
-                if ui.add_enabled(texture.is_some(), egui::Button::new("Save…")).on_hover_text("The texture as a PNG").clicked() {
+                if ui.add_enabled(texture.is_some(), egui::Button::new(tr("Save…"))).on_hover_text(tr("The texture as a PNG")).clicked() {
                     action = Some(Action::Save);
                 }
-                if ui.add_enabled(texture.is_some(), egui::Button::new("Remove")).clicked() {
+                if ui.add_enabled(texture.is_some(), egui::Button::new(tr("Remove"))).clicked() {
                     action = Some(Action::Remove);
                 }
             });
             ui.horizontal(|ui| {
                 if painting {
-                    if ui.button("Stop painting").clicked() {
+                    if ui.button(tr("Stop painting")).clicked() {
                         action = Some(Action::StopPainting);
                     }
                 } else if ui
-                    .add_enabled(has_uvs, egui::Button::new("Paint on model"))
-                    .on_hover_text("Paint over the model with any tool; each stroke goes onto the texture")
+                    .add_enabled(has_uvs, egui::Button::new(tr("Paint on model")))
+                    .on_hover_text(tr("Paint over the model with any tool; each stroke goes onto the texture"))
                     .clicked()
                 {
                     action = Some(Action::PaintOnModel);
                 }
                 if ui
-                    .add_enabled(has_uvs, egui::Button::new("Edit texture (UV)"))
-                    .on_hover_text("Open the texture as a document, with the UV layout and a live 3D preview")
+                    .add_enabled(has_uvs, egui::Button::new(tr("Edit texture (UV)")))
+                    .on_hover_text(tr("Open the texture as a document, with the UV layout and a live 3D preview"))
                     .clicked()
                 {
                     action = Some(Action::EditUv);
                 }
             });
             if painting {
-                ui.small("Paint on the “Paint on model” layer; middle drag turns the model, the wheel zooms.");
+                ui.small(tr("Paint on the “Paint on model” layer; middle drag turns the model, the wheel zooms."));
             }
         });
         match action {
@@ -246,7 +247,7 @@ impl PainterApp {
             self.tool = Tool::Brush;
         }
         self.resync_gpu();
-        self.status = "Painting on the model: each stroke goes onto its texture. Middle drag turns it, the wheel zooms".into();
+        self.status = tr("Painting on the model: each stroke goes onto its texture. Middle drag turns it, the wheel zooms").into();
     }
 
     /// Ends painting on the model; the paint layer goes away.
@@ -291,7 +292,7 @@ impl PainterApp {
         if landed.is_some() {
             self.scene_changed(paint.scene_layer);
         } else {
-            self.status = "That paint didn't land on the model (off it, or behind something)".into();
+            self.status = tr("That paint didn't land on the model (off it, or behind something)").into();
         }
         if let Some(l) = self.doc.find_mut(paint.overlay) {
             l.kind = LayerKind::Raster(TileStore::new());
@@ -333,7 +334,7 @@ impl PainterApp {
         if self.tool == Tool::Scene3D {
             self.tool = Tool::Brush;
         }
-        self.status = "Texture opened: paint it here, the model follows. The UV layout is drawn over it".into();
+        self.status = tr("Texture opened: paint it here, the model follows. The UV layout is drawn over it").into();
     }
 
     /// Each frame: texture documents send their picture to their models.
@@ -417,7 +418,7 @@ impl PainterApp {
     fn texture_preview_window(&mut self, ctx: &egui::Context, slot: u64) {
         let Some(link) = self.texture_links.get_mut(&slot) else { return };
         let mut turned = false;
-        egui::Window::new("3D Preview")
+        egui::Window::new(tr("3D Preview"))
             .id(egui::Id::new("texture_preview"))
             .default_pos(egui::pos2(60.0, 120.0))
             .resizable(false)
@@ -440,7 +441,7 @@ impl PainterApp {
                         turned = true;
                     }
                 }
-                ui.small("Drag to turn, wheel to zoom. Painting here updates the model.");
+                ui.small(tr("Drag to turn, wheel to zoom. Painting here updates the model."));
             });
         if turned {
             link.push_at = Some(Instant::now());

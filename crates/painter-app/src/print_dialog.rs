@@ -7,6 +7,7 @@
 //! share sheet, which prints too).
 
 use std::sync::Arc;
+use crate::i18n::tr;
 
 use comic_layout::Unit;
 use eframe::egui::{self, Color32, Rect, Sense, Stroke, Vec2};
@@ -109,7 +110,7 @@ impl PainterApp {
         let Some(mut d) = self.print.take() else { return };
         let mut open = true;
         let mut action = None;
-        egui::Window::new("Print").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+        egui::Window::new(tr("Print")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
             ui.horizontal_top(|ui| {
                 let at = print::place(&d.settings.layout(), d.px, d.dpi);
                 sheet_preview(ui, &d, &at);
@@ -247,7 +248,7 @@ fn sheet_preview(ui: &mut egui::Ui, d: &PrintDialog, at: &Placement) {
 fn settings_ui(ui: &mut egui::Ui, d: &mut PrintDialog) {
     let s = &mut d.settings;
     egui::Grid::new("print_settings").num_columns(2).spacing([8.0, 8.0]).show(ui, |ui| {
-        ui.label("Paper");
+        ui.label(tr("Paper"));
         ui.horizontal(|ui| {
             if let Some(size) = paper_combo(ui, "print_paper", s.layout.page_mm) {
                 s.layout.page_mm = size;
@@ -255,29 +256,29 @@ fn settings_ui(ui: &mut egui::Ui, d: &mut PrintDialog) {
             unit_combo(ui, "print_unit", &mut s.unit);
         });
         ui.end_row();
-        ui.label("");
+        ui.label(tr(""));
         ui.horizontal(|ui| {
             length_edit(ui, &mut s.layout.page_mm[0], s.unit, d.dpi, 20.0..=2000.0);
-            ui.label("×");
+            ui.label(tr("×"));
             length_edit(ui, &mut s.layout.page_mm[1], s.unit, d.dpi, 20.0..=2000.0);
         });
         ui.end_row();
-        ui.label("Orientation");
+        ui.label(tr("Orientation"));
         ui.horizontal(|ui| {
             orientation_buttons(ui, &mut s.layout.page_mm);
         });
         ui.end_row();
-        ui.label("Margins");
+        ui.label(tr("Margins"));
         let most = s.layout.page_mm[0].min(s.layout.page_mm[1]) / 2.0 - 5.0;
         length_edit(ui, &mut s.layout.margin_mm, s.unit, d.dpi, 0.0..=most.max(0.0));
         ui.end_row();
-        ui.label("Size");
+        ui.label(tr("Size"));
         ui.vertical(|ui| {
-            ui.radio_value(&mut s.size, Size::Fit, "Fit to page");
+            ui.radio_value(&mut s.size, Size::Fit, tr("Fit to page"));
             ui.radio_value(&mut s.size, Size::Actual, format!("Actual size ({} dpi)", d.dpi))
-                .on_hover_text("As big as the document's resolution says");
+                .on_hover_text(tr("As big as the document's resolution says"));
             ui.horizontal(|ui| {
-                ui.radio_value(&mut s.size, Size::Percent, "Scale");
+                ui.radio_value(&mut s.size, Size::Percent, tr("Scale"));
                 let r = ui.add(egui::DragValue::new(&mut s.percent).range(1.0..=1000.0).speed(0.5).suffix(" %"));
                 if r.changed() {
                     s.size = Size::Percent;
@@ -293,10 +294,10 @@ fn buttons_ui(ui: &mut egui::Ui, d: &mut PrintDialog) -> Option<Action> {
     let desktop = cfg!(any(windows, target_os = "macos", target_os = "linux"));
     if desktop && !cfg!(windows) {
         if d.printers.is_empty() {
-            ui.label("No printer found. Add one in the system settings, or save a PDF.");
+            ui.label(tr("No printer found. Add one in the system settings, or save a PDF."));
         } else {
             ui.horizontal(|ui| {
-                ui.label("Printer");
+                ui.label(tr("Printer"));
                 egui::ComboBox::from_id_salt("print_printer").width(170.0).selected_text(d.printers[d.printer].clone()).show_ui(
                     ui,
                     |ui| {
@@ -307,7 +308,7 @@ fn buttons_ui(ui: &mut egui::Ui, d: &mut PrintDialog) -> Option<Action> {
                 );
             });
             ui.horizontal(|ui| {
-                ui.label("Copies");
+                ui.label(tr("Copies"));
                 ui.add(egui::DragValue::new(&mut d.copies).range(1..=999));
             });
         }
@@ -317,15 +318,15 @@ fn buttons_ui(ui: &mut egui::Ui, d: &mut PrintDialog) -> Option<Action> {
         if can_print {
             let hint =
                 if cfg!(windows) { "Choose the printer and copies in Windows' Print dialog" } else { "Send the page to the printer" };
-            if ui.button("Print...").on_hover_text(hint).clicked() {
+            if ui.button(tr("Print...")).on_hover_text(hint).clicked() {
                 action = Some(Action::Print);
             }
         }
         let pdf_hint = if desktop { "The page as a PDF file" } else { "The page as a PDF, then share or print it" };
-        if ui.button("Save as PDF...").on_hover_text(pdf_hint).clicked() {
+        if ui.button(tr("Save as PDF...")).on_hover_text(pdf_hint).clicked() {
             action = Some(Action::Pdf);
         }
-        if ui.button("Cancel").clicked() {
+        if ui.button(tr("Cancel")).clicked() {
             action = Some(Action::Cancel);
         }
     });

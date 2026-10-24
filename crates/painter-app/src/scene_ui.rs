@@ -14,6 +14,7 @@
 //! moves, rotates or scales the object (Ctrl snaps).
 
 use std::collections::HashMap;
+use crate::i18n::tr;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Color32, Key, Modifiers, Pos2, Rect, Stroke, Vec2};
@@ -259,7 +260,7 @@ impl PainterApp {
     pub(crate) fn add_model_from(&mut self, path: &std::path::Path) {
         let id = self.doc.active;
         if !self.scenes.contains_key(&id) {
-            self.status = "Select a 3D layer to add the model to".into();
+            self.status = tr("Select a 3D layer to add the model to").into();
             return;
         }
         match load_model(path) {
@@ -697,11 +698,11 @@ impl PainterApp {
     pub(crate) fn scene_panel(&mut self, ui: &mut egui::Ui) {
         let id = self.scene_target();
         if !self.scenes.contains_key(&id) {
-            ui.label("The active layer isn't a 3D layer.");
-            if ui.button("New 3D layer from a model…").on_hover_text(".blend (Blender 3.4+), .obj, .fbx, .gltf or .glb").clicked() {
+            ui.label(tr("The active layer isn't a 3D layer."));
+            if ui.button(tr("New 3D layer from a model…")).on_hover_text(tr(".blend (Blender 3.4+), .obj, .fbx, .gltf or .glb")).clicked() {
                 self.new_scene_layer_dialog();
             }
-            if ui.button("New 3D layer from the perspective ruler").on_hover_text("Turns the drawing's vanishing points into a 3D space; drop models on the canvas to place them").clicked() {
+            if ui.button(tr("New 3D layer from the perspective ruler")).on_hover_text(tr("Turns the drawing's vanishing points into a 3D space; drop models on the canvas to place them")).clicked() {
                 self.new_scene_layer_from_ruler();
             }
             return;
@@ -746,19 +747,19 @@ impl PainterApp {
                     self.gizmo.mode = mode;
                 }
             }
-            ui.checkbox(&mut self.gizmo.local, "Local").on_hover_text("Gizmo along the object's own axes");
+            ui.checkbox(&mut self.gizmo.local, tr("Local")).on_hover_text(tr("Gizmo along the object's own axes"));
         });
         let Some(layer) = self.scenes.get_mut(&id) else {
             return;
         };
         let scene = &mut layer.scene;
 
-        egui::CollapsingHeader::new("Objects").id_salt("scene_objects").default_open(true).show(ui, |ui| {
+        egui::CollapsingHeader::new(tr("Objects")).id_salt("scene_objects").default_open(true).show(ui, |ui| {
             let mut remove = None;
             for i in 0..scene.objects.len() {
                 ui.horizontal(|ui| {
                     let o = &mut scene.objects[i];
-                    if ui.checkbox(&mut o.visible, "").changed() {
+                    if ui.checkbox(&mut o.visible, tr("")).changed() {
                         changed = true;
                         checkpoint = true;
                     }
@@ -781,7 +782,7 @@ impl PainterApp {
         });
 
         if let Some(sel) = scene.selected.filter(|&i| i < scene.objects.len()) {
-            egui::CollapsingHeader::new("Transform").id_salt("scene_transform").default_open(true).show(ui, |ui| {
+            egui::CollapsingHeader::new(tr("Transform")).id_salt("scene_transform").default_open(true).show(ui, |ui| {
                 let o = &mut scene.objects[sel];
                 let t = &mut o.transform;
                 let mut row = |ui: &mut egui::Ui, label: &str, values: &mut [f32; 3], speed: f32, suffix: &str| {
@@ -806,7 +807,7 @@ impl PainterApp {
                 row(ui, "Scale", &mut scale, 0.01, "");
                 t.scale = Vec3::from_array(scale);
                 ui.horizontal(|ui| {
-                    ui.label("Colour");
+                    ui.label(tr("Colour"));
                     let r = ui.color_edit_button_rgb(&mut o.color);
                     edit(&r, &mut changed, &mut checkpoint);
                 });
@@ -826,22 +827,22 @@ impl PainterApp {
             }
         }
 
-        egui::CollapsingHeader::new("Camera").id_salt("scene_camera").default_open(true).show(ui, |ui| {
+        egui::CollapsingHeader::new(tr("Camera")).id_salt("scene_camera").default_open(true).show(ui, |ui| {
             let cam = &mut scene.camera;
             ui.horizontal(|ui| {
                 let persp = matches!(cam.projection, Projection::Perspective { .. });
-                if ui.selectable_label(persp, "Perspective").clicked() && !persp {
+                if ui.selectable_label(persp, tr("Perspective")).clicked() && !persp {
                     cam.toggle_projection();
                     changed = true;
                 }
-                if ui.selectable_label(!persp, "Orthographic").on_hover_text("5").clicked() && persp {
+                if ui.selectable_label(!persp, tr("Orthographic")).on_hover_text(tr("5")).clicked() && persp {
                     cam.toggle_projection();
                     changed = true;
                 }
             });
             if let Projection::Perspective { fov_y } = &mut cam.projection {
                 let mut deg = fov_y.to_degrees();
-                if ui.add(egui::Slider::new(&mut deg, 10.0..=120.0).text("FOV").suffix("°")).changed() {
+                if ui.add(egui::Slider::new(&mut deg, 10.0..=120.0).text(tr("FOV")).suffix("°")).changed() {
                     *fov_y = deg.to_radians();
                     changed = true;
                 }
@@ -862,24 +863,24 @@ impl PainterApp {
                 }
             });
             ui.horizontal(|ui| {
-                ui.label("Orbit");
-                ui.selectable_value(&mut cam.orbit_style, OrbitStyle::Turntable, "Turntable");
-                ui.selectable_value(&mut cam.orbit_style, OrbitStyle::Trackball, "Trackball");
+                ui.label(tr("Orbit"));
+                ui.selectable_value(&mut cam.orbit_style, OrbitStyle::Turntable, tr("Turntable"));
+                ui.selectable_value(&mut cam.orbit_style, OrbitStyle::Trackball, tr("Trackball"));
             });
             ui.horizontal_wrapped(|ui| {
                 if let Some(name) = &blend_camera_name {
-                    blend_view = ui.button("Blender Camera").on_hover_text(format!("Back to the view through camera {name}")).clicked();
+                    blend_view = ui.button(tr("Blender Camera")).on_hover_text(format!("Back to the view through camera {name}")).clicked();
                 }
                 view_ruler = ui
-                    .button("Perspective Ruler from View")
-                    .on_hover_text("Set this layer's perspective ruler to the vanishing points of the scene's axes in this view")
+                    .button(tr("Perspective Ruler from View"))
+                    .on_hover_text(tr("Set this layer's perspective ruler to the vanishing points of the scene's axes in this view"))
                     .clicked();
             });
-            ui.small("Middle drag orbits · Shift pans · Ctrl or wheel zooms");
+            ui.small(tr("Middle drag orbits · Shift pans · Ctrl or wheel zooms"));
         });
 
-        egui::CollapsingHeader::new("Lights").id_salt("scene_lights").default_open(true).show(ui, |ui| {
-            let r = ui.add(egui::Slider::new(&mut scene.ambient, 0.0..=1.0).text("Ambient"));
+        egui::CollapsingHeader::new(tr("Lights")).id_salt("scene_lights").default_open(true).show(ui, |ui| {
+            let r = ui.add(egui::Slider::new(&mut scene.ambient, 0.0..=1.0).text(tr("Ambient")));
             edit(&r, &mut changed, &mut checkpoint);
             let mut remove = None;
             for (i, light) in scene.lights.iter_mut().enumerate() {
@@ -892,7 +893,7 @@ impl PainterApp {
                         remove = Some(i);
                     }
                 });
-                let r = ui.add(egui::Slider::new(&mut light.intensity, 0.0..=3.0).text("Intensity"));
+                let r = ui.add(egui::Slider::new(&mut light.intensity, 0.0..=3.0).text(tr("Intensity")));
                 edit(&r, &mut changed, &mut checkpoint);
                 match &mut light.kind {
                     LightKind::Sun { direction } => {
@@ -900,8 +901,8 @@ impl PainterApp {
                         let from = -*direction;
                         let mut az = from.y.atan2(from.x).to_degrees();
                         let mut el = from.z.clamp(-1.0, 1.0).asin().to_degrees();
-                        let a = ui.add(egui::Slider::new(&mut az, -180.0..=180.0).text("Azimuth").suffix("°"));
-                        let e = ui.add(egui::Slider::new(&mut el, -89.0..=89.0).text("Elevation").suffix("°"));
+                        let a = ui.add(egui::Slider::new(&mut az, -180.0..=180.0).text(tr("Azimuth")).suffix("°"));
+                        let e = ui.add(egui::Slider::new(&mut el, -89.0..=89.0).text(tr("Elevation")).suffix("°"));
                         if a.changed() || e.changed() {
                             let (az, el) = (az.to_radians(), el.to_radians());
                             *direction = -vec3(el.cos() * az.cos(), el.cos() * az.sin(), el.sin());
@@ -911,7 +912,7 @@ impl PainterApp {
                     }
                     LightKind::Point { position, range } => {
                         ui.horizontal(|ui| {
-                            ui.label("Position");
+                            ui.label(tr("Position"));
                             let mut p = position.to_array();
                             for v in &mut p {
                                 let r = ui.add(egui::DragValue::new(v).speed(0.05));
@@ -919,7 +920,7 @@ impl PainterApp {
                             }
                             *position = Vec3::from_array(p);
                         });
-                        let r = ui.add(egui::Slider::new(range, 0.1..=100.0).text("Range"));
+                        let r = ui.add(egui::Slider::new(range, 0.1..=100.0).text(tr("Range")));
                         edit(&r, &mut changed, &mut checkpoint);
                     }
                 }
@@ -931,7 +932,7 @@ impl PainterApp {
             }
             ui.horizontal(|ui| {
                 let room = scene.lights.len() < MAX_LIGHTS;
-                if ui.add_enabled(room, egui::Button::new("+ Sun")).clicked() {
+                if ui.add_enabled(room, egui::Button::new(tr("+ Sun"))).clicked() {
                     scene.lights.push(Light {
                         kind: LightKind::Sun { direction: vec3(0.5, -0.5, -0.7).normalize() },
                         color: [1.0; 3],
@@ -940,7 +941,7 @@ impl PainterApp {
                     changed = true;
                     checkpoint = true;
                 }
-                if ui.add_enabled(room, egui::Button::new("+ Point")).clicked() {
+                if ui.add_enabled(room, egui::Button::new(tr("+ Point"))).clicked() {
                     let at = scene.camera.eye();
                     scene.lights.push(Light { kind: LightKind::Point { position: at, range: 20.0 }, color: [1.0; 3], intensity: 0.8 });
                     changed = true;
@@ -988,7 +989,7 @@ impl PainterApp {
             self.commit_scenes(true);
             self.scenes.remove(&id);
             self.recomposite = true;
-            self.status = "3D layer flattened to pixels".into();
+            self.status = tr("3D layer flattened to pixels").into();
         }
         self.texture_panel(ui, id);
     }

@@ -5,6 +5,7 @@
 //! drag on the gizmo to orbit.
 
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
+use crate::i18n::tr;
 use scene_3d::camera::ViewPreset;
 use scene_3d::math::Vec3;
 
@@ -86,7 +87,7 @@ impl PainterApp {
                 painter.text(end.at, Align2::CENTER_CENTER, label, FontId::proportional(11.0), Color32::from_black_alpha(220));
             }
         }
-        let response = response.on_hover_text("Click an axis to look along it; drag to orbit");
+        let response = response.on_hover_text(tr("Click an axis to look along it; drag to orbit"));
         let mut changed = false;
         if let Some(layer) = self.scenes.get_mut(&id) {
             let cam = &mut layer.scene.camera;

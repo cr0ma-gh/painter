@@ -116,6 +116,11 @@ cargo run --release -p painter-app -- drawing.painter
   or the main colour; the history brush paints back the state picked with the
   brush button in the History panel (the oldest one otherwise), erased pixels
   included.
+- **Languages** (View → Language): English and Italian, the system's language
+  by default. Translations are gettext `.po` files in `locales/` that any
+  `.po` editor (Poedit, Weblate, Crowdin) opens; a translator can try one by
+  dropping it in Painter's settings folder, without building the app. See
+  `locales/README.md`.
 - **Shortcuts:** hold E for the eraser until you let go (a tap switches);
   double-click the main or sub colour chip for a picker (wheel, RGB, hex).
 - **Colour modes** (Edit → Mode, as Photoshop's Image → Mode; shown in the

@@ -176,6 +176,11 @@ impl PainterApp {
                     self.upload_plane(painter_render::Plane::Color(id));
                     continue;
                 }
+                // `dev.lang:CODE`: the interface in that language (not saved).
+                if let Some(code) = c.strip_prefix("dev.lang:") {
+                    crate::i18n::set_language(code);
+                    continue;
+                }
                 // `dev.text_done`: ends the text editing (the balloon tool's settings show).
                 if c == "dev.text_done" {
                     self.finish_text();

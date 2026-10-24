@@ -10,6 +10,7 @@
 //! the background reaching in from the rectangle's border is selected.
 
 use eframe::egui::{self, Color32, Modifiers, Painter, Pos2, Rect, Stroke};
+use crate::i18n::tr;
 use painter_core::smart_select::{edge_strength, live_wire, object_in_rect};
 use painter_core::{selection, SelectionOp};
 
@@ -167,7 +168,7 @@ impl PainterApp {
         let (w, h) = ((x1 - x0) as usize, (y1 - y0) as usize);
         let rgba = painter_core::io::flatten_region(&self.doc, x0 as u32, y0 as u32, w as u32, h as u32);
         let Some(found) = object_in_rect(&rgba, w, h, self.tools.magnetic.tolerance) else {
-            self.status = "Object selection: nothing stands out from the background there".into();
+            self.status = tr("Object selection: nothing stands out from the background there").into();
             return;
         };
         let mask = selection::mask_from_fn((cw, ch), [x0, y0, x1 - 1, y1 - 1], |x, y| {
@@ -204,12 +205,12 @@ impl PainterApp {
         let o = &mut self.tools.magnetic;
         match shape {
             SelectShape::Magnetic => {
-                ui.add(egui::Slider::new(&mut o.spacing, 10.0..=150.0).text("Anchor spacing").suffix(" px"));
-                ui.small("Click to start, then move along an outline. Click: anchor, Backspace: back one, Enter or click the start: close, Esc: drop.");
+                ui.add(egui::Slider::new(&mut o.spacing, 10.0..=150.0).text(tr("Anchor spacing")).suffix(" px"));
+                ui.small(tr("Click to start, then move along an outline. Click: anchor, Backspace: back one, Enter or click the start: close, Esc: drop."));
             }
             _ => {
-                ui.add(egui::Slider::new(&mut o.tolerance, 0..=255).text("Background tolerance"));
-                ui.small("Drag a rectangle round the object: what differs from the background at the rectangle's edge is selected.");
+                ui.add(egui::Slider::new(&mut o.tolerance, 0..=255).text(tr("Background tolerance")));
+                ui.small(tr("Drag a rectangle round the object: what differs from the background at the rectangle's edge is selected."));
             }
         }
     }

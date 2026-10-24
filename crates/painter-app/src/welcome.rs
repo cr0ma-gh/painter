@@ -2,6 +2,7 @@
 //! where to find more) and the About window (version, licence, links).
 
 use eframe::egui::{self, Align2, Color32, RichText, Vec2};
+use crate::i18n::tr;
 
 use crate::app::PainterApp;
 
@@ -56,7 +57,7 @@ impl PainterApp {
         let mut action_open: Option<std::path::PathBuf> = None;
         let mut forget: Option<String> = None;
         let width = (screen.width() - 40.0).clamp(320.0, 760.0);
-        egui::Window::new("Welcome to Painter")
+        egui::Window::new(tr("Welcome to Painter"))
             .title_bar(false)
             .collapsible(false)
             .resizable(false)
@@ -69,9 +70,9 @@ impl PainterApp {
                     ui.add(egui::Image::new((logo, Vec2::splat(76.0))));
                     ui.vertical(|ui| {
                         ui.add_space(8.0);
-                        ui.label(RichText::new("Painter").size(30.0).strong());
+                        ui.label(RichText::new(tr("Painter")).size(30.0).strong());
                         ui.label(RichText::new(format!("Version {VERSION} · free and open source")).weak());
-                        ui.label("Paint, ink and lay out comics.");
+                        ui.label(tr("Paint, ink and lay out comics."));
                     });
                 });
                 ui.add_space(10.0);
@@ -79,9 +80,9 @@ impl PainterApp {
                 if !self.recent.files.is_empty() {
                     ui.separator();
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("Recent").strong());
+                        ui.label(RichText::new(tr("Recent")).strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("Clear").on_hover_text("Forget the list (the files stay)").clicked() {
+                            if ui.small_button(tr("Clear")).on_hover_text(tr("Forget the list (the files stay)")).clicked() {
                                 self.recent.clear();
                             }
                         });
@@ -118,7 +119,7 @@ impl PainterApp {
                                 ui.horizontal(|ui| {
                                     let name = RichText::new(f.name()).small();
                                     ui.add(egui::Label::new(if exists { name } else { name.weak().strikethrough() }).truncate());
-                                    if !exists && ui.small_button("✕").on_hover_text("Remove from the list").clicked() {
+                                    if !exists && ui.small_button(tr("✕")).on_hover_text(tr("Remove from the list")).clicked() {
                                         forget = Some(f.path.clone());
                                     }
                                 });
@@ -145,28 +146,28 @@ impl PainterApp {
                 });
                 ui.separator();
                 ui.horizontal_wrapped(|ui| {
-                    if ui.add(egui::Button::new(RichText::new("New Canvas…").strong()).min_size(Vec2::new(120.0, 30.0))).clicked() {
+                    if ui.add(egui::Button::new(RichText::new(tr("New Canvas…")).strong()).min_size(Vec2::new(120.0, 30.0))).clicked() {
                         action = Some("file.new");
                     }
-                    if ui.add(egui::Button::new("Open…").min_size(Vec2::new(90.0, 30.0))).clicked() {
+                    if ui.add(egui::Button::new(tr("Open…")).min_size(Vec2::new(90.0, 30.0))).clicked() {
                         action = Some("file.open");
                     }
-                    if ui.add(egui::Button::new("New Comic Page…").min_size(Vec2::new(130.0, 30.0))).clicked() {
+                    if ui.add(egui::Button::new(tr("New Comic Page…")).min_size(Vec2::new(130.0, 30.0))).clicked() {
                         action = Some("file.comic");
                     }
-                    if ui.add(egui::Button::new("Start Painting").min_size(Vec2::new(120.0, 30.0))).clicked() {
+                    if ui.add(egui::Button::new(tr("Start Painting")).min_size(Vec2::new(120.0, 30.0))).clicked() {
                         self.welcome_open = false;
                     }
                 });
                 ui.add_space(4.0);
                 ui.horizontal_wrapped(|ui| {
                     ui.hyperlink_to("Website", WEBSITE);
-                    ui.label("·");
+                    ui.label(tr("·"));
                     ui.hyperlink_to("Source on GitHub", REPOSITORY);
-                    ui.label("·");
+                    ui.label(tr("·"));
                     ui.hyperlink_to("Downloads", RELEASES);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.checkbox(&mut self.ws.welcome, "Show at startup");
+                        ui.checkbox(&mut self.ws.welcome, tr("Show at startup"));
                     });
                 });
             });
@@ -193,7 +194,7 @@ impl PainterApp {
         }
         let logo = self.logo(ctx);
         let mut open = true;
-        egui::Window::new("About Painter")
+        egui::Window::new(tr("About Painter"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -201,11 +202,11 @@ impl PainterApp {
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add(egui::Image::new((logo, Vec2::splat(96.0))));
-                    ui.label(RichText::new("Painter").size(26.0).strong());
+                    ui.label(RichText::new(tr("Painter")).size(26.0).strong());
                     ui.label(format!("Version {VERSION}"));
                     ui.add_space(4.0);
-                    ui.label("A painting app for illustration and comics, written in Rust with a GPU canvas.");
-                    ui.label(RichText::new("MIT or Apache-2.0").small().weak());
+                    ui.label(tr("A painting app for illustration and comics, written in Rust with a GPU canvas."));
+                    ui.label(RichText::new(tr("MIT or Apache-2.0")).small().weak());
                     ui.add_space(8.0);
                     ui.hyperlink_to("cr0ma-gh.github.io/painter", WEBSITE);
                     ui.hyperlink_to("github.com/cr0ma-gh/painter", REPOSITORY);
@@ -228,21 +229,21 @@ impl PainterApp {
         }
         let imported = self.brushes.iter().enumerate().filter(|(i, _)| self.default_of(*i).is_none()).count();
         let mut answer = None;
-        egui::Window::new("Reset the brush list?")
+        egui::Window::new(tr("Reset the brush list?"))
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
             .show(ctx, |ui| {
-                ui.label("The brush list goes back to Painter's default brushes, with their default settings.");
+                ui.label(tr("The brush list goes back to Painter's default brushes, with their default settings."));
                 if imported > 0 {
                     ui.label(RichText::new(format!("{imported} imported or custom brushes will be removed.")).strong());
-                    ui.small("Export them first (right-click the export button: all brushes) to keep a copy.");
+                    ui.small(tr("Export them first (right-click the export button: all brushes) to keep a copy."));
                 }
                 ui.horizontal(|ui| {
-                    if ui.button("Reset").clicked() {
+                    if ui.button(tr("Reset")).clicked() {
                         answer = Some(true);
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(tr("Cancel")).clicked() {
                         answer = Some(false);
                     }
                 });

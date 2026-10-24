@@ -16,6 +16,7 @@
 //! exports) even where the file isn't.
 
 use std::collections::HashMap;
+use crate::i18n::tr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, UNIX_EPOCH};
@@ -204,7 +205,7 @@ impl PainterApp {
             if let Some(layer) = self.doc.find_mut(id) {
                 layer.file_object = None;
             }
-            self.status = "The mesh warp turned the file object into pixels (it's no longer linked)".into();
+            self.status = tr("The mesh warp turned the file object into pixels (it's no longer linked)").into();
             return false;
         };
         if let Some(layer) = self.doc.find_mut(id) {
@@ -223,9 +224,9 @@ impl PainterApp {
         let Some(fo) = layer.file_object.clone() else { return };
         let id = layer.id;
         ui.separator();
-        ui.label(egui::RichText::new("File object").strong());
+        ui.label(egui::RichText::new(tr("File object")).strong());
         let exists = Path::new(&fo.path).exists();
-        ui.small(&fo.path).on_hover_text("The linked file. Its pixels are in the project too");
+        ui.small(&fo.path).on_hover_text(tr("The linked file. Its pixels are in the project too"));
         if !exists {
             ui.colored_label(
                 egui::Color32::from_rgb(240, 190, 90),
@@ -235,10 +236,10 @@ impl PainterApp {
         ui.small(format!("{} × {} px · Transform tool: moves and scales it without losing quality", fo.size[0], fo.size[1]));
         let (mut update, mut open, mut replace, mut rasterize) = (false, false, false, false);
         ui.horizontal_wrapped(|ui| {
-            update = ui.add_enabled(exists, egui::Button::new("Update")).on_hover_text("Read the file again now").clicked();
-            open = ui.add_enabled(exists, egui::Button::new("Open original")).clicked();
-            replace = ui.button("Replace file...").clicked();
-            rasterize = ui.button("Rasterize").on_hover_text("Ordinary pixels, to paint on (no longer linked)").clicked();
+            update = ui.add_enabled(exists, egui::Button::new(tr("Update"))).on_hover_text(tr("Read the file again now")).clicked();
+            open = ui.add_enabled(exists, egui::Button::new(tr("Open original"))).clicked();
+            replace = ui.button(tr("Replace file...")).clicked();
+            rasterize = ui.button(tr("Rasterize")).on_hover_text(tr("Ordinary pixels, to paint on (no longer linked)")).clicked();
         });
         if update {
             self.status = match self.redraw_file_object(id) {
@@ -268,7 +269,7 @@ impl PainterApp {
             if let Some(layer) = self.doc.find_mut(id) {
                 layer.file_object = None;
             }
-            self.status = "Rasterized: an ordinary layer now".into();
+            self.status = tr("Rasterized: an ordinary layer now").into();
         }
     }
 
@@ -277,7 +278,7 @@ impl PainterApp {
         let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
         if matches!(ext.as_str(), "psd" | "kra" | "ora" | "clip" | "painter") {
             self.open_path(path.to_path_buf());
-            self.status = "Save it and the file object follows".into();
+            self.status = tr("Save it and the file object follows").into();
             return;
         }
         let program = if cfg!(windows) {

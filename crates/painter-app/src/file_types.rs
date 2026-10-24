@@ -19,6 +19,7 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
 use crate::app::PainterApp;
+use crate::i18n::tr;
 
 /// `painter_shell::CLSID` (checked by a test): the thumbnail provider's class.
 const SHELL_CLSID: u128 = 0x5a1c_9a3e_2f4b_4c8e_9d3a_7e61_2b0c_7f41;
@@ -283,24 +284,24 @@ impl PainterApp {
         }
         let mut open = true;
         let mut action = None;
-        eframe::egui::Window::new("File Types").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+        eframe::egui::Window::new(tr("File Types")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
             ui.set_max_width(420.0);
             if cfg!(any(windows, target_os = "linux")) {
-                ui.label("Show Painter's files in the system's file manager: .painter projects open in Painter, with their picture as the thumbnail, and Photoshop, Krita, OpenRaster and Clip Studio files list Painter under \"Open with\" (their default app doesn't change).");
-                ui.small("For your user only; Remove takes it all away.");
+                ui.label(tr("Show Painter's files in the system's file manager: .painter projects open in Painter, with their picture as the thumbnail, and Photoshop, Krita, OpenRaster and Clip Studio files list Painter under \"Open with\" (their default app doesn't change)."));
+                ui.small(tr("For your user only; Remove takes it all away."));
                 if cfg!(windows) && SHELL_DLL.is_none() {
-                    ui.small("This build has no Explorer thumbnails (made without painter-shell).");
+                    ui.small(tr("This build has no Explorer thumbnails (made without painter-shell)."));
                 }
                 ui.horizontal(|ui| {
-                    if ui.button("Set Up").clicked() {
+                    if ui.button(tr("Set Up")).clicked() {
                         action = Some(true);
                     }
-                    if ui.button("Remove").clicked() {
+                    if ui.button(tr("Remove")).clicked() {
                         action = Some(false);
                     }
                 });
             } else {
-                ui.label("Painter's file types come with the app on this system: .painter projects show their thumbnail and open in Painter, and Painter is offered for PSD, Krita, OpenRaster and Clip Studio files.");
+                ui.label(tr("Painter's file types come with the app on this system: .painter projects show their thumbnail and open in Painter, and Painter is offered for PSD, Krita, OpenRaster and Clip Studio files."));
             }
         });
         if let Some(set_up) = action {

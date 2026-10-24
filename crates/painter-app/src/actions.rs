@@ -5,6 +5,7 @@
 //! dialog open it when played. Saved in `actions.json` with the settings.
 
 use std::path::PathBuf;
+use crate::i18n::tr;
 
 use eframe::egui::{self, RichText};
 use serde::{Deserialize, Serialize};
@@ -82,7 +83,7 @@ impl PainterApp {
     /// Runs action `i`'s steps (not while recording it).
     pub(crate) fn play_action(&mut self, i: usize) {
         if self.actions.recording == Some(i) {
-            self.status = "Stop recording before playing this action".into();
+            self.status = tr("Stop recording before playing this action").into();
             return;
         }
         let Some(action) = self.actions.list.get(i).cloned() else { return };
@@ -108,20 +109,20 @@ impl PainterApp {
         let recording = self.actions.recording;
         ui.horizontal(|ui| {
             let rec = recording.is_some();
-            let label = if rec { RichText::new("■ Stop").color(theme::accent()) } else { RichText::new("● Record") };
+            let label = if rec { RichText::new(tr("■ Stop")).color(theme::accent()) } else { RichText::new(tr("● Record")) };
             let can_record = rec || self.actions.selected.is_some();
             let r = ui.add_enabled(can_record, egui::Button::new(label));
-            if r.on_hover_text("Record the commands you run into the selected action").clicked() {
+            if r.on_hover_text(tr("Record the commands you run into the selected action")).clicked() {
                 self.actions.recording = if rec { None } else { self.actions.selected };
                 self.actions.save();
             }
             let can_play = self.actions.selected.is_some() && !rec;
-            if ui.add_enabled(can_play, egui::Button::new("▶ Play")).clicked() {
+            if ui.add_enabled(can_play, egui::Button::new(tr("▶ Play"))).clicked() {
                 if let Some(i) = self.actions.selected {
                     self.play_action(i);
                 }
             }
-            if ui.button("New").on_hover_text("A new action, recording straight away").clicked() {
+            if ui.button(tr("New")).on_hover_text(tr("A new action, recording straight away")).clicked() {
                 let n = self.actions.list.len() + 1;
                 self.actions.list.push(Action { name: format!("Action {n}"), steps: Vec::new() });
                 let i = self.actions.list.len() - 1;
@@ -130,7 +131,7 @@ impl PainterApp {
                 self.actions.renaming = Some(i);
                 self.actions.save();
             }
-            if ui.add_enabled(self.actions.selected.is_some() && !rec, egui::Button::new("Delete")).clicked() {
+            if ui.add_enabled(self.actions.selected.is_some() && !rec, egui::Button::new(tr("Delete"))).clicked() {
                 if let Some(i) = self.actions.selected.take() {
                     self.actions.list.remove(i);
                     self.actions.save();
@@ -148,7 +149,7 @@ impl PainterApp {
         ui.separator();
         if self.actions.list.is_empty() {
             ui.label(
-                RichText::new("No actions yet. Press New, run the commands to repeat, then Stop.").small().color(theme::text_dim()),
+                RichText::new(tr("No actions yet. Press New, run the commands to repeat, then Stop.")).small().color(theme::text_dim()),
             );
         }
         let mut changed = false;
@@ -178,7 +179,7 @@ impl PainterApp {
                         }
                     }
                     let play = ui.add(egui::ImageButton::new(Icon::Redo.image(14.0, theme::text_dim())).frame(false));
-                    if play.on_hover_text("Play").clicked() {
+                    if play.on_hover_text(tr("Play")).clicked() {
                         self.play_action(i);
                     }
                 });
@@ -198,7 +199,7 @@ impl PainterApp {
                             });
                         }
                         if self.actions.list[i].steps.is_empty() {
-                            ui.label(RichText::new("No steps yet: press Record").small().color(theme::text_dim()));
+                            ui.label(RichText::new(tr("No steps yet: press Record")).small().color(theme::text_dim()));
                         }
                     });
                 }

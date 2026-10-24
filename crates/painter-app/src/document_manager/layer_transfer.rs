@@ -7,6 +7,7 @@
 //! is shared by all tabs and does the same on paste.
 
 use painter_core::{vector, Document, Layer, LayerId, LayerKind, TileStore};
+use crate::i18n::tr;
 use transform_tools::commit::composite_over;
 use transform_tools::crop::copy;
 use transform_tools::{resample, FloatingSelection, Image, Interpolation, Mat3};
@@ -162,7 +163,7 @@ impl PainterApp {
         target.doc.selection = Some(rescale_tiles(&selection, src_canvas, factor));
         target.dirty = true;
         slot.revision += 1;
-        self.status = "Selection copied".into();
+        self.status = tr("Selection copied").into();
     }
 }
 

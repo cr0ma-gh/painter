@@ -14,6 +14,7 @@
 //! HTTPS on Android, `NSURLSession` on iPadOS.
 
 use std::path::{Path, PathBuf};
+use crate::i18n::tr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
@@ -497,7 +498,7 @@ impl PainterApp {
         }
         let mut open = true;
         let mut action = None;
-        egui::Window::new("Updates")
+        egui::Window::new(tr("Updates"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -510,11 +511,11 @@ impl PainterApp {
                     UpdateState::Checking(..) => {
                         ui.horizontal(|ui| {
                             ui.spinner();
-                            ui.label("Looking for a new version…");
+                            ui.label(tr("Looking for a new version…"));
                         });
                     }
                     UpdateState::UpToDate => {
-                        ui.label(egui::RichText::new("It's the latest version.").strong());
+                        ui.label(egui::RichText::new(tr("It's the latest version.")).strong());
                     }
                     UpdateState::Available(r) => {
                         ui.label(egui::RichText::new(format!("Painter {} is out.", r.version)).strong().size(16.0));
@@ -535,17 +536,17 @@ impl PainterApp {
                             if ui.button(egui::RichText::new(label).strong()).clicked() {
                                 action = Some("install");
                             }
-                            if ui.button("Later").clicked() {
+                            if ui.button(tr("Later")).clicked() {
                                 action = Some("later");
                             }
-                            if ui.button("Skip this version").clicked() {
+                            if ui.button(tr("Skip this version")).clicked() {
                                 action = Some("skip");
                             }
                         });
                         if cfg!(target_os = "android") {
-                            ui.small("The new APK downloads in the browser: open it to install over this one.");
+                            ui.small(tr("The new APK downloads in the browser: open it to install over this one."));
                         } else if cfg!(target_os = "ios") {
-                            ui.small("Sideload the new IPA as you did this one (AltStore, Sideloadly…).");
+                            ui.small(tr("Sideload the new IPA as you did this one (AltStore, Sideloadly…)."));
                         }
                     }
                     UpdateState::Downloading(r, done, _) => {
@@ -556,21 +557,21 @@ impl PainterApp {
                     }
                     UpdateState::Ready(r) => {
                         ui.label(egui::RichText::new(format!("Painter {} is installed.", r.version)).strong());
-                        ui.label("It starts when Painter closes (you're asked about unsaved documents first).");
-                        if ui.button(egui::RichText::new("Restart now").strong()).clicked() {
+                        ui.label(tr("It starts when Painter closes (you're asked about unsaved documents first)."));
+                        if ui.button(egui::RichText::new(tr("Restart now")).strong()).clicked() {
                             action = Some("restart");
                         }
                     }
                     UpdateState::Failed(e) => {
                         ui.colored_label(egui::Color32::from_rgb(240, 150, 90), e);
-                        if ui.button("Open the website").clicked() {
+                        if ui.button(tr("Open the website")).clicked() {
                             action = Some("website");
                         }
                     }
                 }
                 ui.separator();
                 let mut auto = self.updater.settings.check_automatically;
-                if ui.checkbox(&mut auto, "Check for updates once a day").changed() {
+                if ui.checkbox(&mut auto, tr("Check for updates once a day")).changed() {
                     self.updater.settings.check_automatically = auto;
                     self.updater.save();
                 }

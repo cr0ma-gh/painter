@@ -36,6 +36,8 @@ mod files;
 mod gamut_selector;
 mod history_ui;
 mod icons;
+mod i18n;
+pub mod po;
 mod layer_props;
 mod layers_ui;
 mod lines;

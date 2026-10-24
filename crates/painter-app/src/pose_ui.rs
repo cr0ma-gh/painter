@@ -15,6 +15,7 @@
 //! the project.
 
 use std::sync::Arc;
+use crate::i18n::tr;
 
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke};
 use painter_core::SelectionOp;
@@ -109,7 +110,7 @@ impl PainterApp {
         if self.pose_grabbing() {
             // The click that ends a grab keeps the pose.
             self.pose_drag = None;
-            self.status = "Pose kept".into();
+            self.status = tr("Pose kept").into();
             return true;
         }
         let Some((object, joints)) = self.joints_on_canvas() else { return false };
@@ -193,7 +194,7 @@ impl PainterApp {
             self.pose_drag = None;
         } else {
             drag.grab = true;
-            self.status = "Move the pen or mouse to pose; click to keep it, Esc to cancel".into();
+            self.status = tr("Move the pen or mouse to pose; click to keep it, Esc to cancel").into();
         }
         true
     }
@@ -218,7 +219,7 @@ impl PainterApp {
                 apply_pose(o);
             }
             self.scene_changed(id);
-            self.status = "Pose cancelled".into();
+            self.status = tr("Pose cancelled").into();
         }
     }
 
@@ -259,15 +260,15 @@ pub(crate) fn pose_panel(
     let n = p.rig.bones.len();
     egui::CollapsingHeader::new(format!("Pose  ({n} bones)")).id_salt("scene_pose").default_open(true).show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.selectable_value(ik, true, "IK").on_hover_text("Inverse kinematics: drag a joint and the bones above it bend to follow (a hand moves the arm)");
-            ui.selectable_value(ik, false, "FK").on_hover_text("Forward kinematics: drag a joint to turn its own bone (what hangs from it follows)");
+            ui.selectable_value(ik, true, tr("IK")).on_hover_text(tr("Inverse kinematics: drag a joint and the bones above it bend to follow (a hand moves the arm)"));
+            ui.selectable_value(ik, false, tr("FK")).on_hover_text(tr("Forward kinematics: drag a joint to turn its own bone (what hangs from it follows)"));
             if *ik {
                 ui.add(egui::DragValue::new(chain).range(1..=8).speed(0.05).prefix("chain ").suffix(" bones"))
-                    .on_hover_text("How many bones above the dragged joint bend");
+                    .on_hover_text(tr("How many bones above the dragged joint bend"));
             }
         });
-        ui.small("Drag a joint on the canvas, or click it and move the pen or mouse: click again to keep, Esc to cancel.");
-        ui.add(egui::TextEdit::singleline(filter).hint_text("Find a bone").desired_width(f32::INFINITY));
+        ui.small(tr("Drag a joint on the canvas, or click it and move the pen or mouse: click again to keep, Esc to cancel."));
+        ui.add(egui::TextEdit::singleline(filter).hint_text(tr("Find a bone")).desired_width(f32::INFINITY));
         // Depth of each bone, for indenting.
         let mut depth = vec![0usize; n];
         for i in 0..n {
@@ -309,11 +310,11 @@ pub(crate) fn pose_panel(
                 changed = true;
             }
             ui.horizontal(|ui| {
-                if ui.button("Reset bone").clicked() {
+                if ui.button(tr("Reset bone")).clicked() {
                     p.pose[i] = Quat::IDENTITY;
                     (changed, checkpoint) = (true, true);
                 }
-                if ui.button("Reset pose").on_hover_text("Every bone back to the model's rest pose").clicked() {
+                if ui.button(tr("Reset pose")).on_hover_text(tr("Every bone back to the model's rest pose")).clicked() {
                     p.pose.iter_mut().for_each(|q| *q = Quat::IDENTITY);
                     (changed, checkpoint) = (true, true);
                 }

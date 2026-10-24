@@ -10,6 +10,7 @@
 //! local address is enough.
 
 use std::collections::HashMap;
+use crate::i18n::tr;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -317,7 +318,7 @@ impl PainterApp {
     pub(crate) fn leave_session(&mut self) {
         // Dropping it closes the connections (their writers end) and the port.
         if self.session.take().is_some() {
-            self.status = "Left the session".into();
+            self.status = tr("Left the session").into();
         }
     }
 
@@ -355,7 +356,7 @@ impl PainterApp {
             NetEvent::Closed { conn } => {
                 if s.role == Role::Client {
                     self.session = None;
-                    self.status = "The session ended (the host left or the connection dropped)".into();
+                    self.status = tr("The session ended (the host left or the connection dropped)").into();
                     return;
                 }
                 if let Some(peer) = s.conns.remove(&conn).and_then(|c| c.peer) {
@@ -405,7 +406,7 @@ impl PainterApp {
                         s.peers = peers;
                         s.baseline = Some(self.doc.clone());
                         s.doc_id = self.docs.active_id();
-                        self.status = "Joined the session".into();
+                        self.status = tr("Joined the session").into();
                     }
                     Err(e) => {
                         self.session = None;
@@ -426,7 +427,7 @@ impl PainterApp {
                         if let Some(s) = self.session.as_mut() {
                             s.baseline = Some(self.doc.clone());
                         }
-                        self.status = "Back in step with the host".into();
+                        self.status = tr("Back in step with the host").into();
                     }
                 }
                 return;
@@ -690,41 +691,41 @@ impl PainterApp {
         let Some(s) = &self.session else {
             let f = &mut self.session_form;
             ui.horizontal(|ui| {
-                ui.label("Your name");
+                ui.label(tr("Your name"));
                 ui.add(egui::TextEdit::singleline(&mut f.name).desired_width(160.0));
             });
             ui.separator();
-            ui.label(RichText::new("Host this document").strong());
+            ui.label(RichText::new(tr("Host this document")).strong());
             ui.horizontal(|ui| {
-                ui.label("Port");
+                ui.label(tr("Port"));
                 ui.add(egui::TextEdit::singleline(&mut f.host_port).desired_width(60.0));
-                ui.label("Password");
-                ui.add(egui::TextEdit::singleline(&mut f.host_password).password(true).desired_width(100.0).hint_text("none"));
+                ui.label(tr("Password"));
+                ui.add(egui::TextEdit::singleline(&mut f.host_password).password(true).desired_width(100.0).hint_text(tr("none")));
             });
             let mut host = None;
-            if ui.button("Start Hosting").on_hover_text("Others join with this computer's address and the port").clicked() {
+            if ui.button(tr("Start Hosting")).on_hover_text(tr("Others join with this computer's address and the port")).clicked() {
                 host = Some((f.host_port.trim().parse::<u16>().unwrap_or(DEFAULT_PORT), f.host_password.clone()));
             }
             ui.separator();
-            ui.label(RichText::new("Join a session").strong());
+            ui.label(RichText::new(tr("Join a session")).strong());
             ui.horizontal(|ui| {
-                ui.label("Address");
-                ui.add(egui::TextEdit::singleline(&mut f.join_address).desired_width(160.0).hint_text("192.168.1.20:27750"));
+                ui.label(tr("Address"));
+                ui.add(egui::TextEdit::singleline(&mut f.join_address).desired_width(160.0).hint_text(tr("192.168.1.20:27750")));
             });
             ui.horizontal(|ui| {
-                ui.label("Password");
-                ui.add(egui::TextEdit::singleline(&mut f.join_password).password(true).desired_width(100.0).hint_text("if any"));
+                ui.label(tr("Password"));
+                ui.add(egui::TextEdit::singleline(&mut f.join_password).password(true).desired_width(100.0).hint_text(tr("if any")));
             });
             let mut join = None;
             if ui
-                .add_enabled(!f.join_address.trim().is_empty(), egui::Button::new("Join"))
-                .on_hover_text("The host's document opens in a new tab")
+                .add_enabled(!f.join_address.trim().is_empty(), egui::Button::new(tr("Join")))
+                .on_hover_text(tr("The host's document opens in a new tab"))
                 .clicked()
             {
                 join = Some((f.join_address.trim().to_string(), f.join_password.clone()));
             }
             ui.add_space(4.0);
-            ui.small("On the same network the host's local address is enough; over the internet the host's port has to be reachable (forwarded on the router, or a VPN such as Tailscale).");
+            ui.small(tr("On the same network the host's local address is enough; over the internet the host's port has to be reachable (forwarded on the router, or a VPN such as Tailscale)."));
             if let Some((port, pw)) = host {
                 self.host_session(port, pw);
             }
@@ -737,7 +738,7 @@ impl PainterApp {
         let role = if s.role == Role::Host { format!("Hosting at {}", s.address) } else { format!("Joined {}", s.address) };
         ui.label(RichText::new(role).strong());
         if s.role == Role::Client && s.baseline.is_none() {
-            ui.label("Waiting for the host's document…");
+            ui.label(tr("Waiting for the host's document…"));
         } else if !here {
             ui.colored_label(theme::accent(), "Paused: switch back to the shared document's tab");
         }
@@ -762,10 +763,10 @@ impl PainterApp {
             let r = ui.add(
                 egui::TextEdit::singleline(&mut self.session_form.chat_input)
                     .desired_width(ui.available_width() - 50.0)
-                    .hint_text("Say something"),
+                    .hint_text(tr("Say something")),
             );
             let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if (ui.button("Send").clicked() || enter) && !self.session_form.chat_input.trim().is_empty() {
+            if (ui.button(tr("Send")).clicked() || enter) && !self.session_form.chat_input.trim().is_empty() {
                 send = Some(std::mem::take(&mut self.session_form.chat_input));
                 r.request_focus();
             }
@@ -773,12 +774,12 @@ impl PainterApp {
         let mut leave = false;
         let mut resync = false;
         ui.horizontal(|ui| {
-            leave = ui.button("Leave").clicked();
+            leave = ui.button(tr("Leave")).clicked();
             if s.role == Role::Client {
-                resync = ui.button("Resync").on_hover_text("Get the host's document again, if things look out of step").clicked();
+                resync = ui.button(tr("Resync")).on_hover_text(tr("Get the host's document again, if things look out of step")).clicked();
             }
         });
-        ui.small("Undo takes back your own changes; others' strokes stay.");
+        ui.small(tr("Undo takes back your own changes; others' strokes stay."));
         if let Some(text) = send {
             if let Some(s) = self.session.as_mut() {
                 let me = s.me;

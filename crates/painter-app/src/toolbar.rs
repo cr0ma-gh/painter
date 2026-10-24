@@ -4,6 +4,7 @@
 //! buttons, with separators. Kept between launches as a list of keys.
 
 use eframe::egui::{self, Color32, Sense, Stroke, Vec2};
+use crate::i18n::tr;
 
 use crate::app::PainterApp;
 use crate::tool_groups::family;
@@ -178,7 +179,7 @@ impl PainterApp {
                 let background = ui.interact(strip, ui.id().with("tool_strip_bg"), Sense::click());
                 background.context_menu(|ui| {
                     self.strip_menu_items(ui);
-                    if ui.button("Hide Tool Strip").on_hover_text("View → Tool Strip shows it again").clicked() {
+                    if ui.button(tr("Hide Tool Strip")).on_hover_text(tr("View → Tool Strip shows it again")).clicked() {
                         self.ws.bars.tool_strip = false;
                         ui.close_menu();
                     }
@@ -273,7 +274,7 @@ impl PainterApp {
             // Families use the right button for their flyout; single items for this menu.
             if run.len() == 1 {
                 response.context_menu(|ui| {
-                    if ui.button("Remove from Toolbar").clicked() {
+                    if ui.button(tr("Remove from Toolbar")).clicked() {
                         self.ws.toolbar.remove(i);
                         ui.close_menu();
                     }
@@ -287,10 +288,10 @@ impl PainterApp {
 
     /// The tool strip's right-click menu entries.
     fn strip_menu_items(&mut self, ui: &mut egui::Ui) {
-        if ui.checkbox(&mut self.ws.bars.grouped, "Group Tools").on_hover_text("Tools of a family share one button, as in Photoshop").changed() {
+        if ui.checkbox(&mut self.ws.bars.grouped, tr("Group Tools")).on_hover_text(tr("Tools of a family share one button, as in Photoshop")).changed() {
             ui.close_menu();
         }
-        if ui.button("Customize Toolbar...").clicked() {
+        if ui.button(tr("Customize Toolbar...")).clicked() {
             self.ws.toolbar_editing = true;
             ui.close_menu();
         }
@@ -379,7 +380,7 @@ impl PainterApp {
                 Item::Separator => "Separator".into(),
             };
             response.on_hover_text(format!("{title}: drag to move, right-click to remove")).context_menu(|ui| {
-                if ui.button("Remove").clicked() {
+                if ui.button(tr("Remove")).clicked() {
                     self.ws.toolbar.remove(i);
                     ui.close_menu();
                 }
@@ -396,25 +397,25 @@ impl PainterApp {
             self.refresh_commands();
         }
         let mut open = true;
-        egui::Window::new("Customize Toolbar").open(&mut open).default_pos(egui::pos2(60.0, 120.0)).default_width(300.0).show(
+        egui::Window::new(tr("Customize Toolbar")).open(&mut open).default_pos(egui::pos2(60.0, 120.0)).default_width(300.0).show(
             ctx,
             |ui| {
-                ui.small("Drag the toolbar's buttons to reorder them; right-click one to remove it.");
+                ui.small(tr("Drag the toolbar's buttons to reorder them; right-click one to remove it."));
                 ui.horizontal(|ui| {
-                    if ui.button("+ Separator").clicked() {
+                    if ui.button(tr("+ Separator")).clicked() {
                         self.ws.toolbar.push(Item::Separator);
                     }
-                    if ui.button("Reset").on_hover_text("Back to the standard toolbar").clicked() {
+                    if ui.button(tr("Reset")).on_hover_text(tr("Back to the standard toolbar")).clicked() {
                         self.ws.toolbar = default_items();
                     }
-                    if ui.button("Done").clicked() {
+                    if ui.button(tr("Done")).clicked() {
                         self.ws.toolbar_editing = false;
                     }
                 });
                 let missing: Vec<Item> =
                     default_items().into_iter().filter(|i| *i != Item::Separator && !self.ws.toolbar.contains(i)).collect();
                 if !missing.is_empty() {
-                    ui.label("Tools not on the toolbar");
+                    ui.label(tr("Tools not on the toolbar"));
                     ui.horizontal_wrapped(|ui| {
                         for item in missing {
                             let (icon, name) = match &item {
@@ -429,9 +430,9 @@ impl PainterApp {
                     });
                 }
                 ui.separator();
-                ui.label("Add a command");
+                ui.label(tr("Add a command"));
                 let search = &mut self.ws.toolbar_search;
-                ui.add(egui::TextEdit::singleline(search).hint_text("Search commands").desired_width(f32::INFINITY));
+                ui.add(egui::TextEdit::singleline(search).hint_text(tr("Search commands")).desired_width(f32::INFINITY));
                 let query = search.to_lowercase();
                 let commands: Vec<(String, String)> = self
                     .ws
@@ -538,11 +539,11 @@ impl PainterApp {
     }
 
     fn command_bar_menu(&mut self, ui: &mut egui::Ui) {
-        if ui.button("Customize Command Bar...").clicked() {
+        if ui.button(tr("Customize Command Bar...")).clicked() {
             self.ws.command_bar_editing = true;
             ui.close_menu();
         }
-        if ui.button("Hide Command Bar").on_hover_text("View → Command Bar shows it again").clicked() {
+        if ui.button(tr("Hide Command Bar")).on_hover_text(tr("View → Command Bar shows it again")).clicked() {
             self.ws.bars.command_bar = false;
             ui.close_menu();
         }
@@ -562,7 +563,7 @@ impl PainterApp {
                 self.run_command(&id);
             }
             response.context_menu(|ui| {
-                if ui.button("Remove from Command Bar").clicked() {
+                if ui.button(tr("Remove from Command Bar")).clicked() {
                     self.ws.command_bar.remove(i);
                     ui.close_menu();
                 }
@@ -608,7 +609,7 @@ impl PainterApp {
                 moved = Some((*from, i));
             }
             response.on_hover_text(format!("{title}: drag to move, right-click to remove")).context_menu(|ui| {
-                if ui.button("Remove").clicked() {
+                if ui.button(tr("Remove")).clicked() {
                     self.ws.command_bar.remove(i);
                     ui.close_menu();
                 }
@@ -621,23 +622,23 @@ impl PainterApp {
 
     fn command_bar_editor_window(&mut self, ctx: &egui::Context) {
         let mut open = true;
-        egui::Window::new("Customize Command Bar").open(&mut open).default_pos(egui::pos2(200.0, 90.0)).default_width(300.0).show(ctx, |ui| {
-            ui.small("Drag the bar's buttons to reorder them; right-click one to remove it.");
+        egui::Window::new(tr("Customize Command Bar")).open(&mut open).default_pos(egui::pos2(200.0, 90.0)).default_width(300.0).show(ctx, |ui| {
+            ui.small(tr("Drag the bar's buttons to reorder them; right-click one to remove it."));
             ui.horizontal(|ui| {
-                if ui.button("+ Separator").clicked() {
+                if ui.button(tr("+ Separator")).clicked() {
                     self.ws.command_bar.push(Item::Separator);
                 }
-                if ui.button("Reset").on_hover_text("Back to the standard command bar").clicked() {
+                if ui.button(tr("Reset")).on_hover_text(tr("Back to the standard command bar")).clicked() {
                     self.ws.command_bar = default_command_bar();
                 }
-                if ui.button("Done").clicked() {
+                if ui.button(tr("Done")).clicked() {
                     self.ws.command_bar_editing = false;
                 }
             });
             ui.separator();
-            ui.label("Add a command");
+            ui.label(tr("Add a command"));
             let search = &mut self.ws.command_bar_search;
-            ui.add(egui::TextEdit::singleline(search).hint_text("Search commands").desired_width(f32::INFINITY));
+            ui.add(egui::TextEdit::singleline(search).hint_text(tr("Search commands")).desired_width(f32::INFINITY));
             let query = search.to_lowercase();
             let commands: Vec<(String, String)> = self
                 .ws

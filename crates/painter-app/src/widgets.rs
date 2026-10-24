@@ -2,6 +2,7 @@
 //! wheel and the main / sub colour chips.
 
 use std::ops::RangeInclusive;
+use crate::i18n::tr;
 
 use eframe::egui::{
     self, ecolor::Hsva, ecolor::HsvaGamma, epaint::Mesh, Color32, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Ui, Vec2,
@@ -20,6 +21,7 @@ pub fn prop_slider(
     decimals: usize,
     logarithmic: bool,
 ) -> bool {
+    let label = crate::i18n::tr_str(label);
     let (lo, hi) = (*range.start(), *range.end());
     let to_t = |v: f32| {
         if logarithmic {
@@ -109,7 +111,7 @@ pub fn segmented<T: PartialEq + Copy>(
             };
             ui.painter().rect_filled(rect, 2.0, fill);
             paint(ui.painter(), rect, *option, selected);
-            if response.on_hover_text(*hint).clicked() && !selected {
+            if response.on_hover_text(crate::i18n::tr_str(hint)).clicked() && !selected {
                 *value = *option;
                 changed = true;
             }
@@ -213,7 +215,7 @@ pub fn color_chips(ui: &mut Ui, main: &mut Hsva, sub: &mut Hsva, size: f32) -> R
     painter.circle_filled(main_c, r, Color32::from(*main));
     painter.circle_stroke(main_c, r, Stroke::new(2.0_f32, Color32::from_gray(200)));
     painter.circle_stroke(main_c, r + 1.5, Stroke::new(1.0_f32, Color32::BLACK));
-    let response = response.on_hover_text("Main / sub colour. Click or press X to swap; double-click one to pick it");
+    let response = response.on_hover_text(tr("Main / sub colour. Click or press X to swap; double-click one to pick it"));
     if response.clicked() {
         std::mem::swap(main, sub);
     }
@@ -222,6 +224,7 @@ pub fn color_chips(ui: &mut Ui, main: &mut Hsva, sub: &mut Hsva, size: f32) -> R
 
 /// Draws a header strip like a panel tab: icon, then text.
 pub fn group_header(ui: &mut Ui, icon: crate::icons::Icon, text: &str) {
+    let text = crate::i18n::tr_str(text);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 24.0), Sense::hover());
     let tab = Rect::from_min_size(rect.min, Vec2::new(rect.width().min(150.0), rect.height()));
     ui.painter().rect_filled(tab, 3.0, theme::selected());
@@ -256,5 +259,5 @@ pub fn transparent_chip(ui: &mut Ui, on: bool, size: f32) -> Response {
     checkerboard(ui.painter(), rect.shrink(2.0), size / 4.0);
     let ring = if on { crate::theme::accent() } else if response.hovered() { crate::theme::strong() } else { crate::theme::line() };
     ui.painter().rect_stroke(rect.shrink(1.0), 2.0, Stroke::new(if on { 2.5_f32 } else { 1.0 }, ring), StrokeKind::Inside);
-    response.on_hover_text("Transparent colour: brushes erase with their own shape (pick any colour to go back)")
+    response.on_hover_text(tr("Transparent colour: brushes erase with their own shape (pick any colour to go back)"))
 }

@@ -5,6 +5,7 @@
 //! modifier handling work exactly as with a real keyboard.
 
 use eframe::egui::{self, Modifiers, RawInput, Sense, Vec2};
+use crate::i18n::tr;
 
 pub(crate) struct ModifierKeys {
     pub(crate) shown: bool,
@@ -84,7 +85,7 @@ impl ModifierKeys {
                                 ui.painter().circle_filled(c, 1.5, dot);
                             }
                         }
-                        response.on_hover_text("Drag to move");
+                        response.on_hover_text(tr("Drag to move"));
                         for (label, on) in [("Ctrl", &mut self.ctrl), ("Shift", &mut self.shift), ("Alt", &mut self.alt)] {
                             let text = egui::RichText::new(label).strong();
                             let button = egui::Button::new(text).min_size(size).corner_radius(6).selected(*on);

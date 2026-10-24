@@ -8,6 +8,7 @@
 //!   the oldest kept state otherwise), transparency included.
 
 use std::path::PathBuf;
+use crate::i18n::tr;
 
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Stroke, Vec2};
 use painter_core::raster::RasterizedStroke;
@@ -115,7 +116,7 @@ impl PainterApp {
         let (source, merge) = match kind {
             StampKind::Clone => {
                 let Some(point) = self.clone_source.point else {
-                    self.status = "Clone stamp: Alt-click where to copy from first".into();
+                    self.status = tr("Clone stamp: Alt-click where to copy from first").into();
                     return None;
                 };
                 let offset = match self.clone_source.offset {
@@ -152,7 +153,7 @@ impl PainterApp {
             }
             StampKind::History => {
                 let Some((_, layers)) = self.history.source() else {
-                    self.status = "History brush: nothing to go back to yet".into();
+                    self.status = tr("History brush: nothing to go back to yet").into();
                     return None;
                 };
                 let image = match plane {
@@ -193,11 +194,11 @@ impl PainterApp {
         match kind {
             StampKind::Clone => {
                 let o = &mut self.tools.stamps;
-                ui.checkbox(&mut o.aligned, "Aligned").on_hover_text("Keep the same offset from one stroke to the next");
+                ui.checkbox(&mut o.aligned, tr("Aligned")).on_hover_text(tr("Keep the same offset from one stroke to the next"));
                 ui.horizontal(|ui| {
-                    ui.label("Sample");
-                    ui.selectable_value(&mut o.all_layers, false, "Current layer");
-                    ui.selectable_value(&mut o.all_layers, true, "All layers");
+                    ui.label(tr("Sample"));
+                    ui.selectable_value(&mut o.all_layers, false, tr("Current layer"));
+                    ui.selectable_value(&mut o.all_layers, true, tr("All layers"));
                 });
                 ui.small(match self.clone_source.point {
                     Some(p) => format!("Copying from {:.0}, {:.0}. Alt-click to pick another spot.", p.x, p.y),
@@ -207,24 +208,24 @@ impl PainterApp {
             StampKind::Pattern => {
                 let o = &mut self.tools.stamps;
                 let current = o.patterns.get(o.pattern).map_or("None", |p| p.name.as_str()).to_string();
-                egui::ComboBox::from_label("Pattern").selected_text(current).show_ui(ui, |ui| {
+                egui::ComboBox::from_label(tr("Pattern")).selected_text(current).show_ui(ui, |ui| {
                     for (i, p) in o.patterns.iter().enumerate() {
                         ui.selectable_value(&mut o.pattern, i, &p.name);
                     }
                 });
-                ui.add(egui::Slider::new(&mut o.pattern_scale, 0.25..=8.0).logarithmic(true).text("Scale"));
-                ui.checkbox(&mut o.tint, "Main colour").on_hover_text("Paint the pattern's shapes in the main colour");
-                if ui.button("Define Pattern from Selection").clicked() {
+                ui.add(egui::Slider::new(&mut o.pattern_scale, 0.25..=8.0).logarithmic(true).text(tr("Scale")));
+                ui.checkbox(&mut o.tint, tr("Main colour")).on_hover_text(tr("Paint the pattern's shapes in the main colour"));
+                if ui.button(tr("Define Pattern from Selection")).clicked() {
                     self.define_pattern();
                 }
             }
             StampKind::History => {
                 let from = self.history.source().map_or("nothing yet".to_string(), |(l, _)| format!("“{l}”"));
                 ui.label(format!("Paints from {from}"));
-                ui.small("Pick another state with the brush button in the History panel.");
+                ui.small(tr("Pick another state with the brush button in the History panel."));
             }
         }
-        ui.small("The tip and dynamics are the current brush's: pick one in the Tool Group.");
+        ui.small(tr("The tip and dynamics are the current brush's: pick one in the Tool Group."));
     }
 
     /// Edit → Define Pattern: the selected part of the layer (all of it without
@@ -232,7 +233,7 @@ impl PainterApp {
     pub(crate) fn define_pattern(&mut self) {
         let Some(layer) = self.doc.active_layer() else { return };
         let Some(tiles) = layer.tiles() else {
-            self.status = "Define Pattern works on pixel layers".into();
+            self.status = tr("Define Pattern works on pixel layers").into();
             return;
         };
         let area = match &self.doc.selection {
@@ -240,7 +241,7 @@ impl PainterApp {
             None => painter_core::selection::bounds(tiles),
         };
         let Some([x0, y0, x1, y1]) = area else {
-            self.status = "Define Pattern: nothing there".into();
+            self.status = tr("Define Pattern: nothing there").into();
             return;
         };
         let (w, h) = ((x1 - x0 + 1).min(2048) as u32, (y1 - y0 + 1).min(2048) as u32);
@@ -259,7 +260,7 @@ impl PainterApp {
                 && image::RgbaImage::from_raw(w, h, straight)
                     .is_some_and(|img| img.save(dir.join(format!("{}.png", pattern.name))).is_ok());
             if !saved {
-                self.status = "Couldn't save the pattern; it's there until Painter closes".into();
+                self.status = tr("Couldn't save the pattern; it's there until Painter closes").into();
             }
         }
         self.status = format!("Defined “{}” ({w} × {h} px)", pattern.name);

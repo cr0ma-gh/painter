@@ -13,6 +13,7 @@
 //! again when released, with its brush; one undo step per change.
 
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Stroke};
+use crate::i18n::tr;
 use painter_core::{vector, LayerId, LayerKind, SelectionOp, StrokePoint};
 use painter_render::Plane;
 
@@ -61,7 +62,7 @@ impl PainterApp {
 
     pub(crate) fn vector_edit_press(&mut self, at: Pos2, alt: bool) {
         let Some((id, layer)) = self.vector_layer() else {
-            self.status = "Vector Points works on vector layers".into();
+            self.status = tr("Vector Points works on vector layers").into();
             return;
         };
         let reach = REACH / self.view.zoom.max(1e-3);
@@ -202,7 +203,7 @@ impl PainterApp {
 
     /// Tool Settings for Vector Points.
     pub(crate) fn vector_edit_panel(&mut self, ui: &mut egui::Ui) {
-        ui.label("Click a vector line to pick it. Drag its square points to reshape it, drag the line to move it. Alt + click removes a point; Delete removes the line.");
+        ui.label(tr("Click a vector line to pick it. Drag its square points to reshape it, drag the line to move it. Alt + click removes a point; Delete removes the line."));
         let Some((id, k)) = self.vector_edit.picked else { return };
         let Some(LayerKind::Vector(v)) = self.doc.find(id).map(|l| &l.kind) else { return };
         let Some(stroke) = v.strokes.get(k) else { return };
@@ -210,7 +211,7 @@ impl PainterApp {
         ui.separator();
         ui.label(format!("Line {} of {} · {count} points", k + 1, v.strokes.len()));
         let (mut changed, mut undo) = (false, false);
-        let r = ui.add(egui::Slider::new(&mut size, 0.5..=200.0).logarithmic(true).text("Width"));
+        let r = ui.add(egui::Slider::new(&mut size, 0.5..=200.0).logarithmic(true).text(tr("Width")));
         changed |= r.changed();
         undo |= r.drag_started() || (r.changed() && !r.dragged());
         let r = ui.color_edit_button_rgb(&mut color);
@@ -219,8 +220,8 @@ impl PainterApp {
         let (mut simplify, mut delete) = (false, false);
         ui.horizontal(|ui| {
             simplify =
-                ui.button("Simplify").on_hover_text("Keep only the points that make its shape (smoother, easier to edit)").clicked();
-            delete = ui.button("Delete line").clicked();
+                ui.button(tr("Simplify")).on_hover_text(tr("Keep only the points that make its shape (smoother, easier to edit)")).clicked();
+            delete = ui.button(tr("Delete line")).clicked();
         });
         if delete {
             self.vector_edit_delete();

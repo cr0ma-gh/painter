@@ -13,6 +13,7 @@
 //!   with the project.
 
 use eframe::egui::{self, Color32, RichText};
+use crate::i18n::tr;
 use painter_core::color_mode::ColorMode;
 use painter_core::{selection, SavedChannel, SelectionOp, TileCoord, TileStore};
 use painter_render::Plane;
@@ -157,7 +158,7 @@ impl PainterApp {
     /// Selection → saved channel ("Alpha 1", "Alpha 2"…).
     pub(crate) fn save_selection_channel(&mut self) {
         let Some(mask) = self.doc.selection.clone() else {
-            self.status = "Save Selection: nothing is selected".into();
+            self.status = tr("Save Selection: nothing is selected").into();
             return;
         };
         let n = (1..).find(|n| !self.doc.channels.iter().any(|c| c.name == format!("Alpha {n}"))).unwrap_or(1);
@@ -206,7 +207,7 @@ impl PainterApp {
         let shift = ui.input(|i| i.modifiers.shift);
         let ctrl = ui.input(|i| i.modifiers.command);
         if self.doc.mode == ColorMode::Cmyk && self.proofer.proofer.is_none() {
-            ui.label(RichText::new("The press profile couldn't be used: inks can't be shown").small().color(theme::warning()));
+            ui.label(RichText::new(tr("The press profile couldn't be used: inks can't be shown")).small().color(theme::warning()));
         }
         // The composite (RGB, CMYK): everything back.
         if let Some(name) = composite {
@@ -216,7 +217,7 @@ impl PainterApp {
                     self.channels.visible = [true; 4];
                 }
                 let r = ui.add_sized([ui.available_width(), 22.0], egui::SelectableLabel::new(all, name));
-                if r.on_hover_text("Show and edit every channel (Ctrl+2)").clicked() {
+                if r.on_hover_text(tr("Show and edit every channel (Ctrl+2)")).clicked() {
                     self.channels.reset();
                 }
             });
@@ -262,7 +263,7 @@ impl PainterApp {
             ui.label(RichText::new(format!("Painting changes only {}", names.join(" and "))).small().color(theme::accent()));
         }
         ui.separator();
-        ui.label(RichText::new("Saved selections").small().color(theme::text_dim()));
+        ui.label(RichText::new(tr("Saved selections")).small().color(theme::text_dim()));
         let mut load = None;
         let mut delete = None;
         let count = self.doc.channels.len();
@@ -280,7 +281,7 @@ impl PainterApp {
                 } else {
                     let name = self.doc.channels[i].name.clone();
                     let r = ui.add(egui::SelectableLabel::new(false, name));
-                    let r = r.on_hover_text("Click: load as the selection (Shift adds, Alt subtracts). Double-click: rename");
+                    let r = r.on_hover_text(tr("Click: load as the selection (Shift adds, Alt subtracts). Double-click: rename"));
                     if r.double_clicked() {
                         self.channels.renaming = Some(i);
                     } else if r.clicked() {
@@ -299,7 +300,7 @@ impl PainterApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .add(egui::ImageButton::new(Icon::Delete.image(14.0, theme::text_dim())).frame(false))
-                        .on_hover_text("Delete")
+                        .on_hover_text(tr("Delete"))
                         .clicked()
                     {
                         delete = Some(i);
@@ -308,7 +309,7 @@ impl PainterApp {
             });
         }
         if count == 0 {
-            ui.label(RichText::new("None yet: make a selection, then Save Selection.").small().color(theme::text_dim()));
+            ui.label(RichText::new(tr("None yet: make a selection, then Save Selection.")).small().color(theme::text_dim()));
         }
         if let Some((i, op)) = load {
             self.load_selection_channel(i, op);
@@ -319,7 +320,7 @@ impl PainterApp {
             self.doc.channels.remove(i);
         }
         ui.add_enabled_ui(self.doc.selection.is_some(), |ui| {
-            if ui.button("Save Selection").on_hover_text("Keep the selection as a channel, saved with the project").clicked() {
+            if ui.button(tr("Save Selection")).on_hover_text(tr("Keep the selection as a channel, saved with the project")).clicked() {
                 self.save_selection_channel();
             }
         });

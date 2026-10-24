@@ -6,6 +6,7 @@
 //! the Pen Only"). A loupe shows the new colour over the previous one.
 
 use eframe::egui::{self, ecolor::Hsva, Color32, Event, Pos2, Rect, Stroke, TouchPhase, Vec2};
+use crate::i18n::tr;
 use painter_core::LayerKind;
 
 use crate::app::PainterApp;
@@ -247,18 +248,18 @@ impl PainterApp {
     /// The Eyedropper's Tool Settings.
     pub(crate) fn eyedropper_panel(&mut self, ui: &mut egui::Ui) {
         let e = &mut self.eyedropper;
-        ui.label("Obtain colour from");
+        ui.label(tr("Obtain colour from"));
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut e.source, PickSource::Canvas, "Canvas").on_hover_text("The colour you see: all visible layers");
-            ui.selectable_value(&mut e.source, PickSource::Layer, "Current layer").on_hover_text("Only the layer being edited");
+            ui.selectable_value(&mut e.source, PickSource::Canvas, tr("Canvas")).on_hover_text(tr("The colour you see: all visible layers"));
+            ui.selectable_value(&mut e.source, PickSource::Layer, tr("Current layer")).on_hover_text(tr("Only the layer being edited"));
         });
-        ui.label("Range");
+        ui.label(tr("Range"));
         ui.horizontal(|ui| {
             for (size, label) in [(1, "1 px"), (3, "3×3"), (5, "5×5"), (11, "11×11")] {
                 ui.selectable_value(&mut e.size, size, label);
             }
         });
-        ui.small("Also with Alt while painting, filling or drawing a gradient, and by resting a finger on the canvas (iPad).");
+        ui.small(tr("Also with Alt while painting, filling or drawing a gradient, and by resting a finger on the canvas (iPad)."));
     }
 }
 

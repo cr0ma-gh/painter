@@ -7,6 +7,7 @@
 //! session.
 
 use std::time::{Duration, Instant};
+use crate::i18n::tr;
 
 use eframe::egui::{self, ecolor::Hsva, Color32, Pos2, Rect, Sense, Stroke, Vec2};
 use serde::{Deserialize, Serialize};
@@ -334,7 +335,7 @@ impl PainterApp {
                         changed = Some(from_rgb(with(t)));
                     }
                 }
-                ui.small("CMYK without a colour profile (device values).");
+                ui.small(tr("CMYK without a colour profile (device values)."));
             }
         }
         if let Some(c) = changed {
@@ -348,7 +349,7 @@ impl PainterApp {
             }
             let [r, g, b] = rgb;
             let mut hex = format!("{r:02X}{g:02X}{b:02X}");
-            ui.label("#");
+            ui.label(tr("#"));
             if ui.add(egui::TextEdit::singleline(&mut hex).desired_width(60.0).font(egui::TextStyle::Monospace)).changed() {
                 if let Ok(v) = u32::from_str_radix(hex.trim().trim_start_matches('#'), 16) {
                     if hex.trim().trim_start_matches('#').len() == 6 {
@@ -362,7 +363,7 @@ impl PainterApp {
     /// Color History: the colours drawn with lately, newest first.
     pub(crate) fn color_history_panel(&mut self, ui: &mut egui::Ui) {
         if self.colors.data.history.is_empty() {
-            ui.label(egui::RichText::new("Colours you draw with appear here.").color(theme::text_dim()));
+            ui.label(egui::RichText::new(tr("Colours you draw with appear here.")).color(theme::text_dim()));
             return;
         }
         let history = self.colors.data.history.clone();
@@ -370,7 +371,7 @@ impl PainterApp {
         if let Some(i) = clicked {
             self.pick_color(history[i]);
         }
-        if ui.small_button("Clear").clicked() {
+        if ui.small_button(tr("Clear")).clicked() {
             self.colors.data.history.clear();
         }
     }
@@ -392,25 +393,25 @@ impl PainterApp {
                         ui.selectable_value(&mut data.active_set, i, &data.sets[i].name);
                     }
                 });
-            ui.menu_button("☰", |ui| {
-                if ui.button("New Color Set").clicked() {
+            ui.menu_button(tr("☰"), |ui| {
+                if ui.button(tr("New Color Set")).clicked() {
                     data.sets.push(ColorSet { name: format!("Color set {}", data.sets.len() + 1), colors: Vec::new() });
                     data.active_set = data.sets.len() - 1;
                     ui.close_menu();
                 }
                 let set = &mut data.sets[data.active_set];
                 ui.horizontal(|ui| {
-                    ui.label("Name");
+                    ui.label(tr("Name"));
                     ui.text_edit_singleline(&mut set.name);
                 });
-                if ui.add_enabled(data.sets.len() > 1, egui::Button::new("Delete Color Set")).clicked() {
+                if ui.add_enabled(data.sets.len() > 1, egui::Button::new(tr("Delete Color Set"))).clicked() {
                     data.sets.remove(data.active_set);
                     data.active_set = 0;
                     ui.close_menu();
                 }
                 ui.separator();
-                import = ui.button("Import GIMP Palette (.gpl)...").clicked();
-                export = ui.button("Export as GIMP Palette (.gpl)...").clicked();
+                import = ui.button(tr("Import GIMP Palette (.gpl)...")).clicked();
+                export = ui.button(tr("Export as GIMP Palette (.gpl)...")).clicked();
             });
         });
         let set = &mut data.sets[data.active_set];
@@ -421,28 +422,28 @@ impl PainterApp {
         let mut pick = clicked.map(|i| set.colors[i]);
         let menu_for = ui.memory(|m| m.data.get_temp::<usize>(egui::Id::new("color_set_menu")));
         if let Some(i) = menu_for.filter(|&i| i < set.colors.len()) {
-            egui::Window::new("Swatch")
+            egui::Window::new(tr("Swatch"))
                 .id(egui::Id::new("color_set_menu_window"))
                 .title_bar(false)
                 .resizable(false)
                 .fixed_pos(ui.ctx().pointer_hover_pos().unwrap_or_default())
                 .show(ui.ctx(), |ui| {
                     let mut done = false;
-                    if ui.button("Replace with the current colour").clicked() {
+                    if ui.button(tr("Replace with the current colour")).clicked() {
                         set.colors[i] = current;
                         done = true;
                     }
-                    if ui.button("Delete").clicked() {
+                    if ui.button(tr("Delete")).clicked() {
                         set.colors.remove(i);
                         done = true;
                     }
-                    if ui.button("Cancel").clicked() || done {
+                    if ui.button(tr("Cancel")).clicked() || done {
                         ui.memory_mut(|m| m.data.remove::<usize>(egui::Id::new("color_set_menu")));
                     }
                 });
         }
         ui.horizontal(|ui| {
-            if ui.button("+ Add current colour").clicked() && !set.colors.contains(&current) {
+            if ui.button(tr("+ Add current colour")).clicked() && !set.colors.contains(&current) {
                 set.colors.push(current);
             }
         });
@@ -545,11 +546,11 @@ impl PainterApp {
         let data = &mut self.colors.data;
         ui.horizontal(|ui| {
             let mut steps = data.steps;
-            if ui.add(egui::Slider::new(&mut steps, 2..=41).text("Steps")).changed() {
+            if ui.add(egui::Slider::new(&mut steps, 2..=41).text(tr("Steps"))).changed() {
                 data.steps = steps;
             }
         });
-        ui.small("Click a corner to set it to the current colour.");
+        ui.small(tr("Click a corner to set it to the current colour."));
     }
 
     /// Approximate Color: colours near the current one, value changing
@@ -558,11 +559,11 @@ impl PainterApp {
         let data = &mut self.colors.data;
         ui.horizontal(|ui| {
             let mut v = data.approx_value * 100.0;
-            if ui.add(egui::Slider::new(&mut v, 5.0..=100.0).suffix("%").text("V")).changed() {
+            if ui.add(egui::Slider::new(&mut v, 5.0..=100.0).suffix("%").text(tr("V"))).changed() {
                 data.approx_value = v / 100.0;
             }
             let mut s = data.approx_saturation * 100.0;
-            if ui.add(egui::Slider::new(&mut s, 5.0..=100.0).suffix("%").text("S")).changed() {
+            if ui.add(egui::Slider::new(&mut s, 5.0..=100.0).suffix("%").text(tr("S"))).changed() {
                 data.approx_saturation = s / 100.0;
             }
         });
@@ -636,7 +637,7 @@ impl PainterApp {
             for (i, c) in palette.iter().enumerate() {
                 let (r, resp) = ui.allocate_exact_size(Vec2::new(24.0, 14.0), Sense::click());
                 ui.painter().rect_filled(r, 3.0, color32(*c));
-                let resp = resp.on_hover_text("Click to use, right-click to remove");
+                let resp = resp.on_hover_text(tr("Click to use, right-click to remove"));
                 if resp.clicked() {
                     picked = Some(*c);
                 }
@@ -644,7 +645,7 @@ impl PainterApp {
                     remove = Some(i);
                 }
             }
-            if ui.small_button("+").on_hover_text("Keep the current colour here").clicked() && !palette.contains(&main) {
+            if ui.small_button(tr("+")).on_hover_text(tr("Keep the current colour here")).clicked() && !palette.contains(&main) {
                 self.colors.data.mixing_palette.push(main);
             }
         });
@@ -663,22 +664,22 @@ impl PainterApp {
             }
         });
         ui.horizontal(|ui| {
-            ui.add(egui::Slider::new(&mut mix.size, 2.0..=80.0).text("Size"));
+            ui.add(egui::Slider::new(&mut mix.size, 2.0..=80.0).text(tr("Size")));
             if ui
                 .add_enabled(!mix.undo.is_empty(), egui::Button::image(crate::icons::Icon::Undo.image(14.0, theme::text())))
-                .on_hover_text("Undo")
+                .on_hover_text(tr("Undo"))
                 .clicked()
             {
                 mix.undo();
             }
             if ui
                 .add_enabled(!mix.redo.is_empty(), egui::Button::image(crate::icons::Icon::Redo.image(14.0, theme::text())))
-                .on_hover_text("Redo")
+                .on_hover_text(tr("Redo"))
                 .clicked()
             {
                 mix.redo();
             }
-            if ui.button("Clear").clicked() {
+            if ui.button(tr("Clear")).clicked() {
                 mix.clear();
             }
         });

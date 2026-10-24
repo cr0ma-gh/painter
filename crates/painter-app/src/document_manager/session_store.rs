@@ -9,6 +9,7 @@
 //! so the copy is cheap), and editing can go on meanwhile.
 
 use std::collections::HashMap;
+use crate::i18n::tr;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 
@@ -237,7 +238,7 @@ impl PainterApp {
     /// `false` while a stroke is being drawn.
     fn settle_active(&mut self) -> bool {
         if self.stroke.is_some() {
-            self.status = "Finish the stroke first".into();
+            self.status = tr("Finish the stroke first").into();
             return false;
         }
         if self.transform.is_some() {
@@ -355,7 +356,7 @@ impl PainterApp {
 
     pub(crate) fn close_all_documents(&mut self) {
         if self.dirty_count() > 0 {
-            self.status = "Some documents have unsaved changes: save them or close their tabs one by one".into();
+            self.status = tr("Some documents have unsaved changes: save them or close their tabs one by one").into();
             let first = (0..self.docs.slots.len()).find(|&i| self.slot_dirty(i)).unwrap_or(0);
             let id = self.docs.slots[first].id;
             self.switch_document(first);

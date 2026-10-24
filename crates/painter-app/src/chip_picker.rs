@@ -2,6 +2,7 @@
 //! Slider) opens a picker for that colour beside it: wheel, hex and RGB.
 
 use eframe::egui::{self, ecolor::Hsva, Color32, Pos2, Vec2};
+use crate::i18n::tr;
 
 use crate::app::PainterApp;
 
@@ -57,7 +58,7 @@ impl PainterApp {
                 });
                 let mut hex = format!("{:02X}{:02X}{:02X}", rgb[0], rgb[1], rgb[2]);
                 ui.horizontal(|ui| {
-                    ui.label("#");
+                    ui.label(tr("#"));
                     let edit = ui.add(egui::TextEdit::singleline(&mut hex).desired_width(70.0).font(egui::TextStyle::Monospace));
                     if edit.changed() {
                         if let Some(parsed) = parse_hex(&hex) {
@@ -65,7 +66,7 @@ impl PainterApp {
                             changed = true;
                         }
                     }
-                    if ui.button("OK").clicked() {
+                    if ui.button(tr("OK")).clicked() {
                         done = true;
                     }
                 });

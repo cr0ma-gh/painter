@@ -2,6 +2,7 @@
 //! sub tools, tool properties, navigator, layers and the New Canvas dialog.
 
 use std::ops::RangeInclusive;
+use crate::i18n::tr;
 
 use eframe::egui::{self, ecolor::Hsva, Align2, Color32, Sense, Stroke, Vec2};
 use painter_core::fill_tool::{GapPreset, ReferenceSource};
@@ -31,34 +32,34 @@ impl PainterApp {
     pub(crate) fn menu_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.add(egui::Button::new("New Canvas...").shortcut_text("Ctrl+N")).clicked() {
+                ui.menu_button(tr("File"), |ui| {
+                    if ui.add(egui::Button::new(tr("New Canvas...")).shortcut_text("Ctrl+N")).clicked() {
                         self.open_new_canvas();
                         ui.close_menu();
                     }
                     if ui
-                        .add(egui::Button::new("New from Clipboard").shortcut_text("Ctrl+Alt+N"))
-                        .on_hover_text("A document the size of the copied picture or selection")
+                        .add(egui::Button::new(tr("New from Clipboard")).shortcut_text("Ctrl+Alt+N"))
+                        .on_hover_text(tr("A document the size of the copied picture or selection"))
                         .clicked()
                     {
                         ui.close_menu();
                         self.new_from_clipboard();
                     }
-                    if ui.button("New Comic Page / Storyboard...").clicked() {
+                    if ui.button(tr("New Comic Page / Storyboard...")).clicked() {
                         self.comic_wizard = Some(crate::comic_ui::ComicWizard::open());
                         ui.close_menu();
                     }
-                    if ui.add(egui::Button::new("Open...").shortcut_text("Ctrl+O")).clicked() {
+                    if ui.add(egui::Button::new(tr("Open...")).shortcut_text("Ctrl+O")).clicked() {
                         ui.close_menu();
                         self.open_dialog();
                     }
-                    if ui.button("Shared Session...").on_hover_text("Draw together with others: host this document or join one").clicked() {
+                    if ui.button(tr("Shared Session...")).on_hover_text(tr("Draw together with others: host this document or join one")).clicked() {
                         ui.close_menu();
                         self.show_editor(ui_workspace::EditorType::Session);
                     }
                     // The files opened or saved lately.
                     ui.add_enabled_ui(!self.recent.files.is_empty(), |ui| {
-                        ui.menu_button("Open Recent", |ui| {
+                        ui.menu_button(tr("Open Recent"), |ui| {
                             let mut open = None;
                             for f in self.recent.files.iter().take(15) {
                                 let exists = f.exists();
@@ -68,7 +69,7 @@ impl PainterApp {
                                 }
                             }
                             ui.separator();
-                            if ui.button("Clear Recent Files").clicked() {
+                            if ui.button(tr("Clear Recent Files")).clicked() {
                                 ui.close_menu();
                                 self.recent.clear();
                             }
@@ -80,10 +81,10 @@ impl PainterApp {
                     });
                     // iPadOS: the app's own folder in the Files app.
                     if crate::files::documents_dir().is_some() {
-                        ui.menu_button("Documents", |ui| {
+                        ui.menu_button(tr("Documents"), |ui| {
                             let docs = crate::files::documents();
                             if docs.is_empty() {
-                                ui.weak("Empty. Copy projects, images, models or brushes into Painter's folder in the Files app.");
+                                ui.weak(tr("Empty. Copy projects, images, models or brushes into Painter's folder in the Files app."));
                             }
                             for path in docs {
                                 let name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
@@ -95,137 +96,137 @@ impl PainterApp {
                         });
                     }
                     ui.separator();
-                    if ui.add(egui::Button::new("Save").shortcut_text("Ctrl+S")).clicked() {
+                    if ui.add(egui::Button::new(tr("Save")).shortcut_text("Ctrl+S")).clicked() {
                         ui.close_menu();
                         self.save();
                     }
-                    if ui.add(egui::Button::new("Save As...").shortcut_text("Ctrl+Shift+S")).clicked() {
+                    if ui.add(egui::Button::new(tr("Save As...")).shortcut_text("Ctrl+Shift+S")).clicked() {
                         ui.close_menu();
                         self.save_as();
                     }
-                    if ui.add_enabled(self.dirty_count() > 0, egui::Button::new("Save All")).clicked() {
+                    if ui.add_enabled(self.dirty_count() > 0, egui::Button::new(tr("Save All"))).clicked() {
                         ui.close_menu();
                         self.save_all();
                     }
                     ui.separator();
-                    if ui.add(egui::Button::new("Close").shortcut_text("Ctrl+W")).clicked() {
+                    if ui.add(egui::Button::new(tr("Close")).shortcut_text("Ctrl+W")).clicked() {
                         ui.close_menu();
                         let id = self.docs.active_id();
                         self.request_close_tab(id);
                     }
-                    if ui.button("Close All").clicked() {
+                    if ui.button(tr("Close All")).clicked() {
                         ui.close_menu();
                         self.close_all_documents();
                     }
                     ui.separator();
-                    ui.menu_button("Import", |ui| {
-                        if ui.button("PNG as Layer...").clicked() {
+                    ui.menu_button(tr("Import"), |ui| {
+                        if ui.button(tr("PNG as Layer...")).clicked() {
                             ui.close_menu();
                             self.import_png_layer();
                         }
-                        if ui.button("From Scanner or Camera...").clicked() {
+                        if ui.button(tr("From Scanner or Camera...")).clicked() {
                             ui.close_menu();
                             self.scanner = Some(crate::dialogs::ScannerDialog::open());
                         }
                         ui.separator();
-                        if ui.button("Brushes...").clicked() {
+                        if ui.button(tr("Brushes...")).clicked() {
                             ui.close_menu();
                             self.import_brushes_dialog();
                         }
                     });
-                    ui.menu_button("Export", |ui| {
-                        if ui.button("PNG...").clicked() {
+                    ui.menu_button(tr("Export"), |ui| {
+                        if ui.button(tr("PNG...")).clicked() {
                             ui.close_menu();
                             self.export_png();
                         }
-                        if ui.button("PSD...").clicked() {
+                        if ui.button(tr("PSD...")).clicked() {
                             ui.close_menu();
                             self.export_psd();
                         }
-                        if ui.button("Krita (.kra)...").clicked() {
+                        if ui.button(tr("Krita (.kra)...")).clicked() {
                             ui.close_menu();
                             self.export_layered("kra");
                         }
-                        if ui.button("OpenRaster (.ora)...").clicked() {
+                        if ui.button(tr("OpenRaster (.ora)...")).clicked() {
                             ui.close_menu();
                             self.export_layered("ora");
                         }
-                        if ui.button("Clip Studio (.clip)...").clicked() {
+                        if ui.button(tr("Clip Studio (.clip)...")).clicked() {
                             ui.close_menu();
                             self.export_clip();
                         }
-                        if ui.button("Layer / Canvas as SVG...").clicked() {
+                        if ui.button(tr("Layer / Canvas as SVG...")).clicked() {
                             ui.close_menu();
                             self.svg_export = Some(crate::dialogs::SvgExportDialog::default());
                         }
                         ui.separator();
-                        if ui.button("All Brushes...").clicked() {
+                        if ui.button(tr("All Brushes...")).clicked() {
                             ui.close_menu();
                             self.export_brushes(None);
                         }
                     });
                     ui.separator();
-                    if ui.add(egui::Button::new("Print...").shortcut_text("Ctrl+P")).clicked() {
+                    if ui.add(egui::Button::new(tr("Print...")).shortcut_text("Ctrl+P")).clicked() {
                         ui.close_menu();
                         self.open_print();
                     }
                     if cfg!(any(windows, target_os = "linux")) {
                         ui.separator();
-                        if ui.button("Set Up File Types...").on_hover_text("Thumbnails and Open with in the file manager").clicked() {
+                        if ui.button(tr("Set Up File Types...")).on_hover_text(tr("Thumbnails and Open with in the file manager")).clicked() {
                             ui.close_menu();
                             self.file_types_open = true;
                         }
                     }
                     if !cfg!(target_os = "ios") {
                         ui.separator();
-                        if ui.add(egui::Button::new("Quit").shortcut_text("Ctrl+Q")).clicked() {
+                        if ui.add(egui::Button::new(tr("Quit")).shortcut_text("Ctrl+Q")).clicked() {
                             ui.close_menu();
                             self.quit_requested = true;
                         }
                     }
                 });
-                ui.menu_button("Edit", |ui| {
-                    let undo = egui::Button::new("Undo").shortcut_text("Ctrl+Z");
+                ui.menu_button(tr("Edit"), |ui| {
+                    let undo = egui::Button::new(tr("Undo")).shortcut_text("Ctrl+Z");
                     if ui.add_enabled(self.history.can_undo(), undo).clicked() {
                         self.undo();
                         ui.close_menu();
                     }
-                    let redo = egui::Button::new("Redo").shortcut_text("Ctrl+Shift+Z");
+                    let redo = egui::Button::new(tr("Redo")).shortcut_text("Ctrl+Shift+Z");
                     if ui.add_enabled(self.history.can_redo(), redo).clicked() {
                         self.redo();
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Image Size...").on_hover_text("Resize the whole image; Nearest neighbour keeps pixels sharp").clicked() {
+                    if ui.button(tr("Image Size...")).on_hover_text(tr("Resize the whole image; Nearest neighbour keeps pixels sharp")).clicked() {
                         ui.close_menu();
                         self.image_size = Some(crate::dialogs::ImageSizeDialog::open(self.doc.canvas(), self.last_resize_filter));
                     }
                     self.mode_menu(ui);
                     ui.separator();
-                    let clear = egui::Button::new("Clear Selected").shortcut_text("Del");
+                    let clear = egui::Button::new(tr("Clear Selected")).shortcut_text("Del");
                     if ui.add_enabled(self.doc.selection.is_some(), clear).clicked() {
                         self.clear_selected();
                         ui.close_menu();
                     }
                     ui.separator();
-                    ui.checkbox(&mut self.tools.paste_match_dpi, "Paste Keeps Print Size")
-                        .on_hover_text("Between documents at different resolutions, pasted and copied layers are resampled to the same size on paper");
+                    ui.checkbox(&mut self.tools.paste_match_dpi, tr("Paste Keeps Print Size"))
+                        .on_hover_text(tr("Between documents at different resolutions, pasted and copied layers are resampled to the same size on paper"));
                 });
-                ui.menu_button("Select", |ui| {
-                    if ui.add(egui::Button::new("All").shortcut_text("Ctrl+A")).clicked() {
+                ui.menu_button(tr("Select"), |ui| {
+                    if ui.add(egui::Button::new(tr("All")).shortcut_text("Ctrl+A")).clicked() {
                         self.select_all();
                         ui.close_menu();
                     }
-                    if ui.add(egui::Button::new("Deselect").shortcut_text("Ctrl+D")).clicked() {
+                    if ui.add(egui::Button::new(tr("Deselect")).shortcut_text("Ctrl+D")).clicked() {
                         self.deselect();
                         ui.close_menu();
                     }
-                    if ui.add(egui::Button::new("Invert").shortcut_text("Ctrl+Shift+I")).clicked() {
+                    if ui.add(egui::Button::new(tr("Invert")).shortcut_text("Ctrl+Shift+I")).clicked() {
                         self.invert_selection();
                         ui.close_menu();
                     }
                 });
-                ui.menu_button("Layer", |ui| {
+                ui.menu_button(tr("Layer"), |ui| {
                     for (label, action) in [
                         ("New Raster Layer", PainterApp::add_raster_layer as fn(&mut PainterApp)),
                         ("New Vector Layer", PainterApp::add_vector_layer),
@@ -241,9 +242,9 @@ impl PainterApp {
                             ui.close_menu();
                         }
                     }
-                    ui.menu_button("New Correction Layer", |ui| {
+                    ui.menu_button(tr("New Correction Layer"), |ui| {
                         for adjustment in painter_core::Adjustment::defaults() {
-                            if ui.button(adjustment.name()).clicked() {
+                            if ui.button(tr(adjustment.name())).clicked() {
                                 self.add_adjustment_layer(adjustment);
                                 ui.close_menu();
                             }
@@ -251,16 +252,16 @@ impl PainterApp {
                     });
                     ui.separator();
                     let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-                    if ui.add_enabled(!has_mask, egui::Button::new("Add Layer Mask")).clicked() {
+                    if ui.add_enabled(!has_mask, egui::Button::new(tr("Add Layer Mask"))).clicked() {
                         self.add_mask();
                         ui.close_menu();
                     }
-                    if ui.add_enabled(has_mask, egui::Button::new("Delete Layer Mask")).clicked() {
+                    if ui.add_enabled(has_mask, egui::Button::new(tr("Delete Layer Mask"))).clicked() {
                         self.delete_mask();
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Delete Layer").clicked() {
+                    if ui.button(tr("Delete Layer")).clicked() {
                         self.delete_active_layer();
                         ui.close_menu();
                     }
@@ -268,7 +269,7 @@ impl PainterApp {
                     let others: Vec<(usize, String)> =
                         (0..self.docs.slots.len()).filter(|&i| i != self.docs.active).map(|i| (i, self.tab_title(i))).collect();
                     ui.add_enabled_ui(!others.is_empty(), |ui| {
-                        ui.menu_button("Copy Layer to Document", |ui| {
+                        ui.menu_button(tr("Copy Layer to Document"), |ui| {
                             for (i, name) in &others {
                                 if ui.button(name).clicked() {
                                     let layer = self.doc.active;
@@ -279,9 +280,9 @@ impl PainterApp {
                         });
                     })
                     .response
-                    .on_hover_text("Or drag the layer from the Layers panel onto a document tab");
+                    .on_hover_text(tr("Or drag the layer from the Layers panel onto a document tab"));
                 });
-                ui.menu_button("Filter", |ui| {
+                ui.menu_button(tr("Filter"), |ui| {
                     for filter in crate::adjust_ui::filter_presets(self.doc.canvas()) {
                         if ui.button(format!("{}...", filter.name())).clicked() {
                             ui.close_menu();
@@ -289,18 +290,40 @@ impl PainterApp {
                         }
                     }
                     ui.separator();
-                    ui.small("On the edited layer, inside the selection");
+                    ui.small(tr("On the edited layer, inside the selection"));
                 });
-                ui.menu_button("View", |ui| {
-                    ui.checkbox(&mut self.ws.bars.tool_strip, "Tool Strip").on_hover_text("The tools on the left");
-                    ui.checkbox(&mut self.ws.bars.command_bar, "Command Bar").on_hover_text("The icon buttons under the menu");
-                    ui.checkbox(&mut self.ws.chrome.workspace_tabs, "Workspace Bar")
-                        .on_hover_text("The workspace tabs (Painting, Inking…); hidden, switch workspaces from View > Workspace");
+                ui.menu_button(tr("View"), |ui| {
+                    ui.checkbox(&mut self.ws.bars.tool_strip, tr("Tool Strip")).on_hover_text(tr("The tools on the left"));
+                    ui.checkbox(&mut self.ws.bars.command_bar, tr("Command Bar")).on_hover_text(tr("The icon buttons under the menu"));
+                    ui.checkbox(&mut self.ws.chrome.workspace_tabs, tr("Workspace Bar"))
+                        .on_hover_text(tr("The workspace tabs (Painting, Inking…); hidden, switch workspaces from View > Workspace"));
+                    // The interface language.
+                    ui.menu_button(tr("Language"), |ui| {
+                        let chosen = self.ws.chrome.language;
+                        let mut pick = None;
+                        let system = crate::i18n::system_language();
+                        if ui.radio(chosen.is_empty(), format!("{} ({system})", tr("System default"))).clicked() {
+                            pick = Some(String::new());
+                        }
+                        for (code, name) in crate::i18n::languages() {
+                            if ui.radio(chosen.as_str() == code, name).clicked() {
+                                pick = Some(code);
+                            }
+                        }
+                        ui.separator();
+                        ui.small(tr("Translations are .po files: see locales/README.md"));
+                        if let Some(code) = pick {
+                            self.ws.chrome.language = code.as_str().into();
+                            let used = crate::i18n::set_language(&code);
+                            self.status = format!("{} {used}", tr("Interface language:"));
+                            ui.close_menu();
+                        }
+                    });
                     // Switching workspaces without the bar.
-                    ui.menu_button("Workspace", |ui| {
+                    ui.menu_button(tr("Workspace"), |ui| {
                         let mut pick = None;
                         for (i, w) in self.ws.set.workspaces.iter().enumerate() {
-                            if ui.radio(i == self.ws.set.active, &w.name).clicked() {
+                            if ui.radio(i == self.ws.set.active, crate::i18n::tr_str(&w.name)).clicked() {
                                 pick = Some(i);
                             }
                         }
@@ -309,8 +332,8 @@ impl PainterApp {
                             ui.close_menu();
                         }
                     });
-                    ui.checkbox(&mut self.ws.chrome.clock, "Clock and Battery").on_hover_text("The time and the battery's charge in the canvas's corner");
-                    ui.menu_button("Screen Mode", |ui| {
+                    ui.checkbox(&mut self.ws.chrome.clock, tr("Clock and Battery")).on_hover_text(tr("The time and the battery's charge in the canvas's corner"));
+                    ui.menu_button(tr("Screen Mode"), |ui| {
                         let ctx = ui.ctx().clone();
                         for (mode, label) in [(0u8, "Standard"), (1, "Full Screen with Menus"), (2, "Full Screen")] {
                             if ui.radio(self.screen_mode == mode, label).clicked() {
@@ -318,82 +341,82 @@ impl PainterApp {
                                 self.set_screen_mode(&ctx, mode);
                             }
                         }
-                        ui.small("F cycles them, Shift+F goes back");
+                        ui.small(tr("F cycles them, Shift+F goes back"));
                     });
                     ui.separator();
-                    if ui.add(egui::Button::new("Fit to Window").shortcut_text("0")).clicked() {
+                    if ui.add(egui::Button::new(tr("Fit to Window")).shortcut_text("0")).clicked() {
                         self.fit_pending = true;
                         ui.close_menu();
                     }
-                    if ui.button("Actual Pixels (100%)").clicked() {
+                    if ui.button(tr("Actual Pixels (100%)")).clicked() {
                         self.view.set_zoom(1.0);
                         ui.close_menu();
                     }
-                    if ui.button("Reset Rotation").clicked() {
+                    if ui.button(tr("Reset Rotation")).clicked() {
                         self.view.set_rotation(0.0);
                         ui.close_menu();
                     }
-                    if ui.checkbox(&mut self.view.flip, "Flip Horizontally").clicked() {
+                    if ui.checkbox(&mut self.view.flip, tr("Flip Horizontally")).clicked() {
                         ui.close_menu();
                     }
-                    ui.checkbox(&mut self.tools.pencil_only, "Draw With the Pen Only")
-                        .on_hover_text("Fingers move the view instead of painting (iPad: Apple Pencil draws, fingers navigate)");
-                    ui.checkbox(&mut self.modifier_keys.shown, "On-Screen Modifier Keys")
-                        .on_hover_text("Ctrl, Shift and Alt buttons for touch screens: tap to hold a key, tap again to release it");
+                    ui.checkbox(&mut self.tools.pencil_only, tr("Draw With the Pen Only"))
+                        .on_hover_text(tr("Fingers move the view instead of painting (iPad: Apple Pencil draws, fingers navigate)"));
+                    ui.checkbox(&mut self.modifier_keys.shown, tr("On-Screen Modifier Keys"))
+                        .on_hover_text(tr("Ctrl, Shift and Alt buttons for touch screens: tap to hold a key, tap again to release it"));
                     ui.separator();
                     let mut grid = self.doc.rulers.grid.visible;
-                    if ui.add(egui::Checkbox::new(&mut grid, "Grid")).on_hover_text("Ctrl+'").clicked() {
+                    if ui.add(egui::Checkbox::new(&mut grid, tr("Grid"))).on_hover_text(tr("Ctrl+'")).clicked() {
                         self.doc.rulers.grid.visible = grid;
                     }
                     let mut snap = self.doc.rulers.snapping;
-                    if ui.add(egui::Checkbox::new(&mut snap, "Snap to Rulers")).on_hover_text("Ctrl+1").clicked() {
+                    if ui.add(egui::Checkbox::new(&mut snap, tr("Snap to Rulers"))).on_hover_text(tr("Ctrl+1")).clicked() {
                         self.toggle_ruler_snapping();
                     }
                 });
-                ui.menu_button("Window", |ui| {
+                ui.menu_button(tr("Window"), |ui| {
                     for editor in ui_workspace::EditorType::ALL.into_iter().filter(|e| *e != ui_workspace::EditorType::Canvas) {
                         let mut open = self.editor_open(editor);
-                        if ui.checkbox(&mut open, editor.title()).clicked() {
+                        if ui.checkbox(&mut open, tr(editor.title())).clicked() {
                             self.toggle_editor(editor, ui.ctx());
                         }
                     }
                     ui.separator();
-                    if ui.button("Reset Workspace Layout").clicked() {
+                    if ui.button(tr("Reset Workspace Layout")).clicked() {
                         self.ws.set.current_mut().reset();
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.add(egui::Button::new("Command Palette...").shortcut_text("F3")).clicked() {
+                    if ui.add(egui::Button::new(tr("Command Palette...")).shortcut_text("F3")).clicked() {
                         ui.close_menu();
                         self.open_palette();
                     }
-                    if ui.add(egui::Button::new("Zen Mode").shortcut_text("Tab / F11")).clicked() {
+                    if ui.add(egui::Button::new(tr("Zen Mode")).shortcut_text("Tab / F11")).clicked() {
                         ui.close_menu();
                         self.toggle_zen();
                     }
-                    if ui.button("Theme Editor...").clicked() {
+                    if ui.button(tr("Theme Editor...")).clicked() {
                         ui.close_menu();
                         self.ws.theme_editor = true;
                     }
-                    ui.menu_button("Interface Size", |ui| {
+                    ui.menu_button(tr("Interface Size"), |ui| {
                         ui.set_min_width(220.0);
                         self.ui_scale_controls(ui);
                     });
                 });
-                ui.menu_button("Help", |ui| {
-                    if ui.button("Welcome Screen").clicked() {
+                ui.menu_button(tr("Help"), |ui| {
+                    if ui.button(tr("Welcome Screen")).clicked() {
                         ui.close_menu();
                         self.welcome_open = true;
                     }
-                    if ui.button("Check for Updates...").clicked() {
+                    if ui.button(tr("Check for Updates...")).clicked() {
                         ui.close_menu();
                         self.check_for_updates();
                     }
-                    if ui.button("Reset Settings...").clicked() {
+                    if ui.button(tr("Reset Settings...")).clicked() {
                         ui.close_menu();
                         self.reset_dialog = Some(Default::default());
                     }
-                    if ui.button("About Painter").clicked() {
+                    if ui.button(tr("About Painter")).clicked() {
                         ui.close_menu();
                         self.about_open = true;
                     }
@@ -418,7 +441,7 @@ impl PainterApp {
                             self.dirty = true;
                         }
                     });
-                    ui.small("Saved in the project and written into PNG and PSD exports.\nPixels aren't resampled.");
+                    ui.small(tr("Saved in the project and written into PNG and PSD exports.\nPixels aren't resampled."));
                 })
                 .response
                 .on_hover_text(format!("{w_mm:.1} × {h_mm:.1} mm at {} dpi", self.doc.dpi));
@@ -430,11 +453,11 @@ impl PainterApp {
                 ui.separator();
                 let tiles = self.doc.tile_count();
                 ui.label(format!("{tiles} tiles · {:.1} MB", (tiles * TILE_BYTES) as f64 / 1_048_576.0))
-                    .on_hover_text("Painted layer tiles held in memory");
+                    .on_hover_text(tr("Painted layer tiles held in memory"));
                 if let Some((slots, bytes)) = self.gpu_stats {
                     ui.separator();
                     ui.label(format!("GPU atlas {slots} tiles / {:.0} MB", bytes as f64 / 1_048_576.0))
-                        .on_hover_text("Shared GPU tile atlas: grows with painted area, not layer count");
+                        .on_hover_text(tr("Shared GPU tile atlas: grows with painted area, not layer count"));
                 }
                 ui.separator();
                 ui.label(self.tablet.describe());
@@ -467,7 +490,7 @@ impl PainterApp {
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let mut main = Color32::from(self.color);
-                if ui.color_edit_button_srgba(&mut main).on_hover_text("Edit numerically").changed() {
+                if ui.color_edit_button_srgba(&mut main).on_hover_text(tr("Edit numerically")).changed() {
                     self.color = Hsva::from(main);
                 }
                 // The mode's own numbers: CMYK inks (and the press's warning), Lab, the table's index.
@@ -546,7 +569,7 @@ impl PainterApp {
                 if indices.is_empty() {
                     ui.add_space(8.0);
                     ui.label(
-                        egui::RichText::new("No brushes in this group yet. Import some with the button below.").color(theme::text_dim()),
+                        egui::RichText::new(tr("No brushes in this group yet. Import some with the button below.")).color(theme::text_dim()),
                     );
                 }
                 let total = self.brushes.len();
@@ -590,18 +613,18 @@ impl PainterApp {
                     let is_builtin = builtin.contains(&self.brushes[i].settings.name);
                     response.context_menu(|ui| {
                         if ui
-                            .add_enabled(is_builtin, egui::Button::new("Reset to Default"))
-                            .on_disabled_hover_text("Imported brushes have no default to go back to")
+                            .add_enabled(is_builtin, egui::Button::new(tr("Reset to Default")))
+                            .on_disabled_hover_text(tr("Imported brushes have no default to go back to"))
                             .clicked()
                         {
                             menu = Some((i, 0));
                             ui.close_menu();
                         }
-                        if ui.button("Duplicate").clicked() {
+                        if ui.button(tr("Duplicate")).clicked() {
                             menu = Some((i, 1));
                             ui.close_menu();
                         }
-                        if ui.button("Delete").clicked() {
+                        if ui.button(tr("Delete")).clicked() {
                             menu = Some((i, 2));
                             ui.close_menu();
                         }
@@ -636,15 +659,15 @@ impl PainterApp {
                 self.import_brushes_dialog();
             }
             import.context_menu(|ui| {
-                if ui.button("Add Back Missing Default Brushes").clicked() {
+                if ui.button(tr("Add Back Missing Default Brushes")).clicked() {
                     self.restore_default_brushes();
                     ui.close_menu();
                 }
-                if ui.button("Reset Built-in Brushes").on_hover_text("Edited built-in brushes back to default; imported brushes stay").clicked() {
+                if ui.button(tr("Reset Built-in Brushes")).on_hover_text(tr("Edited built-in brushes back to default; imported brushes stay")).clicked() {
                     self.reset_builtin_brushes();
                     ui.close_menu();
                 }
-                if ui.button("Reset Whole Brush List…").on_hover_text("Only the default brushes: imported ones are removed").clicked() {
+                if ui.button(tr("Reset Whole Brush List…")).on_hover_text(tr("Only the default brushes: imported ones are removed")).clicked() {
                     self.confirm_brush_reset = true;
                     ui.close_menu();
                 }
@@ -672,7 +695,7 @@ impl PainterApp {
                     for warning in &self.import_warnings {
                         ui.small(warning);
                     }
-                    dismiss = ui.small_button("Dismiss").clicked();
+                    dismiss = ui.small_button(tr("Dismiss")).clicked();
                 });
             if dismiss {
                 self.import_warnings.clear();
@@ -685,14 +708,14 @@ impl PainterApp {
         match self.tool {
             Tool::Brush => self.brush_settings(ui),
             Tool::Ruler => {
-                widgets::group_header(ui, Icon::Path, "Rulers and Guides");
+                widgets::group_header(ui, Icon::Path, tr("Rulers and Guides"));
                 self.ruler_panel(ui);
             }
             Tool::Fill => {
-                widgets::group_header(ui, Icon::Bucket, "Fill");
+                widgets::group_header(ui, Icon::Bucket, tr("Fill"));
                 let fill = &mut self.tools.fill;
                 ui.horizontal(|ui| {
-                    ui.label("Close gaps");
+                    ui.label(tr("Close gaps"));
                     for preset in GapPreset::ALL {
                         if ui.selectable_label(fill.gap == preset.pixels(), preset.label()).clicked() {
                             fill.gap = preset.pixels();
@@ -711,20 +734,20 @@ impl PainterApp {
                 if prop_slider(ui, "Expand", &mut expand, -10.0..=10.0, " px", 0, false) {
                     fill.expand = expand.round() as _;
                 }
-                ui.small("Expand slips the colour under the lines so no white halo is left; below 0 it keeps clear of them.");
-                ui.checkbox(&mut fill.contiguous, "Contiguous");
+                ui.small(tr("Expand slips the colour under the lines so no white halo is left; below 0 it keeps clear of them."));
+                ui.checkbox(&mut fill.contiguous, tr("Contiguous"));
                 let reference = &mut self.tools.fill_reference;
                 ui.horizontal(|ui| {
-                    ui.label("Refer to");
-                    egui::ComboBox::from_id_salt("fill_reference").selected_text(reference.source.label()).show_ui(ui, |ui| {
+                    ui.label(tr("Refer to"));
+                    egui::ComboBox::from_id_salt("fill_reference").selected_text(tr(reference.source.label())).show_ui(ui, |ui| {
                         for source in ReferenceSource::ALL {
-                            ui.selectable_value(&mut reference.source, source, source.label());
+                            ui.selectable_value(&mut reference.source, source, tr(source.label()));
                         }
                     });
                 });
                 if reference.source != ReferenceSource::EditedLayer {
-                    ui.checkbox(&mut reference.include_hidden, "Include hidden layers");
-                    ui.checkbox(&mut reference.exclude_locked, "Ignore locked layers");
+                    ui.checkbox(&mut reference.include_hidden, tr("Include hidden layers"));
+                    ui.checkbox(&mut reference.exclude_locked, tr("Ignore locked layers"));
                 }
                 if reference.source == ReferenceSource::ReferenceLayers {
                     let marked = self.doc.reference_layer_count();
@@ -733,29 +756,29 @@ impl PainterApp {
                         n => format!("Reads {n} reference layer{}.", if n == 1 { "" } else { "s" }),
                     });
                 }
-                ui.label("Fills the edited layer or mask with the main colour, inside the selection.");
+                ui.label(tr("Fills the edited layer or mask with the main colour, inside the selection."));
             }
             Tool::Gradient => {
-                widgets::group_header(ui, Icon::Gradient, "Gradient");
-                egui::ComboBox::from_label("Shape").selected_text(self.tools.gradient_shape.name()).show_ui(ui, |ui| {
+                widgets::group_header(ui, Icon::Gradient, tr("Gradient"));
+                egui::ComboBox::from_label(tr("Shape")).selected_text(tr(self.tools.gradient_shape.name())).show_ui(ui, |ui| {
                     for shape in GradientShape::ALL {
-                        ui.selectable_value(&mut self.tools.gradient_shape, shape, shape.name());
+                        ui.selectable_value(&mut self.tools.gradient_shape, shape, tr(shape.name()));
                     }
                 });
-                ui.checkbox(&mut self.tools.gradient_to_transparent, "Main colour to transparent");
+                ui.checkbox(&mut self.tools.gradient_to_transparent, tr("Main colour to transparent"));
                 if !self.tools.gradient_to_transparent {
-                    ui.label("Main colour to sub colour");
+                    ui.label(tr("Main colour to sub colour"));
                 }
-                ui.label("Drag on the canvas. On a gradient layer this edits the layer; elsewhere it paints.");
+                ui.label(tr("Drag on the canvas. On a gradient layer this edits the layer; elsewhere it paints."));
             }
             Tool::Select(shape) => {
-                widgets::group_header(ui, Tool::Select(shape).icon(), "Selection");
+                widgets::group_header(ui, Tool::Select(shape).icon(), tr("Selection"));
                 ui.horizontal_wrapped(|ui| {
                     for op in SelectionOp::ALL {
-                        ui.selectable_value(&mut self.tools.selection_op, op, op.name());
+                        ui.selectable_value(&mut self.tools.selection_op, op, tr(op.name()));
                     }
                 });
-                ui.label("Shift: add · Alt: subtract · Shift+Alt: intersect. Click to deselect.");
+                ui.label(tr("Shift: add · Alt: subtract · Shift+Alt: intersect. Click to deselect."));
                 if matches!(shape, crate::tools::SelectShape::Magnetic | crate::tools::SelectShape::Object) {
                     self.magnetic_panel(ui, shape);
                 }
@@ -774,73 +797,73 @@ impl PainterApp {
                     if prop_slider(ui, "Expand", &mut expand, -10.0..=10.0, " px", 0, false) {
                         magic.expand = expand.round() as _;
                     }
-                    ui.checkbox(&mut magic.contiguous, "Contiguous");
+                    ui.checkbox(&mut magic.contiguous, tr("Contiguous"));
                     let reference = &mut self.tools.fill_reference;
                     ui.horizontal(|ui| {
-                        ui.label("Refer to");
-                        egui::ComboBox::from_id_salt("magic_reference").selected_text(reference.source.label()).show_ui(ui, |ui| {
+                        ui.label(tr("Refer to"));
+                        egui::ComboBox::from_id_salt("magic_reference").selected_text(tr(reference.source.label())).show_ui(ui, |ui| {
                             for source in ReferenceSource::ALL {
-                                ui.selectable_value(&mut reference.source, source, source.label());
+                                ui.selectable_value(&mut reference.source, source, tr(source.label()));
                             }
                         });
                     });
-                    ui.small("Shared with the fill bucket.");
+                    ui.small(tr("Shared with the fill bucket."));
                 }
                 ui.horizontal(|ui| {
-                    if ui.button("All").clicked() {
+                    if ui.button(tr("All")).clicked() {
                         self.select_all();
                     }
-                    if ui.button("Deselect").clicked() {
+                    if ui.button(tr("Deselect")).clicked() {
                         self.deselect();
                     }
-                    if ui.button("Invert").clicked() {
+                    if ui.button(tr("Invert")).clicked() {
                         self.invert_selection();
                     }
                 });
             }
             Tool::Transform => {
-                widgets::group_header(ui, Icon::Transform, "Transform");
+                widgets::group_header(ui, Icon::Transform, tr("Transform"));
                 match &mut self.transform {
                     Some(session) => {
                         for mode in transform_tools::TransformMode::ALL {
-                            if ui.selectable_label(session.gizmo.mode == mode, mode.name()).clicked() {
+                            if ui.selectable_label(session.gizmo.mode == mode, tr(mode.name())).clicked() {
                                 session.gizmo.set_mode(mode);
                                 session.revision += 1;
                             }
                         }
-                        ui.small("Drag the handles on the canvas. Shift keeps proportions and snaps rotation to 15°; Alt scales about the pivot.");
-                        ui.small("Enter applies, Esc cancels.");
+                        ui.small(tr("Drag the handles on the canvas. Shift keeps proportions and snaps rotation to 15°; Alt scales about the pivot."));
+                        ui.small(tr("Enter applies, Esc cancels."));
                     }
                     None => {
-                        ui.label("Click the canvas (or press Ctrl+T) to transform the active layer, or the selection on it.");
+                        ui.label(tr("Click the canvas (or press Ctrl+T) to transform the active layer, or the selection on it."));
                     }
                 }
             }
             Tool::Scene3D => {
-                widgets::group_header(ui, Icon::Transform3d, "3D Layer");
+                widgets::group_header(ui, Icon::Transform3d, tr("3D Layer"));
                 self.scene_panel(ui);
             }
             Tool::Frame => {
-                widgets::group_header(ui, Icon::Grid, "Panel Frames");
+                widgets::group_header(ui, Icon::Grid, tr("Panel Frames"));
                 self.frame_tool_panel(ui);
             }
             Tool::Crop => {
-                widgets::group_header(ui, Icon::Crop, "Crop");
+                widgets::group_header(ui, Icon::Crop, tr("Crop"));
                 ui.label(
-                    "Drag the box or its handles; drag outside it to draw a new one. The bar under the canvas sets the aspect ratio.",
+                    tr("Drag the box or its handles; drag outside it to draw a new one. The bar under the canvas sets the aspect ratio."),
                 );
-                ui.small("Pixels outside the new canvas are kept and come back if it grows. Enter applies, Esc cancels.");
+                ui.small(tr("Pixels outside the new canvas are kept and come back if it grows. Enter applies, Esc cancels."));
             }
             Tool::Eyedropper => {
-                widgets::group_header(ui, Icon::ColorPicker, "Eyedropper");
+                widgets::group_header(ui, Icon::ColorPicker, tr("Eyedropper"));
                 self.eyedropper_panel(ui);
             }
             Tool::VectorEdit => {
-                widgets::group_header(ui, Icon::Curve, "Vector Points");
+                widgets::group_header(ui, Icon::Curve, tr("Vector Points"));
                 self.vector_edit_panel(ui);
             }
             Tool::Shape => {
-                widgets::group_header(ui, Icon::Shapes, "Shape");
+                widgets::group_header(ui, Icon::Shapes, tr("Shape"));
                 self.shape_panel(ui);
             }
             Tool::Text(kind) => {
@@ -854,8 +877,8 @@ impl PainterApp {
                 self.brush_settings(ui);
             }
             Tool::Hand => {
-                widgets::group_header(ui, Icon::Move, "Hand");
-                ui.label("Drag to pan. Wheel zooms, , and . rotate, 0 fits.");
+                widgets::group_header(ui, Icon::Move, tr("Hand"));
+                ui.label(tr("Drag to pan. Wheel zooms, , and . rotate, 0 fits."));
             }
         }
     }
@@ -885,14 +908,14 @@ impl PainterApp {
         ui.add_space(2.0);
 
         ui.horizontal(|ui| {
-            if ui.small_button("Advanced Tool Settings...").on_hover_text("Every setting by category; export for Photoshop or Clip Studio").clicked() {
+            if ui.small_button(tr("Advanced Tool Settings...")).on_hover_text(tr("Every setting by category; export for Photoshop or Clip Studio")).clicked() {
                 self.open_advanced_tool_settings();
             }
             let builtin = self.default_of(self.brush).is_some();
             if ui
-                .add_enabled(builtin, egui::Button::new("Reset").small())
-                .on_hover_text("Back to this brush's default settings")
-                .on_disabled_hover_text("Imported brushes have no default to go back to")
+                .add_enabled(builtin, egui::Button::new(tr("Reset")).small())
+                .on_hover_text(tr("Back to this brush's default settings"))
+                .on_disabled_hover_text(tr("Imported brushes have no default to go back to"))
                 .clicked()
             {
                 self.reset_brush(self.brush);
@@ -902,12 +925,12 @@ impl PainterApp {
         if !missing.is_empty() {
             ui.colored_label(Color32::from_rgb(240, 190, 90), format!("Imported features not painted yet: {}", missing.join(", ")));
         }
-        egui::CollapsingHeader::new("Tip preview").id_salt("tip_preview").default_open(false).show(ui, |ui| self.tip_preview(ui));
+        egui::CollapsingHeader::new(tr("Tip preview")).id_salt("tip_preview").default_open(false).show(ui, |ui| self.tip_preview(ui));
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 3.0;
-            ui.toggle_value(&mut self.ws.chrome.brush_crosshair, "Crosshair").on_hover_text("Off: only the brush outline shows where you paint");
-            ui.toggle_value(&mut self.tools.smart_shape, "Smart shape").on_hover_text(
-                "Draw a line, circle, rectangle or triangle and keep the pen still at the end: it becomes the clean shape, drawn with this brush",
+            ui.toggle_value(&mut self.ws.chrome.brush_crosshair, tr("Crosshair")).on_hover_text(tr("Off: only the brush outline shows where you paint"));
+            ui.toggle_value(&mut self.tools.smart_shape, tr("Smart shape")).on_hover_text(
+                tr("Draw a line, circle, rectangle or triangle and keep the pen still at the end: it becomes the clean shape, drawn with this brush"),
             );
         });
         let vector_eraser = &mut self.tools.vector_erase;
@@ -919,11 +942,11 @@ impl PainterApp {
         prop_percent(ui, "Opacity", &mut brush.opacity, 0.0..=100.0);
         // Clip Studio's brush blending mode: how the stroke mixes with the layer's pixels.
         if brush.mode != BrushMode::Erase {
-            egui::ComboBox::from_label("Blending").selected_text(brush.blend.name()).show_ui(ui, |ui| {
+            egui::ComboBox::from_label(tr("Blending")).selected_text(tr(brush.blend.name())).show_ui(ui, |ui| {
                 for b in painter_core::BrushBlend::ALL {
-                    let r = ui.selectable_value(&mut brush.blend, b, b.name());
+                    let r = ui.selectable_value(&mut brush.blend, b, tr(b.name()));
                     if b == painter_core::BrushBlend::Behind {
-                        r.on_hover_text("Paints only where the layer is still transparent: under the lines, on the same layer");
+                        r.on_hover_text(tr("Paints only where the layer is still transparent: under the lines, on the same layer"));
                     }
                 }
             });
@@ -932,15 +955,15 @@ impl PainterApp {
         // What pen pressure changes, as two toggles on one row.
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 3.0;
-            ui.label(egui::RichText::new("Pressure:").small());
-            ui.toggle_value(&mut brush.pressure_size, "Size").on_hover_text("Size follows pressure");
-            ui.toggle_value(&mut brush.pressure_density, "Density").on_hover_text("Density follows pressure");
+            ui.label(egui::RichText::new(tr("Pressure:")).small());
+            ui.toggle_value(&mut brush.pressure_size, tr("Size")).on_hover_text(tr("Size follows pressure"));
+            ui.toggle_value(&mut brush.pressure_density, tr("Density")).on_hover_text(tr("Density follows pressure"));
         });
         prop_percent(ui, "Spacing", &mut brush.spacing, 1.0..=200.0);
         prop_percent(ui, "Hardness", &mut brush.hardness, 0.0..=100.0);
 
         ui.horizontal(|ui| {
-            ui.label("Anti-aliasing");
+            ui.label(tr("Anti-aliasing"));
             ui.add_space((ui.available_width() - 4.0 * 25.0).max(0.0));
             let options: Vec<(AntiAlias, &str)> = AntiAlias::ALL.iter().map(|aa| (*aa, aa.name())).collect();
             segmented(ui, &mut brush.antialias, &options, Vec2::new(24.0, 20.0), |painter, rect, aa, _| {
@@ -963,9 +986,9 @@ impl PainterApp {
             });
         });
         if brush.mode == BrushMode::Erase {
-            egui::ComboBox::from_label("Vector layers").selected_text(vector_eraser.name()).show_ui(ui, |ui| {
+            egui::ComboBox::from_label(tr("Vector layers")).selected_text(tr(vector_eraser.name())).show_ui(ui, |ui| {
                 for mode in crate::tools::VectorErase::ALL {
-                    ui.selectable_value(vector_eraser, mode, mode.name());
+                    ui.selectable_value(vector_eraser, mode, tr(mode.name()));
                 }
             });
         }
@@ -975,26 +998,26 @@ impl PainterApp {
         if prop_slider(ui, "Stabilization", &mut stabilization, 0.0..=100.0, "", 0, false) {
             brush.stabilization = stabilization.round() as u32;
         }
-        egui::ComboBox::from_label("Smoothing").selected_text(brush.smoothing.name()).show_ui(ui, |ui| {
+        egui::ComboBox::from_label(tr("Smoothing")).selected_text(tr(brush.smoothing.name())).show_ui(ui, |ui| {
             for method in SmoothingMethod::ALL {
-                ui.selectable_value(&mut brush.smoothing, method, method.name());
+                ui.selectable_value(&mut brush.smoothing, method, tr(method.name()));
             }
         });
 
-        egui::CollapsingHeader::new("Dynamics").id_salt("brush_dynamics").show(ui, |ui| {
+        egui::CollapsingHeader::new(tr("Dynamics")).id_salt("brush_dynamics").show(ui, |ui| {
             dynamics_row(ui, "Size", &mut brush.size_dynamics, false);
             dynamics_row(ui, "Density", &mut brush.density_dynamics, false);
             dynamics_row(ui, "Opacity (per dab)", &mut brush.opacity_dynamics, true);
             dynamics_row(ui, "Tip thickness", &mut brush.thickness_dynamics, true);
-            ui.label("Tip rotation");
+            ui.label(tr("Tip rotation"));
             ui.indent("rotation", |ui| {
-                ui.checkbox(&mut brush.rotation.follow_direction, "Follows stroke direction");
-                ui.checkbox(&mut brush.rotation.follow_tilt, "Follows the pen's lean")
-                    .on_hover_text("Turns the tip towards where the pen leans (tablets with tilt, Apple Pencil)");
+                ui.checkbox(&mut brush.rotation.follow_direction, tr("Follows stroke direction"));
+                ui.checkbox(&mut brush.rotation.follow_tilt, tr("Follows the pen's lean"))
+                    .on_hover_text(tr("Turns the tip towards where the pen leans (tablets with tilt, Apple Pencil)"));
                 ui.horizontal(|ui| {
-                    ui.label("Random flip");
-                    ui.checkbox(&mut brush.rotation.random_flip_x, "horizontal");
-                    ui.checkbox(&mut brush.rotation.random_flip_y, "vertical");
+                    ui.label(tr("Random flip"));
+                    ui.checkbox(&mut brush.rotation.random_flip_x, tr("horizontal"));
+                    ui.checkbox(&mut brush.rotation.random_flip_y, tr("vertical"));
                 });
                 let rotation = &mut brush.rotation;
                 for (source, curve) in [
@@ -1006,17 +1029,17 @@ impl PainterApp {
                 }
                 percent_slider(ui, &mut brush.rotation.jitter, "Jitter", 0.0..=100.0);
             });
-            ui.label("Tilt");
+            ui.label(tr("Tilt"));
             percent_slider(ui, &mut brush.tilt_side, "Pencil side", 0.0..=100.0);
-            ui.small("As the pen leans the tip lies down along it, like a pencil's side: wider, flatter, lighter.");
-            ui.small("Tilt comes from WinTab or XInput2 tablets and the Apple Pencil; speed is measured on the canvas.");
+            ui.small(tr("As the pen leans the tip lies down along it, like a pencil's side: wider, flatter, lighter."));
+            ui.small(tr("Tilt comes from WinTab or XInput2 tablets and the Apple Pencil; speed is measured on the canvas."));
         });
 
         let curve_target = &mut self.curve_target;
-        egui::CollapsingHeader::new("Pressure curve").id_salt("pressure_curve_section").show(ui, |ui| {
+        egui::CollapsingHeader::new(tr("Pressure curve")).id_salt("pressure_curve_section").show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.selectable_value(curve_target, CurveTarget::Size, "Size");
-                ui.selectable_value(curve_target, CurveTarget::Density, "Density");
+                ui.selectable_value(curve_target, CurveTarget::Size, tr("Size"));
+                ui.selectable_value(curve_target, CurveTarget::Density, tr("Density"));
             });
             let curve = match curve_target {
                 CurveTarget::Size => &mut brush.size_curve,
@@ -1030,7 +1053,7 @@ impl PainterApp {
                 }
             });
             curve_editor(ui, "pressure_curve", curve);
-            ui.small("Drag points · double-click to add · right-click to remove");
+            ui.small(tr("Drag points · double-click to add · right-click to remove"));
         });
     }
 
@@ -1080,7 +1103,7 @@ impl PainterApp {
             let (total, selected) = (self.doc.rows_top_down().len(), self.selected_layers().len());
             let mut all = selected == total && total > 1;
             let hint = if selected > 1 { format!("{selected} layers selected: untick for only the active one") } else { "Select every layer".to_string() };
-            if ui.checkbox(&mut all, "").on_hover_text(hint).changed() {
+            if ui.checkbox(&mut all, tr("")).on_hover_text(hint).changed() {
                 self.layer_selection = if all { self.doc.rows_top_down().iter().map(|(id, _)| *id).collect() } else { vec![self.doc.active] };
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1192,7 +1215,7 @@ impl PainterApp {
                 let eye_response = ui.interact(eye, response.id.with("eye"), Sense::click());
                 let eye_tint = if layer.visible { theme::text() } else { theme::text_dim().gamma_multiply(0.5) };
                 Icon::Visible.paint(ui, eye, 14.0, eye_tint);
-                if eye_response.on_hover_text("Show / hide (all the selected layers, when this one is selected)").clicked() {
+                if eye_response.on_hover_text(tr("Show / hide (all the selected layers, when this one is selected)")).clicked() {
                     if selected && multi.len() > 1 {
                         eye_all = Some(!layer.visible);
                     } else {
@@ -1215,7 +1238,7 @@ impl PainterApp {
                     let ring = if check_response.hovered() { theme::text() } else { theme::text_dim() };
                     ui.painter().rect_stroke(boxed, 3.0, Stroke::new(1.2_f32, ring), egui::StrokeKind::Inside);
                 }
-                if check_response.on_hover_text("Select or deselect this layer (Shift: the range from the active one)").clicked() {
+                if check_response.on_hover_text(tr("Select or deselect this layer (Shift: the range from the active one)")).clicked() {
                     checked = Some((id, modifiers.shift));
                 }
 
@@ -1293,7 +1316,7 @@ impl PainterApp {
                     let tint = if shown { Color32::from_rgb(176, 96, 255) } else { theme::text_dim() };
                     Icon::Path.paint(ui, r, 13.0, tint);
                     let hit = ui.interact(r, response.id.with("rulers"), Sense::click());
-                    if hit.on_hover_text("This layer has rulers: click to show or hide them").clicked() {
+                    if hit.on_hover_text(tr("This layer has rulers: click to show or hide them")).clicked() {
                         toggle_rulers = Some(id);
                     }
                 }
@@ -1392,9 +1415,9 @@ impl PainterApp {
             ui.label(egui::RichText::new(format!("{} layers selected", multi.len())).strong());
             let (mut opacity, blend) = self.doc.find(self.doc.active).map_or((1.0, BlendMode::Normal), |l| (l.opacity, l.blend));
             let mut new_blend = None;
-            egui::ComboBox::from_label("Blend (all)").selected_text(blend.name()).show_ui(ui, |ui| {
+            egui::ComboBox::from_label(tr("Blend (all)")).selected_text(tr(blend.name())).show_ui(ui, |ui| {
                 for mode in BlendMode::ALL {
-                    if ui.selectable_label(mode == blend, mode.name()).clicked() {
+                    if ui.selectable_label(mode == blend, tr(mode.name())).clicked() {
                         new_blend = Some(mode);
                     }
                 }
@@ -1412,17 +1435,17 @@ impl PainterApp {
                 self.dirty = true;
             }
             ui.horizontal_wrapped(|ui| {
-                if ui.button("Duplicate").clicked() {
+                if ui.button(tr("Duplicate")).clicked() {
                     self.duplicate_selected_layers();
                 }
-                if ui.button("Group").clicked() {
+                if ui.button(tr("Group")).clicked() {
                     self.group_selected_layers();
                 }
-                if ui.button("Draft on / off").clicked() {
+                if ui.button(tr("Draft on / off")).clicked() {
                     let on = !self.doc.find(self.doc.active).is_some_and(|l| l.draft);
                     self.set_on_selected_layers(|l| l.draft = on);
                 }
-                if ui.button("Delete").clicked() {
+                if ui.button(tr("Delete")).clicked() {
                     self.delete_selected_layers();
                 }
             });
@@ -1435,14 +1458,14 @@ impl PainterApp {
             ui.add_enabled_ui(!pass_through, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
-                    egui::ComboBox::from_id_salt("layer_blend").width(110.0).selected_text(layer.blend.name()).show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt("layer_blend").width(110.0).selected_text(tr(layer.blend.name())).show_ui(ui, |ui| {
                         for mode in BlendMode::ALL {
-                            changed |= ui.selectable_value(&mut layer.blend, mode, mode.name()).changed();
+                            changed |= ui.selectable_value(&mut layer.blend, mode, tr(mode.name())).changed();
                         }
                     });
                     let mut pct = layer.opacity * 100.0;
                     let r = ui.add(egui::DragValue::new(&mut pct).range(0.0..=100.0).speed(0.5).max_decimals(0).suffix("%"));
-                    if r.on_hover_text("Opacity: drag sideways or type").changed() {
+                    if r.on_hover_text(tr("Opacity: drag sideways or type")).changed() {
                         layer.opacity = pct / 100.0;
                         changed = true;
                     }
@@ -1483,35 +1506,35 @@ impl PainterApp {
             });
             match &mut layer.kind {
                 LayerKind::Folder(folder) => {
-                    changed |= ui.checkbox(&mut folder.pass_through, "Pass-through blending").changed();
+                    changed |= ui.checkbox(&mut folder.pass_through, tr("Pass-through blending")).changed();
                 }
                 LayerKind::Fill { color } => {
                     ui.horizontal(|ui| {
-                        ui.label("Paper colour");
+                        ui.label(tr("Paper colour"));
                         changed |= ui.color_edit_button_srgb(color).changed();
                     });
                 }
                 LayerKind::Gradient(g) => {
                     ui.horizontal(|ui| {
-                        ui.label("From");
+                        ui.label(tr("From"));
                         changed |= ui.color_edit_button_srgba_unmultiplied(&mut g.from).changed();
-                        ui.label("To");
+                        ui.label(tr("To"));
                         changed |= ui.color_edit_button_srgba_unmultiplied(&mut g.to).changed();
                     });
-                    egui::ComboBox::from_label("Shape").selected_text(g.shape.name()).show_ui(ui, |ui| {
+                    egui::ComboBox::from_label(tr("Shape")).selected_text(tr(g.shape.name())).show_ui(ui, |ui| {
                         for shape in GradientShape::ALL {
-                            changed |= ui.selectable_value(&mut g.shape, shape, shape.name()).changed();
+                            changed |= ui.selectable_value(&mut g.shape, shape, tr(shape.name())).changed();
                         }
                     });
-                    ui.small("Drag with the Gradient tool to place it.");
+                    ui.small(tr("Drag with the Gradient tool to place it."));
                 }
                 LayerKind::Tone(t) => {
                     ui.horizontal(|ui| {
-                        ui.label("Ink");
+                        ui.label(tr("Ink"));
                         changed |= ui.color_edit_button_srgb(&mut t.color).changed();
                     });
-                    changed |= ui.add(egui::Slider::new(&mut t.cell, 3.0..=40.0).text("Dot pitch").suffix(" px")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut t.angle, 0.0..=90.0).text("Angle").suffix("°")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut t.cell, 3.0..=40.0).text(tr("Dot pitch")).suffix(" px")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut t.angle, 0.0..=90.0).text(tr("Angle")).suffix("°")).changed();
                     changed |= percent_slider(ui, &mut t.density, "Density", 0.0..=100.0);
                 }
                 LayerKind::Vector(v) => {
@@ -1531,10 +1554,10 @@ impl PainterApp {
             match &mut layer.mask {
                 Some(mask) => {
                     ui.horizontal_wrapped(|ui| {
-                        changed |= ui.checkbox(&mut mask.enabled, "Mask").changed();
-                        ui.toggle_value(&mut self.edit_mask, "Edit mask")
-                            .on_hover_text("Brush hides, eraser reveals, fill/gradient hide");
-                        delete_mask = ui.small_button("Delete").on_hover_text("Delete the mask").clicked();
+                        changed |= ui.checkbox(&mut mask.enabled, tr("Mask")).changed();
+                        ui.toggle_value(&mut self.edit_mask, tr("Edit mask"))
+                            .on_hover_text(tr("Brush hides, eraser reveals, fill/gradient hide"));
+                        delete_mask = ui.small_button(tr("Delete")).on_hover_text(tr("Delete the mask")).clicked();
                     });
                 }
                 None => self.edit_mask = false,
@@ -1585,7 +1608,7 @@ pub(crate) fn preset_buttons(ui: &mut egui::Ui, label: &str, curve: &mut Option<
             }
         }
         if curve.is_some() && !presets.iter().any(|(_, p)| p == curve) {
-            ui.small("(imported)");
+            ui.small(tr("(imported)"));
         }
     });
 }

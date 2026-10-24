@@ -4,6 +4,7 @@
 //! `painter_core::rulers`.
 
 use eframe::egui::{self, Color32, Key, Modifiers, Painter, Pos2, Rect, Stroke};
+use crate::i18n::tr;
 use painter_core::rulers::{symmetry_copies, Copy2D, Ruler, RulerKind, RulerSet, StrokeSnap, P};
 use painter_core::Dab;
 
@@ -342,13 +343,13 @@ impl PainterApp {
         let (w, h) = (self.doc.width as f32, self.doc.height as f32);
         let center = self.view_center();
         let mut snapping = self.doc.rulers.snapping;
-        if ui.checkbox(&mut snapping, "Snap to rulers  (Ctrl+1)").changed() {
+        if ui.checkbox(&mut snapping, tr("Snap to rulers  (Ctrl+1)")).changed() {
             self.toggle_ruler_snapping();
         }
         let mut add: Option<RulerKind> = None;
         ui.horizontal_wrapped(|ui| {
-            ui.label("Add");
-            ui.menu_button("Perspective", |ui| {
+            ui.label(tr("Add"));
+            ui.menu_button(tr("Perspective"), |ui| {
                 for (n, label) in [(1, "1-point"), (2, "2-point"), (3, "3-point")] {
                     if ui.button(label).clicked() {
                         add = Some(RulerSet::perspective(n, w, h).kind);
@@ -366,7 +367,7 @@ impl PainterApp {
                     }
                 }
             });
-            ui.menu_button("Symmetry", |ui| {
+            ui.menu_button(tr("Symmetry"), |ui| {
                 for (label, lines, mirror) in
                     [("Mirror (left / right)", 1, true), ("Rotational ×6", 6, false), ("Kaleidoscope ×6", 6, true)]
                 {
@@ -376,7 +377,7 @@ impl PainterApp {
                     }
                 }
             });
-            ui.menu_button("Special", |ui| {
+            ui.menu_button(tr("Special"), |ui| {
                 let items: [(&str, RulerKind); 4] = [
                     ("Parallel lines", RulerKind::ParallelLines { angle: 0.0 }),
                     ("Concentric circles", RulerKind::Concentric { center, ratio: 1.0, angle: 0.0 }),
@@ -390,12 +391,12 @@ impl PainterApp {
                     }
                 }
             });
-            ui.menu_button("Guide", |ui| {
-                if ui.button("Horizontal").clicked() {
+            ui.menu_button(tr("Guide"), |ui| {
+                if ui.button(tr("Horizontal")).clicked() {
                     add = Some(RulerKind::Guide { vertical: false, position: center[1] });
                     ui.close_menu();
                 }
-                if ui.button("Vertical").clicked() {
+                if ui.button(tr("Vertical")).clicked() {
                     add = Some(RulerKind::Guide { vertical: true, position: center[0] });
                     ui.close_menu();
                 }
@@ -406,7 +407,7 @@ impl PainterApp {
         }
         ui.separator();
         if self.doc.rulers.rulers.is_empty() {
-            ui.weak("No rulers yet. Add one above, then drag its handles on the canvas.");
+            ui.weak(tr("No rulers yet. Add one above, then drag its handles on the canvas."));
         }
         let mut remove = None;
         let mut changed = false;
@@ -428,16 +429,16 @@ impl PainterApp {
         for (i, r) in self.doc.rulers.rulers.iter_mut().enumerate() {
             let (owner, applies) = &owners[i];
             ui.horizontal(|ui| {
-                changed |= ui.checkbox(&mut r.visible, "").on_hover_text("Show").changed();
-                changed |= ui.checkbox(&mut r.snap, "").on_hover_text("Snap strokes to it").changed();
+                changed |= ui.checkbox(&mut r.visible, tr("")).on_hover_text(tr("Show")).changed();
+                changed |= ui.checkbox(&mut r.snap, tr("")).on_hover_text(tr("Snap strokes to it")).changed();
                 let text = egui::RichText::new(format!("{}  ·  {owner}", r.label()));
                 let text = if *applies { text } else { text.weak() };
                 let row = ui.selectable_label(self.selected_ruler == Some(i), text);
-                let row = if *applies { row } else { row.on_hover_text("Not active on the layer being edited") };
+                let row = if *applies { row } else { row.on_hover_text(tr("Not active on the layer being edited")) };
                 if row.clicked() {
                     self.selected_ruler = Some(i);
                 }
-                if ui.small_button("x").on_hover_text("Delete").clicked() {
+                if ui.small_button(tr("x")).on_hover_text(tr("Delete")).clicked() {
                     remove = Some(i);
                 }
             });
@@ -453,16 +454,16 @@ impl PainterApp {
         if let Some(r) = self.selected_ruler.and_then(|i| self.doc.rulers.rulers.get_mut(i)) {
             ui.separator();
             ui.horizontal(|ui| {
-                ui.label("Applies to");
+                ui.label(tr("Applies to"));
                 ui.add_enabled_ui(r.layer.is_some(), |ui| {
-                    egui::ComboBox::from_id_salt("ruler_scope").selected_text(r.scope.label()).show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt("ruler_scope").selected_text(tr(r.scope.label())).show_ui(ui, |ui| {
                         for scope in painter_core::RulerScope::ALL {
-                            changed |= ui.selectable_value(&mut r.scope, scope, scope.label()).changed();
+                            changed |= ui.selectable_value(&mut r.scope, scope, tr(scope.label())).changed();
                         }
                     });
                 });
             });
-            if r.layer != Some(active.0) && ui.button(format!("Move to \"{active_name}\"")).on_hover_text("Give the ruler to the layer being edited").clicked() {
+            if r.layer != Some(active.0) && ui.button(format!("Move to \"{active_name}\"")).on_hover_text(tr("Give the ruler to the layer being edited")).clicked() {
                 r.layer = Some(active.0);
                 changed = true;
             }
@@ -470,55 +471,55 @@ impl PainterApp {
                 RulerKind::Perspective { vanishing } => {
                     ui.horizontal(|ui| {
                         ui.label(format!("{} vanishing point(s)", vanishing.len()));
-                        if ui.add_enabled(vanishing.len() < 3, egui::Button::new("+")).clicked() {
+                        if ui.add_enabled(vanishing.len() < 3, egui::Button::new(tr("+"))).clicked() {
                             vanishing.push([w * 0.5, h * 2.6]);
                             changed = true;
                         }
-                        if ui.add_enabled(vanishing.len() > 1, egui::Button::new("-")).clicked() {
+                        if ui.add_enabled(vanishing.len() > 1, egui::Button::new(tr("-"))).clicked() {
                             vanishing.pop();
                             changed = true;
                         }
                     });
-                    ui.small("Drag the points on the canvas. Strokes follow the line towards the point they head for; one and two points also give vertical (and horizontal) lines.");
+                    ui.small(tr("Drag the points on the canvas. Strokes follow the line towards the point they head for; one and two points also give vertical (and horizontal) lines."));
                 }
                 RulerKind::Symmetry { angle, lines, mirror, .. } => {
-                    changed |= ui.add(egui::Slider::new(lines, 1..=32).text("Lines")).changed();
-                    changed |= ui.checkbox(mirror, "Mirror").changed();
+                    changed |= ui.add(egui::Slider::new(lines, 1..=32).text(tr("Lines"))).changed();
+                    changed |= ui.checkbox(mirror, tr("Mirror")).changed();
                     changed |= ui.add(egui::DragValue::new(angle).speed(0.5).suffix("°").prefix("Angle ")).changed();
-                    ui.small("Drag the centre, and the second handle to turn the axis.");
+                    ui.small(tr("Drag the centre, and the second handle to turn the axis."));
                 }
                 RulerKind::ParallelLines { angle } => {
                     changed |= ui.add(egui::DragValue::new(angle).speed(0.5).suffix("°").prefix("Angle ")).changed();
                 }
                 RulerKind::Concentric { ratio, angle, .. } => {
-                    changed |= ui.add(egui::Slider::new(ratio, 0.05..=1.0).text("Ellipse ratio")).changed();
+                    changed |= ui.add(egui::Slider::new(ratio, 0.05..=1.0).text(tr("Ellipse ratio"))).changed();
                     changed |= ui.add(egui::DragValue::new(angle).speed(0.5).suffix("°").prefix("Angle ")).changed();
                 }
                 RulerKind::Guide { position, .. } => {
                     changed |= ui.add(egui::DragValue::new(position).speed(1.0).suffix(" px").prefix("Position ")).changed();
                 }
                 RulerKind::Curvilinear { radius_x, radius_y, angle, fifth, .. } => {
-                    changed |= ui.checkbox(fifth, "Fifth point (fisheye)").on_hover_text("Lines also run straight out of the centre").changed();
+                    changed |= ui.checkbox(fifth, tr("Fifth point (fisheye)")).on_hover_text(tr("Lines also run straight out of the centre")).changed();
                     ui.horizontal(|ui| {
                         changed |= ui.add(egui::DragValue::new(radius_x).speed(2.0).range(1.0..=1e6).prefix("Left / right ").suffix(" px")).changed();
                         changed |= ui.add(egui::DragValue::new(radius_y).speed(2.0).range(1.0..=1e6).prefix("Up / down ").suffix(" px")).changed();
                     });
                     changed |= ui.add(egui::DragValue::new(angle).speed(0.5).suffix("°").prefix("Horizon angle ")).changed();
-                    ui.small("Drag the centre, the right point (turns the horizon) and the lower point. Strokes bend into arcs through the pair of points they head for.");
+                    ui.small(tr("Drag the centre, the right point (turns the horizon) and the lower point. Strokes bend into arcs through the pair of points they head for."));
                 }
                 RulerKind::RadialLines { .. } | RulerKind::Line { .. } => {
-                    ui.small("Drag its handles on the canvas.");
+                    ui.small(tr("Drag its handles on the canvas."));
                 }
             }
         }
         ui.separator();
         let grid = &mut self.doc.rulers.grid;
-        changed |= ui.checkbox(&mut grid.visible, "Show grid  (Ctrl+')").changed();
+        changed |= ui.checkbox(&mut grid.visible, tr("Show grid  (Ctrl+')")).changed();
         ui.add_enabled_ui(grid.visible, |ui| {
             changed |= ui
                 .add(egui::DragValue::new(&mut grid.spacing).range(4.0..=4000.0).speed(1.0).suffix(" px").prefix("Spacing "))
                 .changed();
-            changed |= ui.add(egui::Slider::new(&mut grid.subdivisions, 1..=16).text("Subdivisions")).changed();
+            changed |= ui.add(egui::Slider::new(&mut grid.subdivisions, 1..=16).text(tr("Subdivisions"))).changed();
         });
         if changed {
             self.dirty = true;

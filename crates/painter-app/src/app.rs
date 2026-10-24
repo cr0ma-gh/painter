@@ -1,6 +1,7 @@
 //! Application state and document commands.
 
 use std::collections::HashMap;
+use crate::i18n::tr;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -318,6 +319,8 @@ impl PainterApp {
             None => false,
         };
         let ws = crate::workspace_ui::WorkspaceUi::load(cc.storage);
+        // The interface language: the one chosen, else the system's.
+        crate::i18n::set_language(ws.chrome.language.as_str());
         let (brush_library, saved_brushes) = crate::brush_library::BrushLibrary::load();
         let brushes: Vec<BrushPreset> = saved_brushes.unwrap_or_else(default_brushes);
         let last_eraser = brushes.iter().position(|b| b.settings.mode == BrushMode::Erase).unwrap_or(0);
@@ -734,7 +737,7 @@ impl PainterApp {
             self.edit_mask = false;
             self.recomposite = true;
         } else {
-            self.status = "Can't delete the last layer".into();
+            self.status = tr("Can't delete the last layer").into();
         }
     }
 
@@ -1069,7 +1072,7 @@ impl PainterApp {
             return;
         };
         if self.is_vector_plane(plane) {
-            self.status = "Fill works on raster layers and masks, not vector layers".into();
+            self.status = tr("Fill works on raster layers and masks, not vector layers").into();
             return;
         }
         let options = self.tools.fill;
@@ -1109,7 +1112,7 @@ impl PainterApp {
             ReferenceSource::AllLayers | ReferenceSource::ReferenceLayers => match reference_pixels(&self.doc, &reference) {
                 Some(pixels) => open_mask_from_pixels(&pixels, canvas, seed, options.tolerance),
                 None => {
-                    self.status = "No reference layer: tick Reference on the ink layers in the Layers panel".into();
+                    self.status = tr("No reference layer: tick Reference on the ink layers in the Layers panel").into();
                     return None;
                 }
             },
@@ -1164,7 +1167,7 @@ impl PainterApp {
             return;
         };
         if self.is_vector_plane(plane) {
-            self.status = "Gradients paint on raster layers and masks".into();
+            self.status = tr("Gradients paint on raster layers and masks").into();
             return;
         }
         let (from, to) = if matches!(plane, Plane::Mask(_)) {
@@ -1193,14 +1196,14 @@ impl PainterApp {
     /// Erases the selected area of the edited plane (Delete key).
     pub(crate) fn clear_selected(&mut self) {
         let Some(sel) = self.doc.selection.clone() else {
-            self.status = "Nothing selected".into();
+            self.status = tr("Nothing selected").into();
             return;
         };
         let Some(plane) = self.target_plane() else {
             return;
         };
         if self.is_vector_plane(plane) {
-            self.status = "Use the vector eraser on vector layers".into();
+            self.status = tr("Use the vector eraser on vector layers").into();
             return;
         }
         let stroke = region_to_stroke(&sel, [1.0; 3]);
@@ -1346,7 +1349,7 @@ impl PainterApp {
     /// Brush `index` back to its built-in settings, in the same place.
     pub(crate) fn reset_brush(&mut self, index: usize) {
         let Some(default) = self.default_of(index) else {
-            self.status = "This brush isn't one of the built-in ones: it has no default to go back to".into();
+            self.status = tr("This brush isn't one of the built-in ones: it has no default to go back to").into();
             return;
         };
         let name = default.settings.name.clone();
@@ -1387,7 +1390,7 @@ impl PainterApp {
         self.last_eraser = self.brushes.iter().position(|b| b.settings.mode == painter_core::BrushMode::Erase).unwrap_or(0);
         self.group_brush.clear();
         self.select_brush(0);
-        self.status = "The brush list is back to the default brushes".into();
+        self.status = tr("The brush list is back to the default brushes").into();
     }
 
     /// Adds the built-in brushes that are no longer in the list (by name).
@@ -1677,7 +1680,7 @@ impl PainterApp {
         let Some(template) = crate::files::app_data_dir().map(|d| d.join(CLIP_TEMPLATE)) else { return };
         if !template.is_file() && !self.choose_clip_template() {
             if !self.status.starts_with("Can't use") {
-                self.status = "Clip Studio export needs one .clip saved by Clip Studio (any, even an empty canvas) as a template".into();
+                self.status = tr("Clip Studio export needs one .clip saved by Clip Studio (any, even an empty canvas) as a template").into();
             }
             return;
         }

@@ -4,6 +4,7 @@
 //! way, like an interface scaled too big to reach the menus).
 
 use eframe::egui::{self, RichText};
+use crate::i18n::tr;
 
 use crate::app::PainterApp;
 use crate::theme;
@@ -75,35 +76,35 @@ impl PainterApp {
         let mut open = true;
         let mut go = false;
         let mut cancel = false;
-        egui::Window::new("Reset Settings")
+        egui::Window::new(tr("Reset Settings"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
-                ui.label("Put back as Painter comes:");
+                ui.label(tr("Put back as Painter comes:"));
                 ui.add_space(4.0);
-                ui.checkbox(&mut choice.interface, "Interface")
-                    .on_hover_text("Workspaces and panels, toolbars, theme, interface size, screen mode, the welcome screen");
-                ui.checkbox(&mut choice.tools, "Tool options")
-                    .on_hover_text("Fill, selection, shape, stamp and other tool settings; channels");
-                ui.checkbox(&mut choice.brushes, "Built-in brushes")
-                    .on_hover_text("Their settings back to the defaults; brushes you imported or made stay");
-                ui.checkbox(&mut choice.colors, "Colour sets and colour history");
-                ui.checkbox(&mut choice.recent, "Recent files list");
-                ui.checkbox(&mut choice.updates, "Update checks");
+                ui.checkbox(&mut choice.interface, tr("Interface"))
+                    .on_hover_text(tr("Workspaces and panels, toolbars, theme, interface size, screen mode, the welcome screen"));
+                ui.checkbox(&mut choice.tools, tr("Tool options"))
+                    .on_hover_text(tr("Fill, selection, shape, stamp and other tool settings; channels"));
+                ui.checkbox(&mut choice.brushes, tr("Built-in brushes"))
+                    .on_hover_text(tr("Their settings back to the defaults; brushes you imported or made stay"));
+                ui.checkbox(&mut choice.colors, tr("Colour sets and colour history"));
+                ui.checkbox(&mut choice.recent, tr("Recent files list"));
+                ui.checkbox(&mut choice.updates, tr("Update checks"));
                 ui.add_space(6.0);
                 ui.label(
-                    RichText::new("Open documents, your files, actions and patterns aren't touched. This can't be undone.")
+                    RichText::new(tr("Open documents, your files, actions and patterns aren't touched. This can't be undone."))
                         .small()
                         .color(theme::text_dim()),
                 );
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Reset").clicked() {
+                    if ui.button(tr("Reset")).clicked() {
                         go = true;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(tr("Cancel")).clicked() {
                         cancel = true;
                     }
                 });

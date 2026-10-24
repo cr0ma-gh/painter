@@ -4,6 +4,7 @@
 //! done.
 
 use eframe::egui::{self, RichText};
+use crate::i18n::tr;
 
 use crate::app::PainterApp;
 use crate::theme;
@@ -17,15 +18,15 @@ impl PainterApp {
         let current = done.len();
         let mut target = None;
         ui.horizontal(|ui| {
-            if ui.add_enabled(self.history.can_undo(), egui::Button::new("Undo")).clicked() {
+            if ui.add_enabled(self.history.can_undo(), egui::Button::new(tr("Undo"))).clicked() {
                 target = Some(current.saturating_sub(1));
             }
-            if ui.add_enabled(self.history.can_redo(), egui::Button::new("Redo")).clicked() {
+            if ui.add_enabled(self.history.can_redo(), egui::Button::new(tr("Redo"))).clicked() {
                 target = Some(current + 1);
             }
             let mut limit = self.history.limit();
             let r = ui.add(egui::DragValue::new(&mut limit).range(10..=1000).speed(1.0).suffix(" steps"));
-            if r.on_hover_text("How many steps are kept (the oldest go first)").changed() {
+            if r.on_hover_text(tr("How many steps are kept (the oldest go first)")).changed() {
                 self.history.set_limit(limit);
             }
         });
@@ -45,7 +46,7 @@ impl PainterApp {
                     let chosen = self.history.source_label() == Some(label);
                     let tint = if chosen { theme::accent() } else { theme::text_dim() };
                     let brush = ui.add(egui::ImageButton::new(crate::icons::Icon::HistoryBrush.image(14.0, tint)).frame(false));
-                    if brush.on_hover_text("Paint from this state with the History Brush (Y)").clicked() {
+                    if brush.on_hover_text(tr("Paint from this state with the History Brush (Y)")).clicked() {
                         brush_from = Some((k, label.to_string()));
                     }
                     let text = RichText::new(label);

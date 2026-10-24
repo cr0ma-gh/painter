@@ -3,6 +3,7 @@
 //! hides). View → Clock and Battery, or right-click it → Hide.
 
 use std::sync::{Arc, Mutex};
+use crate::i18n::tr;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke, Vec2};
@@ -199,7 +200,7 @@ impl PainterApp {
             None => "Right-click to hide (View > Clock and Battery)".to_string(),
         };
         response.on_hover_text(hint).context_menu(|ui| {
-            if ui.button("Hide Clock and Battery").clicked() {
+            if ui.button(tr("Hide Clock and Battery")).clicked() {
                 self.ws.chrome.clock = false;
                 ui.close_menu();
             }

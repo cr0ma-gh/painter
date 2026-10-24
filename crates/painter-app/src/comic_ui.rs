@@ -5,6 +5,7 @@
 //! undo keeps a copy of it next to every document snapshot.
 
 use comic_layout::frame_tool::{drag_handle, hit_test};
+use crate::i18n::tr;
 use comic_layout::paper::{STANDARD_BLEED_MM, STANDARD_SAFE_MM};
 use comic_layout::{
     Binding, BorderStyle, Category, ComicPage, Cut, FrameHandle, FrameMode, GutterMetrics, Orientation, PageGeometry, PagePreset,
@@ -255,7 +256,7 @@ impl PainterApp {
                 }
                 let mid = [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5];
                 let Some(id) = self.comic.as_ref().and_then(|c| c.panels.iter().rev().find(|p| p.contains(mid)).map(|p| p.id)) else {
-                    self.status = "Drag the divide line across a panel".into();
+                    self.status = tr("Drag the divide line across a panel").into();
                     return;
                 };
                 // Check the cut first so a miss leaves no undo step behind.
@@ -264,7 +265,7 @@ impl PainterApp {
                     c.panel(id).is_some_and(|p| comic_layout::frame_tool::split(p, Cut { a, b }, gap, PanelId(u32::MAX)).is_some())
                 });
                 if !feasible {
-                    self.status = "That line doesn't split the panel".into();
+                    self.status = tr("That line doesn't split the panel").into();
                     return;
                 }
                 self.checkpoint();
@@ -272,7 +273,7 @@ impl PainterApp {
                     comic.split_panel(&mut self.doc, id, Cut { a, b });
                 }
                 self.resync_gpu();
-                self.status = "Panel divided".into();
+                self.status = tr("Panel divided").into();
             }
             _ => {}
         }
@@ -411,26 +412,26 @@ impl PainterApp {
                     self.frame.polygon.clear();
                 }
             }
-            ui.label(self.frame.mode.label());
+            ui.label(tr(self.frame.mode.label()));
         });
-        ui.small(self.frame.mode.hint());
-        ui.checkbox(&mut self.frame.snap, "Snap to panels, frames and gutters");
+        ui.small(tr(self.frame.mode.hint()));
+        ui.checkbox(&mut self.frame.snap, tr("Snap to panels, frames and gutters"));
         ui.horizontal(|ui| {
-            ui.label("New panel border");
+            ui.label(tr("New panel border"));
             ui.add(egui::DragValue::new(&mut self.frame.border_width).range(0.0..=200.0).speed(0.2).suffix(" px"));
         });
         let comic = self.ensure_comic();
         ui.horizontal(|ui| {
-            ui.label("Gutters");
+            ui.label(tr("Gutters"));
             ui.add(egui::DragValue::new(&mut comic.gutter.horizontal).range(0.0..=2000.0).speed(0.5).prefix("↔ ").suffix(" px"));
             ui.add(egui::DragValue::new(&mut comic.gutter.vertical).range(0.0..=2000.0).speed(0.5).prefix("↕ ").suffix(" px"));
         });
         ui.horizontal(|ui| {
-            ui.label("Reading");
-            ui.selectable_value(&mut comic.geometry.binding, Binding::LeftToRight, "Left to right");
-            ui.selectable_value(&mut comic.geometry.binding, Binding::RightToLeft, "Right to left");
+            ui.label(tr("Reading"));
+            ui.selectable_value(&mut comic.geometry.binding, Binding::LeftToRight, tr("Left to right"));
+            ui.selectable_value(&mut comic.geometry.binding, Binding::RightToLeft, tr("Right to left"));
         });
-        ui.small("Each panel is a folder clipped to its frame: draw on the panel's art layer and nothing spills out.");
+        ui.small(tr("Each panel is a folder clipped to its frame: draw on the panel's art layer and nothing spills out."));
     }
 
     // ---- panels in the Layers panel -------------------------------------------------
@@ -465,7 +466,7 @@ impl PainterApp {
                         }
                         if ui
                             .selectable_label(selected, format!("#{reading}  Panel {}", id.0))
-                            .on_hover_text("Select its art layer")
+                            .on_hover_text(tr("Select its art layer"))
                             .clicked()
                         {
                             action = Some((*id, PanelAction::Select));
@@ -494,7 +495,7 @@ impl PainterApp {
                         let (mut start, mut dragging) = (false, false);
                         ui.indent(("panel_border", id.0), |ui| {
                             ui.horizontal(|ui| {
-                                changed |= ui.checkbox(&mut border.visible, "Border").changed();
+                                changed |= ui.checkbox(&mut border.visible, tr("Border")).changed();
                                 let w = ui.add_enabled(
                                     border.visible,
                                     egui::DragValue::new(&mut border.width).range(0.0..=200.0).speed(0.2).suffix(" px"),
@@ -510,11 +511,11 @@ impl PainterApp {
                             });
                             ui.horizontal(|ui| {
                                 let mut dashed = border.dash.is_some();
-                                if ui.checkbox(&mut dashed, "Dashed").changed() {
+                                if ui.checkbox(&mut dashed, tr("Dashed")).changed() {
                                     border.dash = dashed.then_some([border.width.max(1.0) * 4.0, border.width.max(1.0) * 3.0]);
                                     changed = true;
                                 }
-                                changed |= ui.checkbox(&mut border.antialias, "Anti-aliased").changed();
+                                changed |= ui.checkbox(&mut border.antialias, tr("Anti-aliased")).changed();
                             });
                         });
                         if changed {
@@ -595,13 +596,13 @@ impl PainterApp {
         };
         let mut open = true;
         let mut create = false;
-        egui::Window::new("New Comic Page / Storyboard").collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
+        egui::Window::new(tr("New Comic Page / Storyboard")).collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
             ui.set_width(980.0);
             ui.horizontal_top(|ui| {
                 // Formats.
                 ui.vertical(|ui| {
                     ui.set_width(330.0);
-                    ui.label(egui::RichText::new("Format").strong());
+                    ui.label(egui::RichText::new(tr("Format")).strong());
                     egui::ScrollArea::vertical().id_salt("wizard_formats").max_height(470.0).show(ui, |ui| {
                         for category in [Category::Oriental, Category::Western, Category::Webtoon, Category::Custom] {
                             let name = match category {
@@ -631,7 +632,7 @@ impl PainterApp {
                 // Templates on the chosen format.
                 ui.vertical(|ui| {
                     ui.set_width(330.0);
-                    ui.label(egui::RichText::new("Layout").strong());
+                    ui.label(egui::RichText::new(tr("Layout")).strong());
                     let geometry = wizard.settings.geometry();
                     let gutter = wizard.settings.gutter();
                     egui::ScrollArea::vertical().id_salt("wizard_templates").max_height(470.0).show(ui, |ui| {
@@ -672,44 +673,44 @@ impl PainterApp {
                 // Settings and the big preview.
                 ui.vertical(|ui| {
                     ui.set_width(280.0);
-                    ui.label(egui::RichText::new("Page").strong());
+                    ui.label(egui::RichText::new(tr("Page")).strong());
                     let s = &mut wizard.settings;
                     if let Some(webtoon) = &mut s.webtoon {
                         ui.horizontal(|ui| {
-                            ui.label("Width");
+                            ui.label(tr("Width"));
                             ui.add(egui::DragValue::new(&mut webtoon.width_px).range(200..=2000).suffix(" px"));
                         });
                         ui.horizontal(|ui| {
-                            ui.label("Length");
+                            ui.label(tr("Length"));
                             ui.add(egui::DragValue::new(&mut webtoon.length_px).range(500..=MAX_CANVAS_SIZE).suffix(" px"));
                         });
                         ui.horizontal(|ui| {
-                            ui.label("Slices every");
+                            ui.label(tr("Slices every"));
                             ui.add(egui::DragValue::new(&mut webtoon.slice_px).range(100..=4000).suffix(" px"));
                         });
                     } else {
                         let unit = wizard.unit;
                         egui::Grid::new("wizard_page_grid").num_columns(2).spacing([8.0, 5.0]).show(ui, |ui| {
-                            ui.label("Units");
+                            ui.label(tr("Units"));
                             unit_combo(ui, "wizard_unit", &mut wizard.unit);
                             ui.end_row();
                             if s.category == Category::Custom {
-                                ui.label("Paper");
+                                ui.label(tr("Paper"));
                                 if let Some(size) = paper_combo(ui, "wizard_paper", s.trim_mm) {
                                     s.trim_mm = size;
                                 }
                                 ui.end_row();
-                                ui.label("Orientation");
+                                ui.label(tr("Orientation"));
                                 ui.horizontal(|ui| orientation_buttons(ui, &mut s.trim_mm));
                                 ui.end_row();
-                                ui.label("Trim");
+                                ui.label(tr("Trim"));
                                 ui.horizontal(|ui| {
                                     length_edit(ui, &mut s.trim_mm[0], unit, s.dpi, 20.0..=600.0);
-                                    ui.label("×");
+                                    ui.label(tr("×"));
                                     length_edit(ui, &mut s.trim_mm[1], unit, s.dpi, 20.0..=600.0);
                                 });
                             } else {
-                                ui.label("Trim");
+                                ui.label(tr("Trim"));
                                 ui.label(format!(
                                     "{} × {} {}",
                                     show(s.trim_mm[0], unit, s.dpi),
@@ -718,41 +719,41 @@ impl PainterApp {
                                 ));
                             }
                             ui.end_row();
-                            ui.label("Resolution");
+                            ui.label(tr("Resolution"));
                             ui.horizontal(|ui| dpi_edit(ui, "wizard_dpi", &mut s.dpi));
                             ui.end_row();
-                            ui.label("Bleed");
+                            ui.label(tr("Bleed"));
                             length_edit(ui, &mut s.bleed_mm, unit, s.dpi, 0.0..=20.0);
                             ui.end_row();
                             if let Some(inner) = &mut s.inner_frame_mm {
-                                ui.label("Inner frame");
+                                ui.label(tr("Inner frame"));
                                 ui.horizontal(|ui| {
                                     length_edit(ui, &mut inner[0], unit, s.dpi, 20.0..=600.0);
-                                    ui.label("×");
+                                    ui.label(tr("×"));
                                     length_edit(ui, &mut inner[1], unit, s.dpi, 20.0..=600.0);
                                 });
                             } else {
-                                ui.label("Safe margin");
+                                ui.label(tr("Safe margin"));
                                 length_edit(ui, &mut s.safe_margin_mm, unit, s.dpi, 0.0..=60.0);
                             }
                             ui.end_row();
-                            ui.label("Gutters");
+                            ui.label(tr("Gutters"));
                             ui.horizontal(|ui| {
                                 length_edit(ui, &mut s.gutter_mm[0], unit, s.dpi, 0.0..=30.0)
-                                    .on_hover_text("Between side-by-side panels");
-                                length_edit(ui, &mut s.gutter_mm[1], unit, s.dpi, 0.0..=30.0).on_hover_text("Between tiers");
+                                    .on_hover_text(tr("Between side-by-side panels"));
+                                length_edit(ui, &mut s.gutter_mm[1], unit, s.dpi, 0.0..=30.0).on_hover_text(tr("Between tiers"));
                             });
                             ui.end_row();
                         });
-                        if ui.small_button("Standard print margins").on_hover_text("3 mm bleed, 5 mm safe margin").clicked() {
+                        if ui.small_button(tr("Standard print margins")).on_hover_text(tr("3 mm bleed, 5 mm safe margin")).clicked() {
                             s.bleed_mm = STANDARD_BLEED_MM;
                             s.inner_frame_mm = None;
                             s.safe_margin_mm = STANDARD_SAFE_MM;
                         }
                         ui.horizontal(|ui| {
-                            ui.label("Binding");
-                            ui.selectable_value(&mut s.binding, Binding::LeftToRight, "Left (western)");
-                            ui.selectable_value(&mut s.binding, Binding::RightToLeft, "Right (manga)");
+                            ui.label(tr("Binding"));
+                            ui.selectable_value(&mut s.binding, Binding::LeftToRight, tr("Left (western)"));
+                            ui.selectable_value(&mut s.binding, Binding::RightToLeft, tr("Right (manga)"));
                         });
                     }
                     let geometry = wizard.settings.geometry();
@@ -771,8 +772,8 @@ impl PainterApp {
                     }
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        create = ui.add_enabled(fits, egui::Button::new("Create")).clicked();
-                        if ui.button("Cancel").clicked() {
+                        create = ui.add_enabled(fits, egui::Button::new(tr("Create"))).clicked();
+                        if ui.button(tr("Cancel")).clicked() {
                             wizard.cancelled = true;
                         }
                     });

@@ -5,6 +5,7 @@
 //! units never changes the page; pixels follow from the resolution.
 
 use std::ops::RangeInclusive;
+use crate::i18n::tr;
 
 use comic_layout::paper::{mm_to_whole_px, px_to_mm, STANDARD_BLEED_MM, STANDARD_SAFE_MM};
 use comic_layout::{Binding, ComicPage, Orientation, PagePreset, PaperSize, Unit, DPI_PRESETS, PAPER_SIZES};
@@ -42,9 +43,9 @@ pub(crate) fn length_edit(ui: &mut egui::Ui, mm: &mut f64, unit: Unit, dpi: u32,
 }
 
 pub(crate) fn unit_combo(ui: &mut egui::Ui, id: &str, unit: &mut Unit) {
-    egui::ComboBox::from_id_salt(id).width(52.0).selected_text(unit.label()).show_ui(ui, |ui| {
+    egui::ComboBox::from_id_salt(id).width(52.0).selected_text(tr(unit.label())).show_ui(ui, |ui| {
         for u in Unit::ALL {
-            ui.selectable_value(unit, u, u.label());
+            ui.selectable_value(unit, u, tr(u.label()));
         }
     });
 }
@@ -160,7 +161,7 @@ impl PainterApp {
             return;
         };
         let (mut open, mut create, mut cancel) = (true, false, false);
-        egui::Window::new("New Canvas")
+        egui::Window::new(tr("New Canvas"))
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
@@ -170,7 +171,7 @@ impl PainterApp {
                     ui.vertical(|ui| {
                         ui.set_width(330.0);
                         egui::Grid::new("new_canvas_grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-                            ui.label("Paper");
+                            ui.label(tr("Paper"));
                             ui.horizontal(|ui| {
                                 if let Some(size) = paper_combo(ui, "new_canvas_paper", s.size_mm) {
                                     s.size_mm = size;
@@ -178,7 +179,7 @@ impl PainterApp {
                                 orientation_buttons(ui, &mut s.size_mm);
                             });
                             ui.end_row();
-                            ui.label("Width");
+                            ui.label(tr("Width"));
                             ui.horizontal(|ui| {
                                 length_edit(
                                     ui,
@@ -190,10 +191,10 @@ impl PainterApp {
                                 unit_combo(ui, "new_canvas_unit", &mut s.unit);
                             });
                             ui.end_row();
-                            ui.label("Height");
+                            ui.label(tr("Height"));
                             length_edit(ui, &mut s.size_mm[1], s.unit, s.dpi, 1.0..=px_to_mm(MAX_CANVAS_SIZE as f64, s.dpi).max(1.0));
                             ui.end_row();
-                            ui.label("Resolution");
+                            ui.label(tr("Resolution"));
                             ui.horizontal(|ui| {
                                 let before = s.dpi;
                                 if dpi_edit(ui, "new_canvas_dpi", &mut s.dpi) && s.unit == Unit::Px {
@@ -202,11 +203,11 @@ impl PainterApp {
                                 }
                             });
                             ui.end_row();
-                            ui.label("Colour mode");
+                            ui.label(tr("Colour mode"));
                             ui.horizontal(|ui| {
                                 use painter_core::color_mode::ColorMode;
                                 use painter_core::color_profile::ColorProfile;
-                                egui::ComboBox::from_id_salt("new_canvas_mode").selected_text(s.mode.name()).show_ui(ui, |ui| {
+                                egui::ComboBox::from_id_salt("new_canvas_mode").selected_text(tr(s.mode.name())).show_ui(ui, |ui| {
                                     for (mode, label) in [
                                         (ColorMode::Rgb, "RGB Color"),
                                         (ColorMode::Cmyk, "CMYK Color"),
@@ -227,26 +228,26 @@ impl PainterApp {
                                         }
                                     }
                                 });
-                                ui.label("8 bit");
+                                ui.label(tr("8 bit"));
                             });
                             ui.end_row();
-                            ui.label("Profile");
+                            ui.label(tr("Profile"));
                             {
                                 use painter_core::color_profile::ColorProfile;
                                 let choices: &[ColorProfile] =
                                     if !s.mode.is_gray() { &ColorProfile::RGB } else { &ColorProfile::GRAY };
-                                egui::ComboBox::from_id_salt("new_canvas_profile").selected_text(s.profile.name()).width(180.0).show_ui(ui, |ui| {
+                                egui::ComboBox::from_id_salt("new_canvas_profile").selected_text(tr(s.profile.name())).width(180.0).show_ui(ui, |ui| {
                                     for p in choices {
-                                        ui.selectable_value(&mut s.profile, *p, p.name());
+                                        ui.selectable_value(&mut s.profile, *p, tr(p.name()));
                                     }
                                 })
                                 .response
-                                .on_hover_text("Written into PNG and PSD exports so other programs read the colours as meant");
+                                .on_hover_text(tr("Written into PNG and PSD exports so other programs read the colours as meant"));
                             }
                             ui.end_row();
                             // CMYK: the press profile (Little CMS), its intent and black point compensation.
                             if s.mode == painter_core::color_mode::ColorMode::Cmyk {
-                                ui.label("Press");
+                                ui.label(tr("Press"));
                                 ui.vertical(|ui| {
                                     if let Some(d) = &mut s.cmyk {
                                         d.ui(ui);
@@ -254,7 +255,7 @@ impl PainterApp {
                                 });
                                 ui.end_row();
                             }
-                            ui.label("Screen");
+                            ui.label(tr("Screen"));
                             ui.horizontal(|ui| {
                                 for (label, w, h) in SCREEN_PRESETS {
                                     if ui.small_button(label).clicked() {
@@ -267,15 +268,15 @@ impl PainterApp {
                             ui.end_row();
                         });
                         ui.add_space(4.0);
-                        ui.checkbox(&mut s.print, "Print bleed and safe area").on_hover_text(
-                            "The canvas grows by the bleed on every side; trim, safe area and crop marks are drawn as guides",
+                        ui.checkbox(&mut s.print, tr("Print bleed and safe area")).on_hover_text(
+                            tr("The canvas grows by the bleed on every side; trim, safe area and crop marks are drawn as guides"),
                         );
                         ui.add_enabled_ui(s.print, |ui| {
                             egui::Grid::new("new_canvas_print").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-                                ui.label("Bleed");
+                                ui.label(tr("Bleed"));
                                 length_edit(ui, &mut s.bleed_mm, s.unit, s.dpi, 0.0..=20.0);
                                 ui.end_row();
-                                ui.label("Safe margin");
+                                ui.label(tr("Safe margin"));
                                 length_edit(ui, &mut s.safe_mm, s.unit, s.dpi, 0.0..=60.0);
                                 ui.end_row();
                             });
@@ -319,8 +320,8 @@ impl PainterApp {
                     ui.colored_label(Color32::from_rgb(240, 120, 100), "The safe margin leaves no page.");
                 }
                 ui.horizontal(|ui| {
-                    create = ui.add_enabled(fits && valid, egui::Button::new("Create")).clicked();
-                    cancel = ui.button("Cancel").clicked();
+                    create = ui.add_enabled(fits && valid, egui::Button::new(tr("Create"))).clicked();
+                    cancel = ui.button(tr("Cancel")).clicked();
                 });
             });
         if create {

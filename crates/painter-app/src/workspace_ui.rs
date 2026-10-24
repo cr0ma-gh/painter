@@ -9,6 +9,7 @@ use eframe::egui::{
     self, text::LayoutJob, Align, Align2, Color32, CursorIcon, Key, Layout, Modifiers, Rect, Sense, TextFormat, UiBuilder, Vec2,
 };
 use painter_core::fill_tool::GapPreset;
+use crate::i18n::tr;
 use ui_workspace::command_palette::{Command, CommandCategory, CommandRegistry, PaletteState};
 use ui_workspace::tabs::{Chrome, WorkspaceSet, UI_SCALE_RANGE};
 use ui_workspace::themes::{Rgba, ThemeLibrary};
@@ -236,7 +237,7 @@ fn folded_area_ui(ui: &mut egui::Ui, tree: &tiles::TileTree, id: AreaId, rect: R
         icon.paint(ui, icon_rect, size, text);
         if rect.width() > 3.0 * HEADER {
             let at = egui::pos2(icon_rect.max.x + 6.0, chevron.center().y);
-            ui.painter().text(at, egui::Align2::LEFT_CENTER, editor.title(), egui::FontId::proportional(11.0), text);
+            ui.painter().text(at, egui::Align2::LEFT_CENTER, tr(editor.title()), egui::FontId::proportional(11.0), text);
         }
     } else {
         let icon_rect = Rect::from_min_size(rect.min + Vec2::new(0.0, 2.0), Vec2::new(rect.width(), HEADER));
@@ -244,7 +245,7 @@ fn folded_area_ui(ui: &mut egui::Ui, tree: &tiles::TileTree, id: AreaId, rect: R
         let chevron = icon_rect.translate(Vec2::new(0.0, HEADER));
         crate::icons::paint_glyph(ui.painter(), chevron, size - 6.0, crate::icons::Glyph::UnfoldSide, text);
     }
-    response.on_hover_text(format!("{}: click to unfold", editor.title())).clicked().then_some(AreaAction::Fold(false))
+    response.on_hover_text(format!("{}: click to unfold", tr(editor.title()))).clicked().then_some(AreaAction::Fold(false))
 }
 
 fn to_egui(r: tiles::Rect) -> Rect {
@@ -322,7 +323,7 @@ impl PainterApp {
         let (lo, hi) = UI_SCALE_RANGE;
         let mut percent = self.ws.chrome.ui_scale * 100.0;
         // Applied when the drag ends, so the slider doesn't move under the pointer.
-        let slider = ui.add(egui::Slider::new(&mut percent, lo * 100.0..=hi * 100.0).step_by(5.0).suffix("%").text("Interface"));
+        let slider = ui.add(egui::Slider::new(&mut percent, lo * 100.0..=hi * 100.0).step_by(5.0).suffix("%").text(tr("Interface")));
         if slider.drag_stopped() || (slider.changed() && !slider.dragged()) {
             self.ws.chrome.ui_scale = percent / 100.0;
         }
@@ -333,7 +334,7 @@ impl PainterApp {
                 }
             }
         });
-        ui.small("Ctrl + and Ctrl − change it, Ctrl 0 resets it.");
+        ui.small(tr("Ctrl + and Ctrl − change it, Ctrl 0 resets it."));
     }
 
     /// Loads a theme JSON file into the library and switches to it.
@@ -400,7 +401,7 @@ impl PainterApp {
                     ui.painter().line_segment([corner, corner + Vec2::new(sx * (b - a), 0.0)], stroke);
                     ui.painter().line_segment([corner, corner + Vec2::new(0.0, sy * (b - a))], stroke);
                 }
-                response.on_hover_text("Show the panels again (Tab, F11, four-finger tap)")
+                response.on_hover_text(tr("Show the panels again (Tab, F11, four-finger tap)"))
             })
             .inner;
         if response.clicked() {
@@ -429,7 +430,7 @@ impl PainterApp {
                                 continue;
                             }
                         }
-                        let tab = ui.selectable_label(i == self.ws.set.active, &w.name);
+                        let tab = ui.selectable_label(i == self.ws.set.active, crate::i18n::tr_str(&w.name));
                         if tab.clicked() {
                             activate = Some(i);
                         }
@@ -437,7 +438,7 @@ impl PainterApp {
                             menu = Some((i, "rename"));
                         }
                         tab.context_menu(|ui| {
-                            if ui.button("Hide Workspace Bar").on_hover_text("View > Workspace Bar shows it again").clicked() {
+                            if ui.button(tr("Hide Workspace Bar")).on_hover_text(tr("View > Workspace Bar shows it again")).clicked() {
                                 menu = Some((i, "hide_bar"));
                                 ui.close_menu();
                             }
@@ -457,7 +458,7 @@ impl PainterApp {
                             }
                         });
                     }
-                    if ui.small_button("+").on_hover_text("New workspace: a copy of this one").clicked() {
+                    if ui.small_button(tr("+")).on_hover_text(tr("New workspace: a copy of this one")).clicked() {
                         let name = format!("{} copy", self.ws.set.current().name);
                         self.ws.set.duplicate(&name);
                     }
@@ -496,7 +497,7 @@ impl PainterApp {
             "rename" => self.ws.renaming = Some((i, set.workspaces[i].name.clone())),
             "hide_bar" => {
                 self.ws.chrome.workspace_tabs = false;
-                self.status = "Workspace bar hidden: View > Workspace Bar shows it again".into();
+                self.status = tr("Workspace bar hidden: View > Workspace Bar shows it again").into();
             }
             "rename_done" => {
                 if let Some((k, name)) = self.ws.renaming.take() {
@@ -514,7 +515,7 @@ impl PainterApp {
             "delete" => {
                 let last = !set.remove(i);
                 if last {
-                    self.status = "The last workspace can't be deleted".into();
+                    self.status = tr("The last workspace can't be deleted").into();
                 }
             }
             _ => {}
@@ -619,10 +620,10 @@ impl PainterApp {
         // The editor-type menu: the editor's icon, and its name when there's room.
         let type_menu = |ui: &mut egui::Ui, action: &mut Option<AreaAction>| {
             let image = crate::icons::editor_icon(editor).image(icon_size, text);
-            let title = if roomy && area.editors.len() == 1 { editor.title() } else { "" };
+            let title = if roomy && area.editors.len() == 1 { tr(editor.title()) } else { "" };
             ui.menu_image_text_button(image, egui::RichText::new(title).small(), |ui| {
                 for e in EditorType::ALL {
-                    let item = egui::Button::image_and_text(crate::icons::editor_icon(e).image(14.0, text), e.title()).selected(e == editor);
+                    let item = egui::Button::image_and_text(crate::icons::editor_icon(e).image(14.0, text), tr(e.title())).selected(e == editor);
                     if ui.add(item).clicked() {
                         *action = Some(AreaAction::SetEditor(e));
                         ui.close_menu();
@@ -630,7 +631,7 @@ impl PainterApp {
                 }
             })
             .response
-            .on_hover_text(format!("{}: change what this area shows", editor.title()));
+            .on_hover_text(format!("{}: change what this area shows", tr(editor.title())));
         };
         if area.editors.len() > 1 {
             // Stacked tabs, as Photoshop's panel groups: every tab by name when
@@ -653,14 +654,14 @@ impl PainterApp {
                     head.add_space(3.0);
                 }
                 let tab = if fits {
-                    let label = egui::RichText::new(e.title()).small().color(if shown { theme::strong() } else { theme::text_dim() });
+                    let label = egui::RichText::new(tr(e.title())).small().color(if shown { theme::strong() } else { theme::text_dim() });
                     head.add(egui::Button::new(label).selected(shown).frame(shown))
                 } else {
                     let image = crate::icons::editor_icon(*e).image(icon_size, text);
                     let label = if shown && roomy { e.title() } else { "" };
                     head.add(egui::Button::image_and_text(image, egui::RichText::new(label).small()).selected(shown).frame(shown))
                 };
-                if tab.on_hover_text(e.title()).clicked() {
+                if tab.on_hover_text(tr(e.title())).clicked() {
                     action = Some(AreaAction::ShowTab(*e));
                 }
             }
@@ -673,12 +674,12 @@ impl PainterApp {
             if can_fold && crate::icons::glyph_button(ui, crate::icons::Glyph::Fold, icon_size - 4.0, "Fold this area to its header").clicked() {
                 action = Some(AreaAction::Fold(true));
             }
-            ui.menu_button(egui::RichText::new("···").small(), |ui| {
+            ui.menu_button(egui::RichText::new(tr("···")).small(), |ui| {
                 // With tabs the header has no type menu: change the shown panel from here.
                 if area.editors.len() > 1 {
-                    ui.menu_button("Show Instead", |ui| {
+                    ui.menu_button(tr("Show Instead"), |ui| {
                         for e in EditorType::ALL {
-                            let item = egui::Button::image_and_text(crate::icons::editor_icon(e).image(14.0, text), e.title()).selected(e == editor);
+                            let item = egui::Button::image_and_text(crate::icons::editor_icon(e).image(14.0, text), tr(e.title())).selected(e == editor);
                             if ui.add(item).clicked() {
                                 action = Some(AreaAction::SetEditor(e));
                                 ui.close_menu();
@@ -686,24 +687,24 @@ impl PainterApp {
                         }
                     });
                 }
-                if ui.button("Split Right").clicked() {
+                if ui.button(tr("Split Right")).clicked() {
                     action = Some(AreaAction::Split(SplitKind::SideBySide));
                     ui.close_menu();
                 }
-                if ui.button("Split Down").clicked() {
+                if ui.button(tr("Split Down")).clicked() {
                     action = Some(AreaAction::Split(SplitKind::Stacked));
                     ui.close_menu();
                 }
-                ui.menu_button("Add Tab", |ui| {
+                ui.menu_button(tr("Add Tab"), |ui| {
                     for e in EditorType::ALL.into_iter().filter(|e| !area.editors.contains(e)) {
-                        if ui.button(e.title()).clicked() {
+                        if ui.button(tr(e.title())).clicked() {
                             action = Some(AreaAction::AddTab(e));
                             ui.close_menu();
                         }
                     }
                 });
-                let float = ui.add_enabled(editor != EditorType::Canvas, egui::Button::new("Float"));
-                if float.on_hover_text("Detach this panel into its own window").clicked() {
+                let float = ui.add_enabled(editor != EditorType::Canvas, egui::Button::new(tr("Float")));
+                if float.on_hover_text(tr("Detach this panel into its own window")).clicked() {
                     action = Some(AreaAction::Float(editor));
                     ui.close_menu();
                 }
@@ -711,23 +712,23 @@ impl PainterApp {
                     ui.separator();
                     let mut percent = area.scale * 100.0;
                     let (lo, hi) = tiles::PANEL_SCALE;
-                    let r = ui.add(egui::Slider::new(&mut percent, lo * 100.0..=hi * 100.0).step_by(5.0).suffix("%").text("Panel scale"));
+                    let r = ui.add(egui::Slider::new(&mut percent, lo * 100.0..=hi * 100.0).step_by(5.0).suffix("%").text(tr("Panel scale")));
                     if r.drag_stopped() || (r.changed() && !r.dragged()) {
                         action = Some(AreaAction::Scale(percent / 100.0));
                     }
-                    if ui.button("Panel Scale 100%").on_hover_text("Ctrl + Alt + wheel over a panel changes its scale").clicked() {
+                    if ui.button(tr("Panel Scale 100%")).on_hover_text(tr("Ctrl + Alt + wheel over a panel changes its scale")).clicked() {
                         action = Some(AreaAction::Scale(1.0));
                         ui.close_menu();
                     }
                 }
                 ui.separator();
                 let holds_canvas = area.editors.contains(&EditorType::Canvas);
-                if ui.add_enabled(area.editors.len() > 1 && editor != EditorType::Canvas, egui::Button::new("Close Tab")).clicked() {
+                if ui.add_enabled(area.editors.len() > 1 && editor != EditorType::Canvas, egui::Button::new(tr("Close Tab"))).clicked() {
                     action = Some(AreaAction::CloseTab(editor));
                     ui.close_menu();
                 }
-                let close = ui.add_enabled(many_areas && !holds_canvas, egui::Button::new("Close Area"));
-                if close.on_disabled_hover_text("The area holding the canvas stays").clicked() {
+                let close = ui.add_enabled(many_areas && !holds_canvas, egui::Button::new(tr("Close Area")));
+                if close.on_disabled_hover_text(tr("The area holding the canvas stays")).clicked() {
                     action = Some(AreaAction::Close);
                     ui.close_menu();
                 }
@@ -756,7 +757,7 @@ impl PainterApp {
         }
         if editor == EditorType::Canvas {
             if *canvas_shown {
-                content.centered_and_justified(|ui| ui.label("The canvas is shown in another area"));
+                content.centered_and_justified(|ui| ui.label(tr("The canvas is shown in another area")));
             } else {
                 *canvas_shown = true;
                 self.canvas_ui(&mut content);
@@ -782,7 +783,7 @@ impl PainterApp {
         let mut moved = Vec::new();
         for panel in &panels {
             let mut open = true;
-            let shown = egui::Window::new(egui::RichText::new(panel.editor.title()).small())
+            let shown = egui::Window::new(egui::RichText::new(tr(panel.editor.title())).small())
                 .id(egui::Id::new(("floating_panel", self.ws.set.active, panel.id)))
                 .default_pos(egui::pos2(panel.pos[0], panel.pos[1]))
                 .default_size(Vec2::new(panel.size[0], panel.size[1]))
@@ -801,7 +802,7 @@ impl PainterApp {
                             let mut percent = panel.scale * 100.0;
                             let (lo, hi) = tiles::PANEL_SCALE;
                             let r = ui.add(egui::DragValue::new(&mut percent).range(lo * 100.0..=hi * 100.0).speed(1.0).suffix("%"));
-                            if r.on_hover_text("Panel scale (Ctrl + Alt + wheel over the panel)").changed() {
+                            if r.on_hover_text(tr("Panel scale (Ctrl + Alt + wheel over the panel)")).changed() {
                                 moved.push((panel.id, None, Some(percent / 100.0)));
                             }
                         });
@@ -879,12 +880,12 @@ impl PainterApp {
                 if self.active_scene().is_some() {
                     self.scene_panel(ui);
                 } else {
-                    ui.label("The active layer isn't a 3D layer.");
-                    ui.small("3D layers render straight onto the canvas; their objects, camera and lights are edited here.");
-                    if ui.button("New 3D layer from a model...").clicked() {
+                    ui.label(tr("The active layer isn't a 3D layer."));
+                    ui.small(tr("3D layers render straight onto the canvas; their objects, camera and lights are edited here."));
+                    if ui.button(tr("New 3D layer from a model...")).clicked() {
                         self.new_scene_layer_dialog();
                     }
-                    if ui.button("New 3D layer from the perspective ruler").clicked() {
+                    if ui.button(tr("New 3D layer from the perspective ruler")).clicked() {
                         self.new_scene_layer_from_ruler();
                     }
                 }
@@ -893,11 +894,11 @@ impl PainterApp {
                 if self.comic.as_ref().is_some_and(|c| !c.panels.is_empty()) {
                     self.panels_section(ui);
                 } else {
-                    ui.label("No comic panels on this page.");
-                    if ui.button("New comic page...").clicked() {
+                    ui.label(tr("No comic panels on this page."));
+                    if ui.button(tr("New comic page...")).clicked() {
                         self.comic_wizard = Some(crate::comic_ui::ComicWizard::open());
                     }
-                    ui.small("Or draw frames with the Frame tool (U).");
+                    ui.small(tr("Or draw frames with the Frame tool (U)."));
                 }
             }
             EditorType::ColorSlider => self.color_slider_panel(ui),
@@ -914,8 +915,8 @@ impl PainterApp {
             EditorType::LayerProperties => self.layer_properties_panel(ui),
             EditorType::Session => self.session_panel(ui),
             EditorType::Timeline | EditorType::NodeGraph => {
-                ui.label(format!("{}: not available yet.", editor.title()));
-                ui.small("The area is kept in the layout; switch it to another editor from the menu at its top left.");
+                ui.label(format!("{}: not available yet.", tr(editor.title())));
+                ui.small(tr("The area is kept in the layout; switch it to another editor from the menu at its top left."));
             }
         }
     }
@@ -952,7 +953,7 @@ impl PainterApp {
                 let (pos, size) = at.map_or(([200.0, 150.0], [280.0, 360.0]), |r| ([r.min.x + 24.0, r.min.y + 24.0], [r.width().max(220.0), r.height().max(240.0)]));
                 let workspace = self.ws.set.current_mut();
                 if workspace.float(id, editor, pos, size).is_none() {
-                    self.status = "The last panel stays docked".into();
+                    self.status = tr("The last panel stays docked").into();
                 }
                 return;
             }
@@ -961,7 +962,7 @@ impl PainterApp {
         if tiles.find(EditorType::Canvas).is_none() {
             tiles.add_tab(id, EditorType::Canvas);
             tiles.set_editor(id, EditorType::Canvas);
-            self.status = "The canvas needs an area; it stays here".into();
+            self.status = tr("The canvas needs an area; it stays here").into();
         }
     }
 
@@ -1112,7 +1113,10 @@ impl PainterApp {
             ("workspace.duplicate", "New Workspace (copy of this one)", C::Workspace, "", &["custom layout"], true),
         ];
         for (id, label, cat, keys, words, enabled) in fixed {
-            let mut c = Command::new(id, label, cat).keywords(words);
+            // Shown in the interface language, found by the English words too.
+            let mut found: Vec<&str> = words.to_vec();
+            found.push(label);
+            let mut c = Command::new(id, tr(label), cat).keywords(&found);
             if !keys.is_empty() {
                 c = c.shortcut(keys);
             }
@@ -1120,7 +1124,7 @@ impl PainterApp {
             r.register(c);
         }
         for (i, tool) in Tool::COMMANDS.iter().enumerate() {
-            let mut c = Command::new(&format!("tool.{i}"), tool.name(), C::Tool).keywords(&["tool"]);
+            let mut c = Command::new(&format!("tool.{i}"), tr(tool.name()), C::Tool).keywords(&["tool", tool.name()]);
             if let Some(keys) = tool.shortcut() {
                 c = c.shortcut(keys);
             }
@@ -1329,7 +1333,7 @@ impl PainterApp {
             run = matches.get(self.ws.palette.selected).map(|m| self.ws.commands.commands()[m.index].id.clone());
         }
         let accent = theme::accent();
-        let response = egui::Window::new("Command palette")
+        let response = egui::Window::new(tr("Command palette"))
             .title_bar(false)
             .resizable(false)
             .collapsible(false)
@@ -1338,7 +1342,7 @@ impl PainterApp {
             .show(ctx, |ui| {
                 let edit = ui.add(
                     egui::TextEdit::singleline(&mut self.ws.palette.query)
-                        .hint_text("Search commands, tools, brushes, workspaces...")
+                        .hint_text(tr("Search commands, tools, brushes, workspaces..."))
                         .desired_width(f32::INFINITY),
                 );
                 edit.request_focus();
@@ -1347,7 +1351,7 @@ impl PainterApp {
                 }
                 ui.separator();
                 if matches.is_empty() {
-                    ui.weak("No command matches");
+                    ui.weak(tr("No command matches"));
                 }
                 for (k, m) in matches.iter().enumerate() {
                     let c = &self.ws.commands.commands()[m.index];
@@ -1385,7 +1389,7 @@ impl PainterApp {
                     }
                 }
                 ui.add_space(2.0);
-                ui.small("Up / Down to pick, Enter to run, Esc to close");
+                ui.small(tr("Up / Down to pick, Enter to run, Esc to close"));
             });
         let clicked_outside = response.is_some_and(|r| r.response.clicked_elsewhere());
         if escape || clicked_outside || run.is_some() {
@@ -1403,10 +1407,10 @@ impl PainterApp {
             return;
         }
         let mut open = true;
-        egui::Window::new("Theme").open(&mut open).resizable(false).collapsible(false).show(ctx, |ui| {
+        egui::Window::new(tr("Theme")).open(&mut open).resizable(false).collapsible(false).show(ctx, |ui| {
             let lib = &mut self.ws.themes;
             let mut pick = None;
-            egui::ComboBox::from_label("Theme").selected_text(&lib.current().name).show_ui(ui, |ui| {
+            egui::ComboBox::from_label(tr("Theme")).selected_text(&lib.current().name).show_ui(ui, |ui| {
                 for (i, t) in lib.themes.iter().enumerate() {
                     if ui.selectable_label(i == lib.active, &t.name).clicked() {
                         pick = Some(i);
@@ -1421,7 +1425,7 @@ impl PainterApp {
                 let mut name = lib.current().name.clone();
                 if ui
                     .horizontal(|ui| {
-                        ui.label("Name");
+                        ui.label(tr("Name"));
                         ui.text_edit_singleline(&mut name).changed()
                     })
                     .inner
@@ -1429,7 +1433,7 @@ impl PainterApp {
                     lib.edit().name = name;
                 }
             } else {
-                ui.small("Editing a built-in theme makes a copy of it.");
+                ui.small(tr("Editing a built-in theme makes a copy of it."));
             }
             ui.separator();
             let mut colors = lib.current().colors;
@@ -1451,10 +1455,10 @@ impl PainterApp {
                 *lib.edit().colors.fields_mut()[k].1 = value;
             }
             let (mut size, mut rounding) = (lib.current().font_size, lib.current().rounding as f32);
-            if ui.add(egui::Slider::new(&mut size, 10.0..=18.0).step_by(0.5).text("Text size")).changed() {
+            if ui.add(egui::Slider::new(&mut size, 10.0..=18.0).step_by(0.5).text(tr("Text size"))).changed() {
                 lib.edit().font_size = size;
             }
-            if ui.add(egui::Slider::new(&mut rounding, 0.0..=8.0).step_by(1.0).text("Rounding")).changed() {
+            if ui.add(egui::Slider::new(&mut rounding, 0.0..=8.0).step_by(1.0).text(tr("Rounding"))).changed() {
                 lib.edit().rounding = rounding as u8;
             }
             let warnings = lib.current().contrast_warnings();
@@ -1469,9 +1473,9 @@ impl PainterApp {
             let mut export = false;
             let mut delete = false;
             ui.horizontal(|ui| {
-                import = ui.button("Import...").on_hover_text("A theme JSON file; missing colours come from its base").clicked();
-                export = ui.button("Export...").clicked();
-                delete = ui.add_enabled(custom, egui::Button::new("Delete")).clicked();
+                import = ui.button(tr("Import...")).on_hover_text(tr("A theme JSON file; missing colours come from its base")).clicked();
+                export = ui.button(tr("Export...")).clicked();
+                delete = ui.add_enabled(custom, egui::Button::new(tr("Delete"))).clicked();
             });
             if import {
                 if let Some(path) =

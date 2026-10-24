@@ -12,6 +12,7 @@
 //! size and turn it, and each tail has handles for its base, bend and tip.
 
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Sense, Shape, Stroke, Vec2};
+use crate::i18n::tr;
 use painter_core::text::{self, Antialias, Balloon, BalloonShape, Tail, TextAlign, TextItem};
 use painter_core::{Layer, LayerId, LayerKind};
 use painter_render::Plane;
@@ -396,7 +397,7 @@ impl PainterApp {
                 }
                 None => {
                     self.finish_text();
-                    self.status = "Drag from inside a balloon to draw its tail".into();
+                    self.status = tr("Drag from inside a balloon to draw its tail").into();
                 }
             }
             return;
@@ -541,7 +542,7 @@ impl PainterApp {
                 let n = pen.len();
                 let area = (0..n).map(|i| pen[i].x * pen[(i + 1) % n].y - pen[(i + 1) % n].x * pen[i].y).sum::<f32>().abs() / 2.0;
                 if n < 6 || r.width() < 12.0 / zoom || r.height() < 12.0 / zoom || area < r.area() * 0.15 {
-                    self.status = "Draw the balloon's outline round the words".into();
+                    self.status = tr("Draw the balloon's outline round the words").into();
                     return;
                 }
                 let (c, half) = (r.center(), r.size() / 2.0);
@@ -657,7 +658,7 @@ impl PainterApp {
         let fonts = self.font_list();
         let ink = self.main_rgb8();
         let tail_width = self.text.presets[BalloonTool::ALL.iter().position(|t| *t == BalloonTool::Tail).unwrap_or(0)].tail_width;
-        egui::Window::new("Text")
+        egui::Window::new(tr("Text"))
             .id(egui::Id::new("text_editor"))
             .open(&mut open)
             .resizable(true)
@@ -667,7 +668,7 @@ impl PainterApp {
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().max_height(ui.ctx().screen_rect().height() * 0.7).show(ui, |ui| {
                     let r = ui.add(
-                        egui::TextEdit::multiline(&mut item.text).desired_rows(3).desired_width(f32::INFINITY).hint_text("Type here"),
+                        egui::TextEdit::multiline(&mut item.text).desired_rows(3).desired_width(f32::INFINITY).hint_text(tr("Type here")),
                     );
                     if self.text.drag.is_none() && !r.has_focus() && before.text.is_empty() {
                         r.request_focus();
@@ -679,8 +680,8 @@ impl PainterApp {
                 });
                 ui.separator();
                 ui.horizontal(|ui| {
-                    done = ui.button("Done").clicked();
-                    delete = ui.button("Delete").clicked();
+                    done = ui.button(tr("Done")).clicked();
+                    delete = ui.button(tr("Delete")).clicked();
                 });
             });
         if delete {
@@ -740,7 +741,7 @@ impl PainterApp {
         match kind {
             TextKind::Text => show(ui),
             TextKind::Balloon => {
-                egui::CollapsingHeader::new("Text").id_salt("balloon_text_settings").show(ui, show);
+                egui::CollapsingHeader::new(tr("Text")).id_salt("balloon_text_settings").show(ui, show);
             }
         }
         self.text.template = template;
@@ -750,7 +751,7 @@ impl PainterApp {
             _ if self.text.balloon_tool == BalloonTool::Pen => "Draw the balloon's outline round the words, then write in it.",
             TextKind::Balloon => "Drag a balloon (or click), then write in it. Handles size and turn it.",
         });
-        ui.small("New texts take the main colour.");
+        ui.small(tr("New texts take the main colour."));
     }
 
     /// The sub tool list, as Clip Studio's: a little drawing of each and its name.
@@ -793,28 +794,28 @@ impl PainterApp {
         let mut new_layer = self.text.new_layer;
         let p = self.text.preset_mut();
         if tool.is_tail() {
-            ui.add(egui::Slider::new(&mut p.tail_width, 5.0..=150.0).text("Width").suffix(" %"))
-                .on_hover_text("At the base, as a share of the balloon's shorter half side");
-            ui.small("Tails take the balloon's colours.");
+            ui.add(egui::Slider::new(&mut p.tail_width, 5.0..=150.0).text(tr("Width")).suffix(" %"))
+                .on_hover_text(tr("At the base, as a share of the balloon's shorter half side"));
+            ui.small(tr("Tails take the balloon's colours."));
             return;
         }
         egui::Grid::new("balloon_preset").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-            ui.label("Line color");
+            ui.label(tr("Line color"));
             ink_row(ui, "line", &mut p.line, main, sub, |ui| {
                 ui.color_edit_button_srgb(&mut p.balloon.line);
             });
             ui.end_row();
-            ui.label("Fill color");
+            ui.label(tr("Fill color"));
             ink_row(ui, "fill", &mut p.fill, main, sub, |ui| {
                 ui.color_edit_button_srgba_unmultiplied(&mut p.balloon.fill);
             });
             ui.end_row();
-            ui.label("How to add");
+            ui.label(tr("How to add"));
             egui::ComboBox::from_id_salt("balloon_add")
                 .selected_text(if new_layer { "Add to new layer" } else { "Add to selected layer" })
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut new_layer, true, "Add to new layer");
-                    ui.selectable_value(&mut new_layer, false, "Add to selected layer");
+                    ui.selectable_value(&mut new_layer, true, tr("Add to new layer"));
+                    ui.selectable_value(&mut new_layer, false, tr("Add to selected layer"));
                 });
             ui.end_row();
             balloon_look_ui(ui, &mut p.balloon, tool != BalloonTool::Pen);
@@ -837,7 +838,7 @@ fn ink_row(ui: &mut egui::Ui, salt: &str, ink: &mut Ink, main: [u8; 3], sub: [u8
                     *ink = which;
                 }
             }
-            let r = ui.add(egui::Button::new("Own").selected(*ink == Ink::Custom)).on_hover_text("A colour of its own");
+            let r = ui.add(egui::Button::new(tr("Own")).selected(*ink == Ink::Custom)).on_hover_text(tr("A colour of its own"));
             if r.clicked() {
                 *ink = Ink::Custom;
             }
@@ -851,49 +852,49 @@ fn ink_row(ui: &mut egui::Ui, salt: &str, ink: &mut Ink, main: [u8; 3], sub: [u8
 /// Figure, corners, sides, line width, anti-aliasing and brush shape (grid rows).
 fn balloon_look_ui(ui: &mut egui::Ui, b: &mut Balloon, figure: bool) {
     if figure {
-        ui.label("Figure");
+        ui.label(tr("Figure"));
         ui.horizontal_wrapped(|ui| {
             for s in BalloonShape::ALL {
-                ui.selectable_value(&mut b.shape, s, s.name());
+                ui.selectable_value(&mut b.shape, s, tr(s.name()));
             }
         });
         ui.end_row();
     }
     match b.shape {
         BalloonShape::Rectangle => {
-            ui.label("Roundness of corner");
+            ui.label(tr("Roundness of corner"));
             ui.add(egui::Slider::new(&mut b.corner, 0.0..=100.0));
             ui.end_row();
         }
         BalloonShape::Polygon => {
-            ui.label("Sides");
+            ui.label(tr("Sides"));
             ui.add(egui::Slider::new(&mut b.sides, 3..=16));
             ui.end_row();
         }
         _ => {}
     }
-    ui.label("Brush size");
+    ui.label(tr("Brush size"));
     ui.add(egui::Slider::new(&mut b.width, 0.0..=60.0).suffix(" px"));
     ui.end_row();
-    ui.label("Anti-aliasing");
+    ui.label(tr("Anti-aliasing"));
     ui.horizontal(|ui| {
         for a in Antialias::ALL {
-            ui.selectable_value(&mut b.antialias, a, a.name());
+            ui.selectable_value(&mut b.antialias, a, tr(a.name()));
         }
     });
     ui.end_row();
-    ui.label("Brush shape");
+    ui.label(tr("Brush shape"));
     ui.horizontal(|ui| {
         let mut rough = b.rough > 0.0;
         egui::ComboBox::from_id_salt("balloon_brush").selected_text(if rough { "Rough" } else { "Smooth" }).show_ui(ui, |ui| {
-            ui.selectable_value(&mut rough, false, "Smooth");
-            ui.selectable_value(&mut rough, true, "Rough");
+            ui.selectable_value(&mut rough, false, tr("Smooth"));
+            ui.selectable_value(&mut rough, true, tr("Rough"));
         });
         if rough != (b.rough > 0.0) {
             b.rough = if rough { 60.0 } else { 0.0 };
         }
         if rough {
-            ui.add(egui::Slider::new(&mut b.rough, 1.0..=100.0).show_value(false)).on_hover_text("How rough");
+            ui.add(egui::Slider::new(&mut b.rough, 1.0..=100.0).show_value(false)).on_hover_text(tr("How rough"));
         }
     });
     ui.end_row();
@@ -941,12 +942,12 @@ fn text_props_ui(ui: &mut egui::Ui, item: &mut TextItem, fonts: &[String], filte
     let shown = if item.font.is_empty() { "Built-in".to_string() } else { item.font.clone() };
     let missing = !text::has_font(&item.font);
     ui.horizontal(|ui| {
-        ui.label("Font");
+        ui.label(tr("Font"));
         egui::ComboBox::from_id_salt("text_font")
             .selected_text(if missing { format!("{shown} (missing)") } else { shown })
             .width(200.0)
             .show_ui(ui, |ui| {
-                ui.add(egui::TextEdit::singleline(filter).hint_text("Search fonts"));
+                ui.add(egui::TextEdit::singleline(filter).hint_text(tr("Search fonts")));
                 egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
                     ui.selectable_value(&mut item.font, String::new(), "Built-in");
                     let f = filter.to_lowercase();
@@ -957,25 +958,25 @@ fn text_props_ui(ui: &mut egui::Ui, item: &mut TextItem, fonts: &[String], filte
             });
     });
     if fonts.is_empty() {
-        ui.small("Looking for the fonts on this computer…");
+        ui.small(tr("Looking for the fonts on this computer…"));
     }
     ui.horizontal(|ui| {
         ui.add(egui::DragValue::new(&mut item.size).range(4.0..=2000.0).speed(0.5).max_decimals(1).suffix(" px"));
         ui.color_edit_button_srgb(&mut item.color);
-        if ui.small_button("Main colour").clicked() {
+        if ui.small_button(tr("Main colour")).clicked() {
             item.color = ink;
         }
     });
     ui.horizontal(|ui| {
-        ui.selectable_value(&mut item.align, TextAlign::Left, "Left");
-        ui.selectable_value(&mut item.align, TextAlign::Center, "Centre");
-        ui.selectable_value(&mut item.align, TextAlign::Right, "Right");
-        ui.checkbox(&mut item.vertical, "Vertical");
+        ui.selectable_value(&mut item.align, TextAlign::Left, tr("Left"));
+        ui.selectable_value(&mut item.align, TextAlign::Center, tr("Centre"));
+        ui.selectable_value(&mut item.align, TextAlign::Right, tr("Right"));
+        ui.checkbox(&mut item.vertical, tr("Vertical"));
     });
-    ui.add(egui::Slider::new(&mut item.line_spacing, 0.6..=3.0).text("Line spacing"));
-    ui.add(egui::Slider::new(&mut item.tracking, -20.0..=80.0).text("Letter spacing").suffix(" px"));
+    ui.add(egui::Slider::new(&mut item.line_spacing, 0.6..=3.0).text(tr("Line spacing")));
+    ui.add(egui::Slider::new(&mut item.tracking, -20.0..=80.0).text(tr("Letter spacing")).suffix(" px"));
     ui.horizontal(|ui| {
-        ui.add(egui::Slider::new(&mut item.outline, 0.0..=30.0).text("Outline").suffix(" px"));
+        ui.add(egui::Slider::new(&mut item.outline, 0.0..=30.0).text(tr("Outline")).suffix(" px"));
         ui.color_edit_button_srgb(&mut item.outline_color);
     });
 }
@@ -983,7 +984,7 @@ fn text_props_ui(ui: &mut egui::Ui, item: &mut TextItem, fonts: &[String], filte
 /// The edited text's balloon: its look, size, turn and tails.
 fn balloon_edit_ui(ui: &mut egui::Ui, item: &mut TextItem, tail_width: f32) {
     let mut has_balloon = item.balloon.is_some();
-    if ui.checkbox(&mut has_balloon, "Balloon").changed() {
+    if ui.checkbox(&mut has_balloon, tr("Balloon")).changed() {
         item.balloon = has_balloon.then(|| {
             let b = text::bounds(&TextItem { balloon: None, ..item.clone() });
             let r = [((b[2] - b[0]) * 0.75).max(item.size * 2.0), ((b[3] - b[1]) * 0.85).max(item.size * 1.4)];
@@ -995,41 +996,41 @@ fn balloon_edit_ui(ui: &mut egui::Ui, item: &mut TextItem, tail_width: f32) {
     let centre = item.pos;
     let Some(b) = &mut item.balloon else { return };
     egui::Grid::new("balloon_edit").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-        ui.label("Line color");
+        ui.label(tr("Line color"));
         ui.color_edit_button_srgb(&mut b.line);
         ui.end_row();
-        ui.label("Fill color");
+        ui.label(tr("Fill color"));
         ui.color_edit_button_srgba_unmultiplied(&mut b.fill);
         ui.end_row();
         balloon_look_ui(ui, b, b.shape != BalloonShape::Free);
-        ui.label("Width");
+        ui.label(tr("Width"));
         ui.add(egui::Slider::new(&mut b.radii[0], 10.0..=3000.0).logarithmic(true).suffix(" px"));
         ui.end_row();
-        ui.label("Height");
+        ui.label(tr("Height"));
         ui.add(egui::Slider::new(&mut b.radii[1], 10.0..=3000.0).logarithmic(true).suffix(" px"));
         ui.end_row();
-        ui.label("Rotation");
+        ui.label(tr("Rotation"));
         let mut deg = b.rotation.to_degrees();
         if ui.add(egui::Slider::new(&mut deg, -180.0..=180.0).suffix("°").max_decimals(1)).changed() {
             b.rotation = deg.to_radians();
         }
         ui.end_row();
     });
-    if ui.button("Fit to Text").on_hover_text("Size the balloon round the words").clicked() {
+    if ui.button(tr("Fit to Text")).on_hover_text(tr("Size the balloon round the words")).clicked() {
         let t = words;
         b.radii = [((t[2] - t[0]) * 0.72).max(20.0), ((t[3] - t[1]) * 0.8).max(15.0)];
     }
-    ui.label("Tails");
+    ui.label(tr("Tails"));
     let mut remove = None;
     for (i, tail) in b.tails.iter_mut().enumerate() {
         ui.push_id(i, |ui| {
             ui.horizontal(|ui| {
                 ui.add(egui::DragValue::new(&mut tail.width).range(1.0..=2000.0).speed(0.5).max_decimals(0).suffix(" px"));
-                ui.checkbox(&mut tail.thought, "Thought");
-                if tail.bend.is_some() && ui.small_button("Straighten").clicked() {
+                ui.checkbox(&mut tail.thought, tr("Thought"));
+                if tail.bend.is_some() && ui.small_button(tr("Straighten")).clicked() {
                     tail.bend = None;
                 }
-                if ui.small_button("Remove").clicked() {
+                if ui.small_button(tr("Remove")).clicked() {
                     remove = Some(i);
                 }
             });
@@ -1038,7 +1039,7 @@ fn balloon_edit_ui(ui: &mut egui::Ui, item: &mut TextItem, tail_width: f32) {
     if let Some(i) = remove {
         b.tails.remove(i);
     }
-    if ui.button("Add Tail").on_hover_text("Or drag one out of the balloon with the Balloon tail tool").clicked() {
+    if ui.button(tr("Add Tail")).on_hover_text(tr("Or drag one out of the balloon with the Balloon tail tool")).clicked() {
         let width = b.tail_width(tail_width);
         let r = b.radii;
         b.tails.push(Tail {

@@ -4,6 +4,7 @@
 //! onto the canvas; dropping it back on the strip removes it.
 
 use eframe::egui::{self, Align2, FontId, Pos2, Rect, Sense, Stroke, Vec2};
+use crate::i18n::tr;
 use painter_core::rulers::{Ruler, RulerKind, RulerScope};
 
 use crate::app::PainterApp;
@@ -122,7 +123,7 @@ impl PainterApp {
         // The corner switches units.
         let corner = ui.interact(corner_rect, ui.id().with("ruler_bar_corner"), Sense::click());
         painter.text(corner_rect.center(), Align2::CENTER_CENTER, if mm { "mm" } else { "px" }, FontId::proportional(8.0), dim);
-        if corner.on_hover_text("Ruler bar units: click to switch pixels / millimetres").clicked() {
+        if corner.on_hover_text(tr("Ruler bar units: click to switch pixels / millimetres")).clicked() {
             self.ws.chrome.ruler_bar_mm = !mm;
         }
         // Pulling guides out.
@@ -154,7 +155,7 @@ impl PainterApp {
                     if back && pull.ruler < self.doc.rulers.rulers.len() {
                         self.doc.rulers.rulers.remove(pull.ruler);
                     } else {
-                        self.status = "Guide added: move it with the Ruler tool, or drag it back onto the ruler bar".into();
+                        self.status = tr("Guide added: move it with the Ruler tool, or drag it back onto the ruler bar").into();
                     }
                 }
             }

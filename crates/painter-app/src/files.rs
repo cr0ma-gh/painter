@@ -8,6 +8,8 @@
 //! Files app), and [`offer_export`] lets the user put a copy anywhere.
 
 use std::path::{Path, PathBuf};
+#[cfg_attr(desktop, allow(unused_imports))]
+use crate::i18n::tr;
 use std::sync::Mutex;
 
 /// What a file is being opened for, so a file picked later lands in the
@@ -492,7 +494,7 @@ mod android {
         let mut done = None;
         let mut go = None;
         let row = egui::vec2(0.0, 40.0);
-        egui::Window::new("Open").collapsible(false).resizable(true).default_width(460.0).show(ctx, |ui| {
+        egui::Window::new(tr("Open")).collapsible(false).resizable(true).default_width(460.0).show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
                 for (name, path) in &places {
                     if ui.selectable_label(dir.starts_with(path) && *name != "Device" || dir == *path, *name).clicked() {
@@ -502,8 +504,8 @@ mod android {
             });
             if !access {
                 ui.horizontal_wrapped(|ui| {
-                    ui.small("To open files from Download, Documents or your photos, allow Painter to see the device's files.");
-                    if ui.button("Allow access…").clicked() {
+                    ui.small(tr("To open files from Download, Documents or your photos, allow Painter to see the device's files."));
+                    if ui.button(tr("Allow access…")).clicked() {
                         crate::android::request_storage_access();
                     }
                 });
@@ -511,7 +513,7 @@ mod android {
             ui.separator();
             ui.horizontal(|ui| {
                 let up = dir.parent().filter(|p| p.starts_with("/storage") || p.starts_with("/sdcard")).map(Path::to_path_buf);
-                if ui.add_enabled(up.is_some(), egui::Button::new("⬆ Up")).clicked() {
+                if ui.add_enabled(up.is_some(), egui::Button::new(tr("⬆ Up"))).clicked() {
                     go = up;
                 }
                 ui.label(egui::RichText::new(dir.display().to_string()).small());
@@ -525,7 +527,7 @@ mod android {
                     }
                 }
                 if dirs.is_empty() && files.is_empty() {
-                    ui.label("Nothing here that this can open.");
+                    ui.label(tr("Nothing here that this can open."));
                 }
                 for f in &files {
                     let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -545,10 +547,10 @@ mod android {
             });
             ui.separator();
             ui.horizontal(|ui| {
-                if picker.multiple && ui.add_enabled(!picker.chosen.is_empty(), egui::Button::new("Open")).clicked() {
+                if picker.multiple && ui.add_enabled(!picker.chosen.is_empty(), egui::Button::new(tr("Open"))).clicked() {
                     done = Some(picker.chosen.clone());
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("Cancel")).clicked() {
                     done = Some(Vec::new());
                 }
             });

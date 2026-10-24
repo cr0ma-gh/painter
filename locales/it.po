@@ -1,0 +1,4608 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Painter\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: it\n"
+"X-Language-Name: Italiano\n"
+
+#: crates/painter-app/src/actions.rs:86
+msgid "Stop recording before playing this action"
+msgstr "Ferma la registrazione prima di riprodurre questa azione"
+
+#: crates/painter-app/src/actions.rs:112
+msgid "■ Stop"
+msgstr "■ Ferma"
+
+#: crates/painter-app/src/actions.rs:112
+msgid "● Record"
+msgstr "● Registra"
+
+#: crates/painter-app/src/actions.rs:115
+msgid "Record the commands you run into the selected action"
+msgstr "Registra nell'azione selezionata i comandi che esegui"
+
+#: crates/painter-app/src/actions.rs:120
+msgid "▶ Play"
+msgstr "▶ Riproduci"
+
+#: crates/painter-app/src/actions.rs:125 crates/painter-app/src/texture_paint.rs:127 crates/painter-core/src/selection.rs:22
+msgid "New"
+msgstr "Nuova"
+
+#: crates/painter-app/src/actions.rs:125
+msgid "A new action, recording straight away"
+msgstr "Una nuova azione, che inizia subito a registrare"
+
+#: crates/painter-app/src/actions.rs:134 crates/painter-app/src/channels_ui.rs:303 crates/painter-app/src/color_panels.rs:436
+msgid "Delete"
+msgstr "Elimina"
+
+#: crates/painter-app/src/actions.rs:152
+msgid "No actions yet. Press New, run the commands to repeat, then Stop."
+msgstr "Ancora nessuna azione. Premi Nuova, esegui i comandi da ripetere, poi Ferma."
+
+#: crates/painter-app/src/actions.rs:182
+msgid "Play"
+msgstr "Riproduci"
+
+#: crates/painter-app/src/actions.rs:202
+msgid "No steps yet: press Record"
+msgstr "Ancora nessun passo: premi Registra"
+
+#: crates/painter-app/src/adjust_ui.rs:45 crates/painter-app/src/panels.rs:916 crates/painter-app/src/settings_reset.rs:104
+msgid "Reset"
+msgstr "Ripristina"
+
+#: crates/painter-app/src/adjust_ui.rs:64 crates/painter-core/src/adjust.rs:125
+msgid "Levels"
+msgstr "Livelli"
+
+#: crates/painter-app/src/adjust_ui.rs:68
+msgid "Inverts the colours below."
+msgstr "Inverte i colori sottostanti."
+
+#: crates/painter-app/src/adjust_ui.rs:72
+msgid "Shadows"
+msgstr "Ombre"
+
+#: crates/painter-app/src/adjust_ui.rs:74
+msgid "Highlights"
+msgstr "Luci"
+
+#: crates/painter-app/src/adjust_ui.rs:76
+msgid "Swap"
+msgstr "Scambia"
+
+#: crates/painter-app/src/adjust_ui.rs:83
+msgid "Changes the colours of the layers below. Clip it to a layer to correct only that one; paint its mask to limit it."
+msgstr "Cambia i colori dei livelli sottostanti. Ritaglialo su un livello per correggere solo quello; dipingi la sua maschera per limitarlo."
+
+#: crates/painter-app/src/adjust_ui.rs:203 crates/painter-core/src/effects.rs:39
+msgid "Monochrome"
+msgstr "Monocromatico"
+
+#: crates/painter-app/src/adjust_ui.rs:204
+msgid "New pattern"
+msgstr "Nuovo motivo"
+
+#: crates/painter-app/src/adjust_ui.rs:211 crates/painter-app/src/dialogs.rs:653
+msgid "Preview"
+msgstr "Anteprima"
+
+#: crates/painter-app/src/adjust_ui.rs:214
+msgid "computing..."
+msgstr "calcolo in corso..."
+
+#: crates/painter-app/src/adjust_ui.rs:217
+msgid "Applies to the edited layer, inside the selection if there is one."
+msgstr "Si applica al livello in modifica, dentro la selezione se c'è."
+
+#: crates/painter-app/src/adjust_ui.rs:219 crates/painter-app/src/chip_picker.rs:69 crates/painter-app/src/cmyk_ui.rs:215
+msgid "OK"
+msgstr "OK"
+
+#: crates/painter-app/src/adjust_ui.rs:220 crates/painter-app/src/cmyk_ui.rs:216 crates/painter-app/src/color_mode_ui.rs:259
+msgid "Cancel"
+msgstr "Annulla"
+
+#: crates/painter-app/src/advanced_tool.rs:49 crates/painter-app/src/panels.rs:938 crates/ui-workspace/src/tiles.rs:88
+msgid "Brush Size"
+msgstr "Dimensione pennello"
+
+#: crates/painter-app/src/advanced_tool.rs:50 crates/painter-app/src/panels.rs:1533
+msgid "Ink"
+msgstr "Inchiostro"
+
+#: crates/painter-app/src/advanced_tool.rs:51
+msgid "Color Jitter"
+msgstr "Variazione colore"
+
+#: crates/painter-app/src/advanced_tool.rs:52 crates/painter-app/src/panels.rs:966 crates/painter-app/src/text_tool.rs:879
+msgid "Anti-aliasing"
+msgstr "Anti-aliasing"
+
+#: crates/painter-app/src/advanced_tool.rs:53
+msgid "Brush Tip"
+msgstr "Punta del pennello"
+
+#: crates/painter-app/src/advanced_tool.rs:54
+msgid "Spraying Effect"
+msgstr "Effetto spray"
+
+#: crates/painter-app/src/advanced_tool.rs:55
+msgid "Stroke"
+msgstr "Tratto"
+
+#: crates/painter-app/src/advanced_tool.rs:56
+msgid "Texture"
+msgstr "Texture"
+
+#: crates/painter-app/src/advanced_tool.rs:57
+msgid "2-Brush Shape"
+msgstr "Forma a 2 pennelli"
+
+#: crates/painter-app/src/advanced_tool.rs:58 crates/painter-app/src/search_layer.rs:50
+msgid "Correction"
+msgstr "Correzione"
+
+#: crates/painter-app/src/advanced_tool.rs:59
+msgid "Starting and Ending"
+msgstr "Inizio e fine"
+
+#: crates/painter-app/src/advanced_tool.rs:60 crates/painter-app/src/panels.rs:137
+msgid "Export"
+msgstr "Esporta"
+
+#: crates/painter-app/src/advanced_tool.rs:112
+msgid "Advanced Tool Settings"
+msgstr "Impostazioni avanzate strumento"
+
+#: crates/painter-app/src/advanced_tool.rs:165 crates/painter-app/src/text_tool.rs:876
+msgid "Brush size"
+msgstr "Dimensione pennello"
+
+#: crates/painter-app/src/advanced_tool.rs:165 crates/painter-app/src/advanced_tool.rs:347 crates/painter-app/src/dialogs.rs:542
+msgid " px"
+msgstr " px"
+
+#: crates/painter-app/src/advanced_tool.rs:166
+msgid "Pen pressure"
+msgstr "Pressione della penna"
+
+#: crates/painter-app/src/advanced_tool.rs:168
+msgid "Minimum"
+msgstr "Minimo"
+
+#: crates/painter-app/src/advanced_tool.rs:175 crates/painter-app/src/color_mode_ui.rs:557 crates/painter-app/src/dialogs.rs:637
+msgid "Mode"
+msgstr "Modalità"
+
+#: crates/painter-app/src/advanced_tool.rs:176
+msgid "Paint"
+msgstr "Dipingi"
+
+#: crates/painter-app/src/advanced_tool.rs:177
+msgid "Erase"
+msgstr "Cancella"
+
+#: crates/painter-app/src/advanced_tool.rs:179 crates/painter-app/src/dialogs.rs:535 crates/painter-app/src/document_manager/split_viewport.rs:1324
+msgid "Opacity"
+msgstr "Opacità"
+
+#: crates/painter-app/src/advanced_tool.rs:180
+msgid "Density (flow)"
+msgstr "Densità (flusso)"
+
+#: crates/painter-app/src/advanced_tool.rs:181
+msgid "Density from pen pressure"
+msgstr "Densità dalla pressione della penna"
+
+#: crates/painter-app/src/advanced_tool.rs:193
+msgid "One variation per stroke."
+msgstr "Una variazione per tratto."
+
+#: crates/painter-app/src/advanced_tool.rs:201 crates/painter-app/src/panels.rs:963
+msgid "Hardness"
+msgstr "Durezza"
+
+#: crates/painter-app/src/advanced_tool.rs:206 crates/painter-app/src/advanced_tool.rs:281 crates/painter-app/src/advanced_tool.rs:309
+msgid "Load image..."
+msgstr "Carica immagine..."
+
+#: crates/painter-app/src/advanced_tool.rs:206
+msgid "A PNG: transparency (or dark pixels) is the ink"
+msgstr "Un PNG: la trasparenza (o i pixel scuri) è l'inchiostro"
+
+#: crates/painter-app/src/advanced_tool.rs:217
+msgid "Round"
+msgstr "Rotonda"
+
+#: crates/painter-app/src/advanced_tool.rs:223
+msgid "Thickness"
+msgstr "Spessore"
+
+#: crates/painter-app/src/advanced_tool.rs:227 crates/painter-app/src/color_mode_ui.rs:254 crates/painter-app/src/layer_props.rs:213
+msgid "Angle"
+msgstr "Angolo"
+
+#: crates/painter-app/src/advanced_tool.rs:232 crates/painter-app/src/panels.rs:1067 crates/painter-app/src/text_tool.rs:1012
+msgid "Rotation"
+msgstr "Rotazione"
+
+#: crates/painter-app/src/advanced_tool.rs:234
+msgid "Follows the stroke direction"
+msgstr "Segue la direzione del tratto"
+
+#: crates/painter-app/src/advanced_tool.rs:235 crates/painter-app/src/panels.rs:1015
+msgid "Follows the pen's lean"
+msgstr "Segue l'inclinazione della penna"
+
+#: crates/painter-app/src/advanced_tool.rs:236 crates/painter-app/src/panels.rs:1016
+msgid "Turns the tip towards where the pen leans (tablets with tilt, Apple Pencil)"
+msgstr "Gira la punta verso dove si inclina la penna (tavolette con inclinazione, Apple Pencil)"
+
+#: crates/painter-app/src/advanced_tool.rs:238 crates/painter-app/src/panels.rs:1018
+msgid "Random flip"
+msgstr "Ribaltamento casuale"
+
+#: crates/painter-app/src/advanced_tool.rs:239 crates/painter-app/src/dialogs.rs:768 crates/painter-app/src/panels.rs:1019
+msgid "horizontal"
+msgstr "orizzontale"
+
+#: crates/painter-app/src/advanced_tool.rs:240 crates/painter-app/src/dialogs.rs:769 crates/painter-app/src/panels.rs:1020
+msgid "vertical"
+msgstr "verticale"
+
+#: crates/painter-app/src/advanced_tool.rs:253 crates/painter-app/src/panels.rs:1034
+msgid "As the pen leans the tip lies down along it, like a pencil's side: wider, flatter, lighter."
+msgstr "Quando la penna si inclina la punta si adagia, come il lato di una matita: più larga, più piatta, più leggera."
+
+#: crates/painter-app/src/advanced_tool.rs:258
+msgid "Spray"
+msgstr "Spray"
+
+#: crates/painter-app/src/advanced_tool.rs:268
+msgid "Dabs per point"
+msgstr "Impronte per punto"
+
+#: crates/painter-app/src/advanced_tool.rs:272
+msgid "Along the stroke too"
+msgstr "Anche lungo il tratto"
+
+#: crates/painter-app/src/advanced_tool.rs:276
+msgid "Spacing (of the size)"
+msgstr "Spaziatura (della dimensione)"
+
+#: crates/painter-app/src/advanced_tool.rs:281
+msgid "A PNG; light areas hold the ink back"
+msgstr "Un PNG; le zone chiare trattengono l'inchiostro"
+
+#: crates/painter-app/src/advanced_tool.rs:294 crates/painter-app/src/advanced_tool.rs:321 crates/painter-app/src/file_types.rs:299
+msgid "Remove"
+msgstr "Rimuovi"
+
+#: crates/painter-app/src/advanced_tool.rs:301 crates/painter-app/src/dialogs.rs:945 crates/painter-app/src/print_dialog.rs:281
+msgid "Scale"
+msgstr "Scala"
+
+#: crates/painter-app/src/advanced_tool.rs:303 crates/painter-app/src/panels.rs:224 crates/painter-app/src/panels.rs:819
+msgid "Invert"
+msgstr "Inverti"
+
+#: crates/painter-app/src/advanced_tool.rs:332 crates/painter-app/src/panels.rs:998
+msgid "Stabilization"
+msgstr "Stabilizzazione"
+
+#: crates/painter-app/src/advanced_tool.rs:335 crates/painter-app/src/panels.rs:1001
+msgid "Smoothing"
+msgstr "Stabilizzazione"
+
+#: crates/painter-app/src/advanced_tool.rs:343
+msgid "Starting: grow from thin and light"
+msgstr "Inizio: cresce da sottile e chiaro"
+
+#: crates/painter-app/src/advanced_tool.rs:347 crates/painter-app/src/comic_ui.rs:684
+msgid "Length"
+msgstr "Lunghezza"
+
+#: crates/painter-app/src/advanced_tool.rs:349
+msgid "Endings need the whole stroke and aren't drawn yet."
+msgstr "Le terminazioni richiedono l'intero tratto e non sono ancora disegnate."
+
+#: crates/painter-app/src/advanced_tool.rs:352
+msgid "This brush, as:"
+msgstr "Questo pennello, come:"
+
+#: crates/painter-app/src/advanced_tool.rs:353
+msgid "Painter brush (.rustbrush)..."
+msgstr "Pennello Painter (.rustbrush)..."
+
+#: crates/painter-app/src/advanced_tool.rs:356
+msgid "Photoshop brush (.abr)..."
+msgstr "Pennello Photoshop (.abr)..."
+
+#: crates/painter-app/src/advanced_tool.rs:356
+msgid "Tip, texture, dual brush and the main dynamics"
+msgstr "Punta, texture, pennello doppio e le dinamiche principali"
+
+#: crates/painter-app/src/advanced_tool.rs:360
+msgid "Clip Studio sub tool (.sut)..."
+msgstr "Strumento secondario Clip Studio (.sut)..."
+
+#: crates/painter-app/src/advanced_tool.rs:361
+msgid "Written into a sub tool exported from Clip Studio, used as a template"
+msgstr "Scritto in uno strumento secondario esportato da Clip Studio, usato come modello"
+
+#: crates/painter-app/src/advanced_tool.rs:366
+msgid "Krita bundle (.bundle)..."
+msgstr "Pacchetto Krita (.bundle)..."
+
+#: crates/painter-app/src/advanced_tool.rs:366
+msgid "Preset with its tip; open it in Krita with Settings → Manage Resources → Import"
+msgstr "Preset con la sua punta; aprilo in Krita con Impostazioni → Gestisci risorse → Importa"
+
+#: crates/painter-app/src/advanced_tool.rs:369
+msgid "Krita preset (.kpp)..."
+msgstr "Preset Krita (.kpp)..."
+
+#: crates/painter-app/src/advanced_tool.rs:369
+msgid "One preset with its tip and texture inside (Krita 5)"
+msgstr "Un preset con punta e texture incluse (Krita 5)"
+
+#: crates/painter-app/src/advanced_tool.rs:372
+msgid "MyPaint brush (.myb)..."
+msgstr "Pennello MyPaint (.myb)..."
+
+#: crates/painter-app/src/advanced_tool.rs:375
+msgid "GIMP brush (.gbr / .vbr)..."
+msgstr "Pennello GIMP (.gbr / .vbr)..."
+
+#: crates/painter-app/src/advanced_tool.rs:375
+msgid "The tip: .gbr for a bitmap tip, .vbr for a round one"
+msgstr "La punta: .gbr per una punta bitmap, .vbr per una rotonda"
+
+#: crates/painter-app/src/advanced_tool.rs:381
+msgid "Choose another Clip Studio template..."
+msgstr "Scegli un altro modello Clip Studio..."
+
+#: crates/painter-app/src/advanced_tool.rs:386
+msgid "Clip Studio export needs one sub tool exported from Clip Studio (any brush) as a template; you'll be asked for it."
+msgstr "L'esportazione per Clip Studio richiede come modello uno strumento secondario esportato da Clip Studio (qualsiasi pennello); ti verrà chiesto."
+
+#: crates/painter-app/src/advanced_tool.rs:467
+msgid "Clip Studio export needs a sub tool exported from Clip Studio as a template"
+msgstr "L'esportazione per Clip Studio richiede come modello uno strumento secondario esportato da Clip Studio"
+
+#: crates/painter-app/src/advanced_tool.rs:493
+msgid "Curve"
+msgstr "Curva"
+
+#: crates/painter-app/src/advanced_tool.rs:501 crates/painter-app/src/panels.rs:1056
+msgid "Drag points · double-click to add · right-click to remove"
+msgstr "Trascina i punti · doppio clic per aggiungere · clic destro per rimuovere"
+
+#: crates/painter-app/src/advanced_tool.rs:517
+msgid "Krita"
+msgstr "Krita"
+
+#: crates/painter-app/src/advanced_tool.rs:518
+msgid "MyPaint"
+msgstr "MyPaint"
+
+#: crates/painter-app/src/advanced_tool.rs:519
+msgid "GIMP"
+msgstr "GIMP"
+
+#: crates/painter-app/src/app.rs:740 crates/painter-app/src/layers_ui.rs:114
+msgid "Can't delete the last layer"
+msgstr "Impossibile eliminare l'ultimo livello"
+
+#: crates/painter-app/src/app.rs:1075
+msgid "Fill works on raster layers and masks, not vector layers"
+msgstr "Il riempimento funziona su livelli raster e maschere, non su livelli vettoriali"
+
+#: crates/painter-app/src/app.rs:1115
+msgid "No reference layer: tick Reference on the ink layers in the Layers panel"
+msgstr "Nessun livello di riferimento: spunta Rif sui livelli d'inchiostro nel pannello Livelli"
+
+#: crates/painter-app/src/app.rs:1170
+msgid "Gradients paint on raster layers and masks"
+msgstr "Le sfumature si dipingono su livelli raster e maschere"
+
+#: crates/painter-app/src/app.rs:1199
+msgid "Nothing selected"
+msgstr "Nessuna selezione"
+
+#: crates/painter-app/src/app.rs:1206
+msgid "Use the vector eraser on vector layers"
+msgstr "Usa la gomma vettoriale sui livelli vettoriali"
+
+#: crates/painter-app/src/app.rs:1352
+msgid "This brush isn't one of the built-in ones: it has no default to go back to"
+msgstr "Questo pennello non è uno di quelli predefiniti: non ha un'impostazione originale a cui tornare"
+
+#: crates/painter-app/src/app.rs:1393
+msgid "The brush list is back to the default brushes"
+msgstr "L'elenco dei pennelli è tornato ai pennelli predefiniti"
+
+#: crates/painter-app/src/app.rs:1683
+msgid "Clip Studio export needs one .clip saved by Clip Studio (any, even an empty canvas) as a template"
+msgstr "L'esportazione per Clip Studio richiede come modello un .clip salvato da Clip Studio (qualsiasi, anche una tela vuota)"
+
+#: crates/painter-app/src/channels_ui.rs:161
+msgid "Save Selection: nothing is selected"
+msgstr "Salva selezione: niente è selezionato"
+
+#: crates/painter-app/src/channels_ui.rs:210
+msgid "The press profile couldn't be used: inks can't be shown"
+msgstr "Il profilo di stampa non è utilizzabile: gli inchiostri non possono essere mostrati"
+
+#: crates/painter-app/src/channels_ui.rs:220
+msgid "Show and edit every channel (Ctrl+2)"
+msgstr "Mostra e modifica tutti i canali (Ctrl+2)"
+
+#: crates/painter-app/src/channels_ui.rs:266
+msgid "Saved selections"
+msgstr "Selezioni salvate"
+
+#: crates/painter-app/src/channels_ui.rs:284
+msgid "Click: load as the selection (Shift adds, Alt subtracts). Double-click: rename"
+msgstr "Clic: carica come selezione (Maiusc aggiunge, Alt sottrae). Doppio clic: rinomina"
+
+#: crates/painter-app/src/channels_ui.rs:312
+msgid "None yet: make a selection, then Save Selection."
+msgstr "Ancora nessuna: fai una selezione, poi Salva selezione."
+
+#: crates/painter-app/src/channels_ui.rs:323
+msgid "Save Selection"
+msgstr "Salva selezione"
+
+#: crates/painter-app/src/channels_ui.rs:323
+msgid "Keep the selection as a channel, saved with the project"
+msgstr "Conserva la selezione come canale, salvato con il progetto"
+
+#: crates/painter-app/src/clock_widget.rs:203
+msgid "Hide Clock and Battery"
+msgstr "Nascondi orologio e batteria"
+
+#: crates/painter-app/src/cmyk_ui.rs:74
+msgid "No CMYK profile found on this computer."
+msgstr "Nessun profilo CMYK trovato su questo computer."
+
+#: crates/painter-app/src/cmyk_ui.rs:75
+msgid "Load one (.icc / .icm) from your printer or print shop, or from Adobe's or ECI's free downloads."
+msgstr "Caricane uno (.icc / .icm) dalla tua stampante o tipografia, o dai download gratuiti di Adobe o ECI."
+
+#: crates/painter-app/src/cmyk_ui.rs:78 crates/painter-app/src/print_ui.rs:234
+msgid "Profile"
+msgstr "Profilo"
+
+#: crates/painter-app/src/cmyk_ui.rs:85
+msgid "Load Profile..."
+msgstr "Carica profilo..."
+
+#: crates/painter-app/src/cmyk_ui.rs:85
+msgid "Copies a CMYK .icc profile into Painter's settings"
+msgstr "Copia un profilo .icc CMYK nelle impostazioni di Painter"
+
+#: crates/painter-app/src/cmyk_ui.rs:90
+msgid "Intent"
+msgstr "Intento"
+
+#: crates/painter-app/src/cmyk_ui.rs:95
+msgid "Black point compensation"
+msgstr "Compensazione punto nero"
+
+#: crates/painter-app/src/cmyk_ui.rs:205
+msgid "Convert to CMYK"
+msgstr "Converti in CMYK"
+
+#: crates/painter-app/src/cmyk_ui.rs:211
+msgid "Colours become what this press profile can print (Little CMS)."
+msgstr "I colori diventano quelli che questo profilo di stampa può stampare (Little CMS)."
+
+#: crates/painter-app/src/cmyk_ui.rs:213
+msgid "Layers stay; undo brings the colours back. PSD exports are CMYK files with the profile."
+msgstr "I livelli restano; annulla riporta i colori. Gli export PSD sono file CMYK con il profilo."
+
+#: crates/painter-app/src/cmyk_ui.rs:239
+msgid "Out of the press's gamut: it prints duller. Click to use the printable colour"
+msgstr "Fuori dalla gamma di stampa: verrà stampato più spento. Clic per usare il colore stampabile"
+
+#: crates/painter-app/src/collab_ui.rs:321
+msgid "Left the session"
+msgstr "Hai lasciato la sessione"
+
+#: crates/painter-app/src/collab_ui.rs:359
+msgid "The session ended (the host left or the connection dropped)"
+msgstr "La sessione è terminata (l'host è uscito o la connessione è caduta)"
+
+#: crates/painter-app/src/collab_ui.rs:409
+msgid "Joined the session"
+msgstr "Sei entrato nella sessione"
+
+#: crates/painter-app/src/collab_ui.rs:430
+msgid "Back in step with the host"
+msgstr "Di nuovo allineato con l'host"
+
+#: crates/painter-app/src/collab_ui.rs:694
+msgid "Your name"
+msgstr "Il tuo nome"
+
+#: crates/painter-app/src/collab_ui.rs:698
+msgid "Host this document"
+msgstr "Ospita questo documento"
+
+#: crates/painter-app/src/collab_ui.rs:700
+msgid "Port"
+msgstr "Porta"
+
+#: crates/painter-app/src/collab_ui.rs:702 crates/painter-app/src/collab_ui.rs:716
+msgid "Password"
+msgstr "Password"
+
+#: crates/painter-app/src/collab_ui.rs:703
+msgid "none"
+msgstr "nessuna"
+
+#: crates/painter-app/src/collab_ui.rs:706
+msgid "Start Hosting"
+msgstr "Avvia hosting"
+
+#: crates/painter-app/src/collab_ui.rs:706
+msgid "Others join with this computer's address and the port"
+msgstr "Gli altri si collegano con l'indirizzo di questo computer e la porta"
+
+#: crates/painter-app/src/collab_ui.rs:710
+msgid "Join a session"
+msgstr "Partecipa a una sessione"
+
+#: crates/painter-app/src/collab_ui.rs:712 crates/painter-app/src/dialogs.rs:727
+msgid "Address"
+msgstr "Indirizzo"
+
+#: crates/painter-app/src/collab_ui.rs:717
+msgid "if any"
+msgstr "se c'è"
+
+#: crates/painter-app/src/collab_ui.rs:721
+msgid "Join"
+msgstr "Partecipa"
+
+#: crates/painter-app/src/collab_ui.rs:722
+msgid "The host's document opens in a new tab"
+msgstr "Il documento dell'host si apre in un nuovo tab"
+
+#: crates/painter-app/src/collab_ui.rs:728
+msgid "On the same network the host's local address is enough; over the internet the host's port has to be reachable (forwarded on the router, or a VPN such as Tailscale)."
+msgstr "Sulla stessa rete basta l'indirizzo locale dell'host; via internet la porta dell'host deve essere raggiungibile (inoltrata sul router, o una VPN come Tailscale)."
+
+#: crates/painter-app/src/collab_ui.rs:741
+msgid "Waiting for the host's document…"
+msgstr "In attesa del documento dell'host…"
+
+#: crates/painter-app/src/collab_ui.rs:766
+msgid "Say something"
+msgstr "Scrivi qualcosa"
+
+#: crates/painter-app/src/collab_ui.rs:769
+msgid "Send"
+msgstr "Invia"
+
+#: crates/painter-app/src/collab_ui.rs:777
+msgid "Leave"
+msgstr "Esci"
+
+#: crates/painter-app/src/collab_ui.rs:779
+msgid "Resync"
+msgstr "Risincronizza"
+
+#: crates/painter-app/src/collab_ui.rs:779
+msgid "Get the host's document again, if things look out of step"
+msgstr "Ricarica il documento dell'host, se le cose sembrano disallineate"
+
+#: crates/painter-app/src/collab_ui.rs:782
+msgid "Undo takes back your own changes; others' strokes stay."
+msgstr "Annulla riprende le tue modifiche; i tratti degli altri restano."
+
+#: crates/painter-app/src/color_mode_ui.rs:89
+msgid "Grayscale: colours are grey from now on (Edit > Mode > RGB Color brings colour back)"
+msgstr "Scala di grigio: d'ora in poi i colori sono grigi (Modifica > Metodo > Colore RGB riporta il colore)"
+
+#: crates/painter-app/src/color_mode_ui.rs:95
+msgid "RGB Color: colour can be used again"
+msgstr "Colore RGB: il colore si può usare di nuovo"
+
+#: crates/painter-app/src/color_mode_ui.rs:101
+msgid "Lab Color: channels Lightness, a and b (Channels panel); colours are kept"
+msgstr "Colore Lab: canali Luminosità, a e b (pannello Canali); i colori restano"
+
+#: crates/painter-app/src/color_mode_ui.rs:110
+msgid "Multichannel: cyan, magenta and yellow spot channels (layers merged)"
+msgstr "Multicanale: canali spot ciano, magenta e giallo (livelli uniti)"
+
+#: crates/painter-app/src/color_mode_ui.rs:240 crates/painter-core/src/color_mode.rs:61
+msgid "Bitmap"
+msgstr "Bitmap"
+
+#: crates/painter-app/src/color_mode_ui.rs:246
+msgid "The image becomes one black-and-white layer."
+msgstr "L'immagine diventa un unico livello in bianco e nero."
+
+#: crates/painter-app/src/color_mode_ui.rs:248
+msgid "50% Threshold"
+msgstr "Soglia 50%"
+
+#: crates/painter-app/src/color_mode_ui.rs:249
+msgid "Diffusion Dither"
+msgstr "Dithering a diffusione"
+
+#: crates/painter-app/src/color_mode_ui.rs:250
+msgid "Halftone Screen"
+msgstr "Retino mezzetinte"
+
+#: crates/painter-app/src/color_mode_ui.rs:253
+msgid "Cell size"
+msgstr "Dimensione cella"
+
+#: crates/painter-app/src/color_mode_ui.rs:256
+msgid "Layers are merged. Undo brings them back."
+msgstr "I livelli vengono uniti. Annulla li riporta."
+
+#: crates/painter-app/src/color_mode_ui.rs:277
+msgid "Duotone Options"
+msgstr "Opzioni due tonalità"
+
+#: crates/painter-app/src/color_mode_ui.rs:284
+msgid "Preset"
+msgstr "Preset"
+
+#: crates/painter-app/src/color_mode_ui.rs:295
+msgid "Type"
+msgstr "Tipo"
+
+#: crates/painter-app/src/color_mode_ui.rs:311
+msgid "Edit the ink's curve"
+msgstr "Modifica la curva dell'inchiostro"
+
+#: crates/painter-app/src/color_mode_ui.rs:318
+msgid "Grey's darkness (across) → how much of this ink (up)"
+msgstr "Scurezza del grigio (orizzontale) → quanto di questo inchiostro (verticale)"
+
+#: crates/painter-app/src/color_mode_ui.rs:337
+msgid "The image is made grey first; layers stay."
+msgstr "L'immagine viene prima resa grigia; i livelli restano."
+
+#: crates/painter-app/src/color_mode_ui.rs:355 crates/painter-core/src/color_mode.rs:63
+msgid "Indexed Color"
+msgstr "Scala di colore"
+
+#: crates/painter-app/src/color_mode_ui.rs:363
+msgid "Palette"
+msgstr "Palette"
+
+#: crates/painter-app/src/color_mode_ui.rs:370
+msgid "Colors"
+msgstr "Colori"
+
+#: crates/painter-app/src/color_mode_ui.rs:373
+msgid "Forced"
+msgstr "Forzati"
+
+#: crates/painter-app/src/color_mode_ui.rs:381 crates/painter-core/src/brush.rs:31 crates/painter-core/src/fill_tool/gap_detection.rs:40
+msgid "None"
+msgstr "Nessuno"
+
+#: crates/painter-app/src/color_mode_ui.rs:382
+msgid "Black and White"
+msgstr "Bianco e nero"
+
+#: crates/painter-app/src/color_mode_ui.rs:383
+msgid "Primaries"
+msgstr "Primari"
+
+#: crates/painter-app/src/color_mode_ui.rs:387 crates/painter-app/src/layer_props.rs:170
+msgid "Transparency"
+msgstr "Trasparenza"
+
+#: crates/painter-app/src/color_mode_ui.rs:387
+msgid "Keep see-through pixels (else they become white)"
+msgstr "Mantieni i pixel trasparenti (altrimenti diventano bianchi)"
+
+#: crates/painter-app/src/color_mode_ui.rs:389
+msgid "Dither"
+msgstr "Dithering"
+
+#: crates/painter-app/src/color_mode_ui.rs:408
+msgid "Amount"
+msgstr "Quantità"
+
+#: crates/painter-app/src/color_mode_ui.rs:415
+msgid "Layers are merged into one. Undo brings them back."
+msgstr "I livelli vengono uniti in uno. Annulla li riporta."
+
+#: crates/painter-app/src/color_mode_ui.rs:429
+msgid "Color Table: for Indexed Color images (Edit > Mode > Indexed Color)"
+msgstr "Tavola colore: per immagini in Scala di colore (Modifica > Metodo > Scala di colore)"
+
+#: crates/painter-app/src/color_mode_ui.rs:440
+msgid "Color Table"
+msgstr "Tavola colore"
+
+#: crates/painter-app/src/color_mode_ui.rs:447
+msgid "Table"
+msgstr "Tavola"
+
+#: crates/painter-app/src/color_mode_ui.rs:466
+msgid "Load..."
+msgstr "Carica..."
+
+#: crates/painter-app/src/color_mode_ui.rs:466
+msgid "A Photoshop colour table (.act)"
+msgstr "Una tavola colore di Photoshop (.act)"
+
+#: crates/painter-app/src/color_mode_ui.rs:475
+msgid "Save..."
+msgstr "Salva..."
+
+#: crates/painter-app/src/color_mode_ui.rs:577
+msgid "8 Bits/Channel"
+msgstr "8 bit/canale"
+
+#: crates/painter-app/src/color_mode_ui.rs:580
+msgid "Not yet: Painter paints and blends at 8 bits per channel"
+msgstr "Non ancora: Painter dipinge e fonde a 8 bit per canale"
+
+#: crates/painter-app/src/color_mode_ui.rs:584 crates/painter-app/src/workspace_ui.rs:1063
+msgid "Color Table..."
+msgstr "Tavola colore..."
+
+#: crates/painter-app/src/color_mode_ui.rs:585
+msgid "For Indexed Color images"
+msgstr "Per immagini in Scala di colore"
+
+#: crates/painter-app/src/color_mode_ui.rs:593
+msgid "Assign Profile"
+msgstr "Assegna profilo"
+
+#: crates/painter-app/src/color_panels.rs:338
+msgid "CMYK without a colour profile (device values)."
+msgstr "CMYK senza profilo colore (valori del dispositivo)."
+
+#: crates/painter-app/src/color_panels.rs:366
+msgid "Colours you draw with appear here."
+msgstr "I colori che usi compaiono qui."
+
+#: crates/painter-app/src/color_panels.rs:374 crates/painter-app/src/color_panels.rs:682 crates/painter-app/src/welcome.rs:85
+msgid "Clear"
+msgstr "Svuota"
+
+#: crates/painter-app/src/color_panels.rs:397
+msgid "New Color Set"
+msgstr "Nuovo set di colori"
+
+#: crates/painter-app/src/color_panels.rs:404 crates/painter-app/src/dialogs.rs:1072 crates/painter-app/src/workspace_ui.rs:1428
+msgid "Name"
+msgstr "Nome"
+
+#: crates/painter-app/src/color_panels.rs:407
+msgid "Delete Color Set"
+msgstr "Elimina set di colori"
+
+#: crates/painter-app/src/color_panels.rs:413
+msgid "Import GIMP Palette (.gpl)..."
+msgstr "Importa palette GIMP (.gpl)..."
+
+#: crates/painter-app/src/color_panels.rs:414
+msgid "Export as GIMP Palette (.gpl)..."
+msgstr "Esporta come palette GIMP (.gpl)..."
+
+#: crates/painter-app/src/color_panels.rs:425
+msgid "Swatch"
+msgstr "Campione"
+
+#: crates/painter-app/src/color_panels.rs:432
+msgid "Replace with the current colour"
+msgstr "Sostituisci con il colore corrente"
+
+#: crates/painter-app/src/color_panels.rs:446
+msgid "+ Add current colour"
+msgstr "+ Aggiungi colore corrente"
+
+#: crates/painter-app/src/color_panels.rs:549
+msgid "Steps"
+msgstr "Passi"
+
+#: crates/painter-app/src/color_panels.rs:553
+msgid "Click a corner to set it to the current colour."
+msgstr "Clicca un angolo per impostarlo al colore corrente."
+
+#: crates/painter-app/src/color_panels.rs:562
+msgid "V"
+msgstr "V"
+
+#: crates/painter-app/src/color_panels.rs:566
+msgid "S"
+msgstr "S"
+
+#: crates/painter-app/src/color_panels.rs:640
+msgid "Click to use, right-click to remove"
+msgstr "Clic per usare, clic destro per rimuovere"
+
+#: crates/painter-app/src/color_panels.rs:648
+msgid "Keep the current colour here"
+msgstr "Tieni qui il colore corrente"
+
+#: crates/painter-app/src/color_panels.rs:667 crates/painter-app/src/panels.rs:959 crates/painter-app/src/panels.rs:1041
+msgid "Size"
+msgstr "Dimensione"
+
+#: crates/painter-app/src/color_panels.rs:670 crates/painter-app/src/history_ui.rs:21 crates/painter-app/src/panels.rs:189
+msgid "Undo"
+msgstr "Annulla"
+
+#: crates/painter-app/src/color_panels.rs:677 crates/painter-app/src/history_ui.rs:24 crates/painter-app/src/panels.rs:194
+msgid "Redo"
+msgstr "Ripeti"
+
+#: crates/painter-app/src/comic_ui.rs:259
+msgid "Drag the divide line across a panel"
+msgstr "Trascina la linea di divisione attraverso una vignetta"
+
+#: crates/painter-app/src/comic_ui.rs:268
+msgid "That line doesn't split the panel"
+msgstr "Quella linea non divide la vignetta"
+
+#: crates/painter-app/src/comic_ui.rs:276
+msgid "Panel divided"
+msgstr "Vignetta divisa"
+
+#: crates/painter-app/src/comic_ui.rs:418
+msgid "Snap to panels, frames and gutters"
+msgstr "Aggancia a vignette, cornici e margini"
+
+#: crates/painter-app/src/comic_ui.rs:420
+msgid "New panel border"
+msgstr "Nuovo bordo vignetta"
+
+#: crates/painter-app/src/comic_ui.rs:425 crates/painter-app/src/comic_ui.rs:740
+msgid "Gutters"
+msgstr "Margini"
+
+#: crates/painter-app/src/comic_ui.rs:430
+msgid "Reading"
+msgstr "Lettura"
+
+#: crates/painter-app/src/comic_ui.rs:431
+msgid "Left to right"
+msgstr "Da sinistra a destra"
+
+#: crates/painter-app/src/comic_ui.rs:432
+msgid "Right to left"
+msgstr "Da destra a sinistra"
+
+#: crates/painter-app/src/comic_ui.rs:434
+msgid "Each panel is a folder clipped to its frame: draw on the panel's art layer and nothing spills out."
+msgstr "Ogni vignetta è una cartella ritagliata sulla sua cornice: disegna sul livello disegno della vignetta e niente esce fuori."
+
+#: crates/painter-app/src/comic_ui.rs:469
+msgid "Select its art layer"
+msgstr "Seleziona il suo livello disegno"
+
+#: crates/painter-app/src/comic_ui.rs:498
+msgid "Border"
+msgstr "Bordo"
+
+#: crates/painter-app/src/comic_ui.rs:514
+msgid "Dashed"
+msgstr "Tratteggiato"
+
+#: crates/painter-app/src/comic_ui.rs:518
+msgid "Anti-aliased"
+msgstr "Antialias"
+
+#: crates/painter-app/src/comic_ui.rs:599
+msgid "New Comic Page / Storyboard"
+msgstr "Nuova pagina fumetto / storyboard"
+
+#: crates/painter-app/src/comic_ui.rs:605 crates/painter-app/src/dialogs.rs:1078
+msgid "Format"
+msgstr "Formato"
+
+#: crates/painter-app/src/comic_ui.rs:635
+msgid "Layout"
+msgstr "Disposizione"
+
+#: crates/painter-app/src/comic_ui.rs:676 crates/painter-app/src/dialogs.rs:678
+msgid "Page"
+msgstr "Pagina"
+
+#: crates/painter-app/src/comic_ui.rs:680 crates/painter-app/src/dialogs.rs:939 crates/painter-app/src/print_ui.rs:182
+msgid "Width"
+msgstr "Larghezza"
+
+#: crates/painter-app/src/comic_ui.rs:688
+msgid "Slices every"
+msgstr "Taglia ogni"
+
+#: crates/painter-app/src/comic_ui.rs:694
+msgid "Units"
+msgstr "Unità"
+
+#: crates/painter-app/src/comic_ui.rs:698 crates/painter-app/src/dialogs.rs:684 crates/painter-app/src/print_dialog.rs:251
+msgid "Paper"
+msgstr "Carta"
+
+#: crates/painter-app/src/comic_ui.rs:703 crates/painter-app/src/print_dialog.rs:266
+msgid "Orientation"
+msgstr "Orientamento"
+
+#: crates/painter-app/src/comic_ui.rs:706 crates/painter-app/src/comic_ui.rs:713
+msgid "Trim"
+msgstr "Rifilo"
+
+#: crates/painter-app/src/comic_ui.rs:722 crates/painter-app/src/dialogs.rs:632 crates/painter-app/src/print_ui.rs:197
+msgid "Resolution"
+msgstr "Risoluzione"
+
+#: crates/painter-app/src/comic_ui.rs:725 crates/painter-app/src/print_ui.rs:276
+msgid "Bleed"
+msgstr "Abbondanza"
+
+#: crates/painter-app/src/comic_ui.rs:729
+msgid "Inner frame"
+msgstr "Cornice interna"
+
+#: crates/painter-app/src/comic_ui.rs:736 crates/painter-app/src/print_ui.rs:279
+msgid "Safe margin"
+msgstr "Margine di sicurezza"
+
+#: crates/painter-app/src/comic_ui.rs:743
+msgid "Between side-by-side panels"
+msgstr "Tra vignette affiancate"
+
+#: crates/painter-app/src/comic_ui.rs:744
+msgid "Between tiers"
+msgstr "Tra le strisce"
+
+#: crates/painter-app/src/comic_ui.rs:748
+msgid "Standard print margins"
+msgstr "Margini di stampa standard"
+
+#: crates/painter-app/src/comic_ui.rs:748
+msgid "3 mm bleed, 5 mm safe margin"
+msgstr "Abbondanza 3 mm, margine di sicurezza 5 mm"
+
+#: crates/painter-app/src/comic_ui.rs:754
+msgid "Binding"
+msgstr "Rilegatura"
+
+#: crates/painter-app/src/comic_ui.rs:755
+msgid "Left (western)"
+msgstr "Sinistra (occidentale)"
+
+#: crates/painter-app/src/comic_ui.rs:756
+msgid "Right (manga)"
+msgstr "Destra (manga)"
+
+#: crates/painter-app/src/comic_ui.rs:775 crates/painter-app/src/print_ui.rs:323
+msgid "Create"
+msgstr "Crea"
+
+#: crates/painter-app/src/dialogs.rs:44
+msgid "Looking for scanners…"
+msgstr "Ricerca scanner…"
+
+#: crates/painter-app/src/dialogs.rs:45
+msgid "Scanning a preview…"
+msgstr "Scansione dell'anteprima…"
+
+#: crates/painter-app/src/dialogs.rs:46
+msgid "Scanning…"
+msgstr "Scansione…"
+
+#: crates/painter-app/src/dialogs.rs:47
+msgid "Cleaning up the pages…"
+msgstr "Pulizia delle pagine…"
+
+#: crates/painter-app/src/dialogs.rs:349
+msgid "Import from Scanner or Camera"
+msgstr "Importa da scanner o fotocamera"
+
+#: crates/painter-app/src/dialogs.rs:362
+msgid "Scan with camera"
+msgstr "Scansiona con la fotocamera"
+
+#: crates/painter-app/src/dialogs.rs:363
+msgid "The camera finds the sheet and straightens it; take as many pages as you like"
+msgstr "La fotocamera trova il foglio e lo raddrizza; scatta tutte le pagine che vuoi"
+
+#: crates/painter-app/src/dialogs.rs:370
+msgid "From photo or file..."
+msgstr "Da foto o file..."
+
+#: crates/painter-app/src/dialogs.rs:371
+msgid "A photo or a scan of a page, cleaned up like a scan"
+msgstr "Una foto o una scansione di una pagina, pulita come una scansione"
+
+#: crates/painter-app/src/dialogs.rs:376
+msgid "Use a scanner"
+msgstr "Usa uno scanner"
+
+#: crates/painter-app/src/dialogs.rs:376
+msgid "Forget these pages"
+msgstr "Dimentica queste pagine"
+
+#: crates/painter-app/src/dialogs.rs:524
+msgid "Export SVG"
+msgstr "Esporta SVG"
+
+#: crates/painter-app/src/dialogs.rs:527
+msgid "Whole canvas"
+msgstr "Tela intera"
+
+#: crates/painter-app/src/dialogs.rs:528
+msgid "Active layer"
+msgstr "Livello attivo"
+
+#: crates/painter-app/src/dialogs.rs:531
+msgid "Raster tracing"
+msgstr "Vettorializzazione raster"
+
+#: crates/painter-app/src/dialogs.rs:534
+msgid "Ink from"
+msgstr "Inchiostro da"
+
+#: crates/painter-app/src/dialogs.rs:536 crates/painter-app/src/layer_props.rs:173
+msgid "Darkness"
+msgstr "Scurezza"
+
+#: crates/painter-app/src/dialogs.rs:539 crates/painter-app/src/layer_props.rs:264 crates/painter-core/src/adjust.rs:130
+msgid "Threshold"
+msgstr "Soglia"
+
+#: crates/painter-app/src/dialogs.rs:542
+msgid "Path simplification"
+msgstr "Semplificazione del tracciato"
+
+#: crates/painter-app/src/dialogs.rs:543
+msgid "Corner sensitivity"
+msgstr "Sensibilità agli angoli"
+
+#: crates/painter-app/src/dialogs.rs:544
+msgid "Turns sharper than this angle stay corners; lower is more angular."
+msgstr "Le curve più strette di questo angolo restano spigoli; più basso è più spigoloso."
+
+#: crates/painter-app/src/dialogs.rs:545
+msgid "Remove specks under"
+msgstr "Rimuovi puntini sotto"
+
+#: crates/painter-app/src/dialogs.rs:545
+msgid " px²"
+msgstr " px²"
+
+#: crates/painter-app/src/dialogs.rs:547
+msgid "Vector strokes"
+msgstr "Tratti vettoriali"
+
+#: crates/painter-app/src/dialogs.rs:549
+msgid "Pressure outline"
+msgstr "Contorno con pressione"
+
+#: crates/painter-app/src/dialogs.rs:550
+msgid "Centre line"
+msgstr "Linea centrale"
+
+#: crates/painter-app/src/dialogs.rs:553
+msgid "Include paper as background"
+msgstr "Includi la carta come sfondo"
+
+#: crates/painter-app/src/dialogs.rs:554
+msgid "Skip hidden layers"
+msgstr "Salta i livelli nascosti"
+
+#: crates/painter-app/src/dialogs.rs:556
+msgid "Export…"
+msgstr "Esporta…"
+
+#: crates/painter-app/src/dialogs.rs:604
+msgid "Network scanners (AirScan) on your Wi-Fi show up here; or type the scanner's address below, scan with the camera, or pick a photo of the page."
+msgstr "Qui compaiono gli scanner di rete (AirScan) sul tuo Wi-Fi; oppure scrivi sotto l'indirizzo dello scanner, scansiona con la fotocamera o scegli una foto della pagina."
+
+#: crates/painter-app/src/dialogs.rs:606
+msgid "Connect and switch on a scanner, then refresh; or pick a photo of the page."
+msgstr "Collega e accendi uno scanner, poi aggiorna; oppure scegli una foto della pagina."
+
+#: crates/painter-app/src/dialogs.rs:608
+msgid "Look again"
+msgstr "Cerca di nuovo"
+
+#: crates/painter-app/src/dialogs.rs:621
+msgid "Device"
+msgstr "Dispositivo"
+
+#: crates/painter-app/src/dialogs.rs:657
+msgid "Scan and import"
+msgstr "Scansiona e importa"
+
+#: crates/painter-app/src/dialogs.rs:661
+msgid "Refresh devices"
+msgstr "Aggiorna dispositivi"
+
+#: crates/painter-app/src/dialogs.rs:703
+msgid "Import page"
+msgstr "Importa pagina"
+
+#: crates/painter-app/src/dialogs.rs:703
+msgid "As a new layer"
+msgstr "Come nuovo livello"
+
+#: crates/painter-app/src/dialogs.rs:707
+msgid "One layer each, same crop and cleanup"
+msgstr "Un livello ciascuna, stesso ritaglio e pulizia"
+
+#: crates/painter-app/src/dialogs.rs:711
+msgid "Remove page"
+msgstr "Rimuovi pagina"
+
+#: crates/painter-app/src/dialogs.rs:730 crates/painter-app/src/rulers_ui.rs:351 crates/painter-core/src/selection.rs:23
+msgid "Add"
+msgstr "Aggiungi"
+
+#: crates/painter-app/src/dialogs.rs:730
+msgid "A scanner on your network that scans over AirScan (eSCL)"
+msgstr "Uno scanner sulla tua rete che scansiona via AirScan (eSCL)"
+
+#: crates/painter-app/src/dialogs.rs:753 crates/painter-app/src/transform_ui.rs:619
+msgid "Rotate"
+msgstr "Ruota"
+
+#: crates/painter-app/src/dialogs.rs:767
+msgid "Flip"
+msgstr "Rifletti"
+
+#: crates/painter-app/src/dialogs.rs:772
+msgid "Put it in"
+msgstr "Mettila in"
+
+#: crates/painter-app/src/dialogs.rs:790
+msgid "Auto contrast"
+msgstr "Contrasto automatico"
+
+#: crates/painter-app/src/dialogs.rs:792
+msgid "Extract line art (paper → transparent)"
+msgstr "Estrai il disegno (carta → trasparente)"
+
+#: crates/painter-app/src/dialogs.rs:796
+msgid "Paper above"
+msgstr "Carta sopra"
+
+#: crates/painter-app/src/dialogs.rs:797
+msgid "Solid ink below"
+msgstr "Inchiostro pieno sotto"
+
+#: crates/painter-app/src/dialogs.rs:798
+msgid "Keep line colour"
+msgstr "Mantieni il colore delle linee"
+
+#: crates/painter-app/src/dialogs.rs:800
+msgid "Extract panels"
+msgstr "Estrai vignette"
+
+#: crates/painter-app/src/dialogs.rs:801
+msgid "Rectangles drawn as frames become a layer each, in a Panels folder"
+msgstr "I rettangoli disegnati come cornici diventano un livello ciascuno, in una cartella Vignette"
+
+#: crates/painter-app/src/dialogs.rs:803
+msgid "Right to left (manga order)"
+msgstr "Da destra a sinistra (ordine manga)"
+
+#: crates/painter-app/src/dialogs.rs:869
+msgid "New document (full resolution)"
+msgstr "Nuovo documento (risoluzione piena)"
+
+#: crates/painter-app/src/dialogs.rs:870
+msgid "Layer, fit in the canvas"
+msgstr "Livello, adatta alla tela"
+
+#: crates/painter-app/src/dialogs.rs:871
+msgid "Layer, enlarge the canvas"
+msgstr "Livello, ingrandisci la tela"
+
+#: crates/painter-app/src/dialogs.rs:872
+msgid "Layer, cut what's outside"
+msgstr "Livello, taglia ciò che sta fuori"
+
+#: crates/painter-app/src/dialogs.rs:933
+msgid "Image Size"
+msgstr "Dimensione immagine"
+
+#: crates/painter-app/src/dialogs.rs:942 crates/painter-app/src/print_ui.rs:194 crates/painter-app/src/text_tool.rs:1009
+msgid "Height"
+msgstr "Altezza"
+
+#: crates/painter-app/src/dialogs.rs:968
+msgid "Keep proportions"
+msgstr "Mantieni proporzioni"
+
+#: crates/painter-app/src/dialogs.rs:970
+msgid "Resampling"
+msgstr "Ricampionamento"
+
+#: crates/painter-app/src/dialogs.rs:984
+msgid "Keep the size on paper (the resolution changes)"
+msgstr "Mantieni la dimensione su carta (cambia la risoluzione)"
+
+#: crates/painter-app/src/dialogs.rs:992
+msgid "Resize"
+msgstr "Ridimensiona"
+
+#: crates/painter-app/src/dialogs.rs:1070
+msgid "Save As"
+msgstr "Salva con nome"
+
+#: crates/painter-app/src/dialogs.rs:1084
+msgid "Krita and OpenRaster flatten masks and clipping into the pixels."
+msgstr "Krita e OpenRaster uniscono maschere e ritagli nei pixel."
+
+#: crates/painter-app/src/dialogs.rs:1086
+msgid "Saved in the Painter folder (Files app → On My iPad → Painter)."
+msgstr "Salvato nella cartella Painter (app File → Sul mio iPad → Painter)."
+
+#: crates/painter-app/src/dialogs.rs:1089 crates/painter-app/src/panels.rs:99 crates/painter-app/src/workspace_ui.rs:1031
+msgid "Save"
+msgstr "Salva"
+
+#: crates/painter-app/src/dialogs.rs:1092
+msgid "Save and copy to..."
+msgstr "Salva e copia in..."
+
+#: crates/painter-app/src/dialogs.rs:1092
+msgid "Then choose where a copy goes: iCloud Drive, another folder or app"
+msgstr "Poi scegli dove va una copia: iCloud Drive, un'altra cartella o app"
+
+#: crates/painter-app/src/dialogs.rs:1107
+msgid "No folder to save into"
+msgstr "Nessuna cartella in cui salvare"
+
+#: crates/painter-app/src/document_manager/layer_transfer.rs:166
+msgid "Selection copied"
+msgstr "Selezione copiata"
+
+#: crates/painter-app/src/document_manager/session_store.rs:241
+msgid "Finish the stroke first"
+msgstr "Termina prima il tratto"
+
+#: crates/painter-app/src/document_manager/session_store.rs:359
+msgid "Some documents have unsaved changes: save them or close their tabs one by one"
+msgstr "Alcuni documenti hanno modifiche non salvate: salvali o chiudi i loro tab uno per uno"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:664
+msgid "Added to the reference board"
+msgstr "Aggiunta alla bacheca di riferimento"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:805
+msgid "Pen colour"
+msgstr "Colore penna"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:807
+msgid "Pen width on screen"
+msgstr "Spessore penna sullo schermo"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:814
+msgid "Pictures or documents..."
+msgstr "Immagini o documenti..."
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:814
+msgid "PNG, JPEG, BMP; PSD, Krita, OpenRaster, Painter and Clip Studio files as pictures"
+msgstr "PNG, JPEG, BMP; file PSD, Krita, OpenRaster, Painter e Clip Studio come immagini"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:818
+msgid "Paste picture (Ctrl+V)"
+msgstr "Incolla immagine (Ctrl+V)"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:823
+msgid "Live picture of a document:"
+msgstr "Immagine dal vivo di un documento:"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:832
+msgid "Add pictures (you can also drop image files here)"
+msgstr "Aggiungi immagini (puoi anche trascinare qui i file)"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:834 crates/painter-app/src/document_manager/split_viewport.rs:1276
+msgid "Fit"
+msgstr "Adatta"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:834
+msgid "Show everything · F"
+msgstr "Mostra tutto · F"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:837
+msgid "Arrange"
+msgstr "Disponi"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:837
+msgid "Lay the pictures (or the selected ones) out in rows"
+msgstr "Disponi le immagini (o quelle selezionate) in righe"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:843 crates/painter-app/src/rulers_ui.rs:487
+msgid "Mirror"
+msgstr "Specchia"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:843
+msgid "Mirror the view"
+msgstr "Specchia la vista"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:845
+msgid "Undo · Ctrl+Z"
+msgstr "Annulla · Ctrl+Z"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:850
+msgid "Redo · Ctrl+Shift+Z"
+msgstr "Ripeti · Ctrl+Maiusc+Z"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:856
+msgid "Board"
+msgstr "Bacheca"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:857
+msgid "Open board..."
+msgstr "Apri bacheca..."
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:861
+msgid "Save board as..."
+msgstr "Salva bacheca come..."
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:867
+msgid "Clear all marks"
+msgstr "Cancella tutti i segni"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:872
+msgid "Unlock all"
+msgstr "Sblocca tutto"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:877
+msgid "Clear the board"
+msgstr "Svuota la bacheca"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:949
+msgid "Drop the layer on a document's picture to copy it there"
+msgstr "Rilascia il livello sull'immagine di un documento per copiarlo lì"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:1268
+msgid "Paste picture"
+msgstr "Incolla immagine"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:1272
+msgid "Select all"
+msgstr "Seleziona tutto"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:1285
+msgid "Edit this document"
+msgstr "Modifica questo documento"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:1297
+msgid "Restart  (Home)"
+msgstr "Ricomincia  (Home)"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:1303
+msgid "Bring to front"
+msgstr "Porta in primo piano"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:1308
+msgid "Send to back"
+msgstr "Porta in fondo"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:1313
+msgid "Mirror  (H)"
+msgstr "Specchia  (H)"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:1318
+msgid "Grey"
+msgstr "Grigio"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:1336
+msgid "Reset size and turn"
+msgstr "Ripristina dimensione e rotazione"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:1343
+msgid "Duplicate  (Ctrl+D)"
+msgstr "Duplica  (Ctrl+D)"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:1347
+msgid "Lock"
+msgstr "Blocca"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:1347
+msgid "Clicks go through it; unlock from Board → Unlock all"
+msgstr "I clic la attraversano; sblocca da Bacheca → Sblocca tutto"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:1353
+msgid "Clear its marks"
+msgstr "Cancella i suoi segni"
+
+#: crates/painter-app/src/document_manager/split_viewport.rs:1360
+msgid "Remove  (Delete)"
+msgstr "Rimuovi  (Canc)"
+
+#: crates/painter-app/src/document_manager/tab_bar.rs:132 crates/painter-app/src/rulers_ui.rs:441
+msgid "x"
+msgstr "x"
+
+#: crates/painter-app/src/document_manager/tab_bar.rs:133
+msgid "Close (Ctrl+W)"
+msgstr "Chiudi (Ctrl+W)"
+
+#: crates/painter-app/src/document_manager/tab_bar.rs:168
+msgid "Tabs with unsaved changes were kept open"
+msgstr "I tab con modifiche non salvate sono rimasti aperti"
+
+#: crates/painter-app/src/document_manager/tab_bar.rs:186
+msgid "Memory used by the pixels of all open documents"
+msgstr "Memoria usata dai pixel di tutti i documenti aperti"
+
+#: crates/painter-app/src/document_manager/tab_bar.rs:203
+msgid "Finishing saves before closing..."
+msgstr "Salvataggio prima della chiusura..."
+
+#: crates/painter-app/src/document_manager/tab_bar.rs:233
+msgid "Don't Save"
+msgstr "Non salvare"
+
+#: crates/painter-app/src/document_manager/tab_bar.rs:261
+msgid "Saving, then closing..."
+msgstr "Salvataggio, poi chiusura..."
+
+#: crates/painter-app/src/eyedropper.rs:251
+msgid "Obtain colour from"
+msgstr "Prendi il colore da"
+
+#: crates/painter-app/src/eyedropper.rs:253 crates/ui-workspace/src/tiles.rs:82
+msgid "Canvas"
+msgstr "Tela"
+
+#: crates/painter-app/src/eyedropper.rs:253
+msgid "The colour you see: all visible layers"
+msgstr "Il colore che vedi: tutti i livelli visibili"
+
+#: crates/painter-app/src/eyedropper.rs:254 crates/painter-app/src/stamp_tool.rs:200
+msgid "Current layer"
+msgstr "Livello corrente"
+
+#: crates/painter-app/src/eyedropper.rs:254
+msgid "Only the layer being edited"
+msgstr "Solo il livello in modifica"
+
+#: crates/painter-app/src/eyedropper.rs:256 crates/painter-app/src/layer_props.rs:167 crates/painter-app/src/scene_ui.rs:923
+msgid "Range"
+msgstr "Area"
+
+#: crates/painter-app/src/eyedropper.rs:262
+msgid "Also with Alt while painting, filling or drawing a gradient, and by resting a finger on the canvas (iPad)."
+msgstr "Anche con Alt mentre dipingi, riempi o tracci una sfumatura, e appoggiando un dito sulla tela (iPad)."
+
+#: crates/painter-app/src/file_object.rs:208
+msgid "The mesh warp turned the file object into pixels (it's no longer linked)"
+msgstr "La deformazione a griglia ha trasformato l'oggetto file in pixel (non è più collegato)"
+
+#: crates/painter-app/src/file_object.rs:227
+msgid "File object"
+msgstr "Oggetto file"
+
+#: crates/painter-app/src/file_object.rs:229
+msgid "The linked file. Its pixels are in the project too"
+msgstr "Il file collegato. I suoi pixel sono anche nel progetto"
+
+#: crates/painter-app/src/file_object.rs:239
+msgid "Update"
+msgstr "Aggiorna"
+
+#: crates/painter-app/src/file_object.rs:239
+msgid "Read the file again now"
+msgstr "Rileggi il file adesso"
+
+#: crates/painter-app/src/file_object.rs:240
+msgid "Open original"
+msgstr "Apri originale"
+
+#: crates/painter-app/src/file_object.rs:241
+msgid "Replace file..."
+msgstr "Sostituisci file..."
+
+#: crates/painter-app/src/file_object.rs:242
+msgid "Rasterize"
+msgstr "Rasterizza"
+
+#: crates/painter-app/src/file_object.rs:242
+msgid "Ordinary pixels, to paint on (no longer linked)"
+msgstr "Pixel normali, su cui dipingere (non più collegato)"
+
+#: crates/painter-app/src/file_object.rs:272
+msgid "Rasterized: an ordinary layer now"
+msgstr "Rasterizzato: ora è un livello normale"
+
+#: crates/painter-app/src/file_object.rs:281
+msgid "Save it and the file object follows"
+msgstr "Salvalo e l'oggetto file si aggiorna"
+
+#: crates/painter-app/src/file_types.rs:287
+msgid "File Types"
+msgstr "Tipi di file"
+
+#: crates/painter-app/src/file_types.rs:290
+msgid "Show Painter's files in the system's file manager: .painter projects open in Painter, with their picture as the thumbnail, and Photoshop, Krita, OpenRaster and Clip Studio files list Painter under \"Open with\" (their default app doesn't change)."
+msgstr "Mostra i file di Painter nel gestore file del sistema: i progetti .painter si aprono in Painter, con la loro immagine come miniatura, e i file Photoshop, Krita, OpenRaster e Clip Studio elencano Painter in \"Apri con\" (la loro app predefinita non cambia)."
+
+#: crates/painter-app/src/file_types.rs:291
+msgid "For your user only; Remove takes it all away."
+msgstr "Solo per il tuo utente; Rimuovi toglie tutto."
+
+#: crates/painter-app/src/file_types.rs:293
+msgid "This build has no Explorer thumbnails (made without painter-shell)."
+msgstr "Questa versione non ha miniature in Esplora file (compilata senza painter-shell)."
+
+#: crates/painter-app/src/file_types.rs:296
+msgid "Set Up"
+msgstr "Configura"
+
+#: crates/painter-app/src/file_types.rs:304
+msgid "Painter's file types come with the app on this system: .painter projects show their thumbnail and open in Painter, and Painter is offered for PSD, Krita, OpenRaster and Clip Studio files."
+msgstr "I tipi di file di Painter arrivano con l'app su questo sistema: i progetti .painter mostrano la miniatura e si aprono in Painter, e Painter è proposto per i file PSD, Krita, OpenRaster e Clip Studio."
+
+#: crates/painter-app/src/files.rs:497 crates/painter-app/src/files.rs:550
+msgid "Open"
+msgstr "Apri"
+
+#: crates/painter-app/src/files.rs:507
+msgid "To open files from Download, Documents or your photos, allow Painter to see the device's files."
+msgstr "Per aprire file da Download, Documenti o dalle tue foto, consenti a Painter di vedere i file del dispositivo."
+
+#: crates/painter-app/src/files.rs:508
+msgid "Allow access…"
+msgstr "Consenti l'accesso…"
+
+#: crates/painter-app/src/files.rs:516
+msgid "⬆ Up"
+msgstr "⬆ Su"
+
+#: crates/painter-app/src/files.rs:530
+msgid "Nothing here that this can open."
+msgstr "Qui non c'è niente che si possa aprire."
+
+#: crates/painter-app/src/gamut_selector.rs:33
+msgid "HSV"
+msgstr "HSV"
+
+#: crates/painter-app/src/gamut_selector.rs:34
+msgid "HSL"
+msgstr "HSL"
+
+#: crates/painter-app/src/gamut_selector.rs:35
+msgid "HSI"
+msgstr "HSI"
+
+#: crates/painter-app/src/gamut_selector.rs:36
+msgid "HSY′"
+msgstr "HSY′"
+
+#: crates/painter-app/src/gamut_selector.rs:84
+msgid "Ring and triangle"
+msgstr "Anello e triangolo"
+
+#: crates/painter-app/src/gamut_selector.rs:85
+msgid "Ring and square"
+msgstr "Anello e quadrato"
+
+#: crates/painter-app/src/gamut_selector.rs:86
+msgid "Ring and diamond"
+msgstr "Anello e rombo"
+
+#: crates/painter-app/src/gamut_selector.rs:87
+msgid "Wheel"
+msgstr "Ruota"
+
+#: crates/painter-app/src/gamut_selector.rs:88
+msgid "Square and hue bar"
+msgstr "Quadrato e barra della tinta"
+
+#: crates/painter-app/src/gamut_selector.rs:89
+msgid "Hue × value"
+msgstr "Tinta × valore"
+
+#: crates/painter-app/src/gamut_selector.rs:90
+msgid "Hue × saturation"
+msgstr "Tinta × saturazione"
+
+#: crates/painter-app/src/gamut_selector.rs:492
+msgid "Colour model and shape"
+msgstr "Modello colore e forma"
+
+#: crates/painter-app/src/gamut_selector.rs:582
+msgid "Colour model"
+msgstr "Modello colore"
+
+#: crates/painter-app/src/gamut_selector.rs:588
+msgid "HSI and HSY′ stretch saturation to the whole gamut; the triangle is always HSV."
+msgstr "HSI e HSY′ estendono la saturazione a tutta la gamma; il triangolo è sempre HSV."
+
+#: crates/painter-app/src/gamut_selector.rs:590 crates/painter-app/src/panels.rs:763 crates/painter-app/src/panels.rs:866
+msgid "Shape"
+msgstr "Forma"
+
+#: crates/painter-app/src/history_ui.rs:29
+msgid "How many steps are kept (the oldest go first)"
+msgstr "Quanti passi vengono conservati (i più vecchi se ne vanno per primi)"
+
+#: crates/painter-app/src/history_ui.rs:49
+msgid "Paint from this state with the History Brush (Y)"
+msgstr "Dipingi da questo stato con il Pennello storia (Y)"
+
+#: crates/painter-app/src/layer_props.rs:104
+msgid "No layer"
+msgstr "Nessun livello"
+
+#: crates/painter-app/src/layer_props.rs:109
+msgid "Effects and expression colour work on raster and vector layers."
+msgstr "Effetti e colore di espressione funzionano su livelli raster e vettoriali."
+
+#: crates/painter-app/src/layer_props.rs:118
+msgid "Effect"
+msgstr "Effetto"
+
+#: crates/painter-app/src/layer_props.rs:152
+msgid "Border effect"
+msgstr "Effetto bordo"
+
+#: crates/painter-app/src/layer_props.rs:154
+msgid "Edge"
+msgstr "Bordo"
+
+#: crates/painter-app/src/layer_props.rs:155
+msgid "Watercolor edge"
+msgstr "Bordo acquerello"
+
+#: crates/painter-app/src/layer_props.rs:159
+msgid "Thickness of edge"
+msgstr "Spessore del bordo"
+
+#: crates/painter-app/src/layer_props.rs:162
+msgid "Edge color"
+msgstr "Colore del bordo"
+
+#: crates/painter-app/src/layer_props.rs:176
+msgid "Blur"
+msgstr "Sfocatura"
+
+#: crates/painter-app/src/layer_props.rs:183
+msgid "Extract line"
+msgstr "Estrai linee"
+
+#: crates/painter-app/src/layer_props.rs:185
+msgid "Edge threshold"
+msgstr "Soglia dei bordi"
+
+#: crates/painter-app/src/layer_props.rs:188
+msgid "Line width"
+msgstr "Spessore linea"
+
+#: crates/painter-app/src/layer_props.rs:191
+msgid "Black fill"
+msgstr "Riempimento nero"
+
+#: crates/painter-app/src/layer_props.rs:197
+msgid "Tone"
+msgstr "Retino"
+
+#: crates/painter-app/src/layer_props.rs:199
+msgid "Frequency"
+msgstr "Frequenza"
+
+#: crates/painter-app/src/layer_props.rs:206
+msgid "Type of dot"
+msgstr "Tipo di punto"
+
+#: crates/painter-app/src/layer_props.rs:216 crates/painter-app/src/panels.rs:954 crates/painter-app/src/panels.rs:960
+msgid "Density"
+msgstr "Densità"
+
+#: crates/painter-app/src/layer_props.rs:218
+msgid "Brightness"
+msgstr "Luminosità"
+
+#: crates/painter-app/src/layer_props.rs:222 crates/painter-app/src/layer_props.rs:244 crates/painter-core/src/effects.rs:37
+msgid "Color"
+msgstr "Colore"
+
+#: crates/painter-app/src/layer_props.rs:225
+msgid "Image"
+msgstr "Immagine"
+
+#: crates/painter-app/src/layer_props.rs:228
+msgid "Set"
+msgstr "Imposta"
+
+#: crates/painter-app/src/layer_props.rs:237
+msgid "White paper between dots"
+msgstr "Carta bianca tra i punti"
+
+#: crates/painter-app/src/layer_props.rs:242
+msgid "Layer color"
+msgstr "Colore livello"
+
+#: crates/painter-app/src/layer_props.rs:246
+msgid "On screen only"
+msgstr "Solo sullo schermo"
+
+#: crates/painter-app/src/layer_props.rs:250
+msgid "Expression color"
+msgstr "Colore di espressione"
+
+#: crates/painter-app/src/layer_props.rs:259
+msgid "Display color"
+msgstr "Colore di visualizzazione"
+
+#: crates/painter-app/src/layer_props.rs:260
+msgid "Black"
+msgstr "Nero"
+
+#: crates/painter-app/src/layer_props.rs:261
+msgid "White"
+msgstr "Bianco"
+
+#: crates/painter-app/src/magnetic.rs:171
+msgid "Object selection: nothing stands out from the background there"
+msgstr "Selezione oggetto: lì niente si stacca dallo sfondo"
+
+#: crates/painter-app/src/magnetic.rs:208
+msgid "Anchor spacing"
+msgstr "Distanza degli ancoraggi"
+
+#: crates/painter-app/src/magnetic.rs:209
+msgid "Click to start, then move along an outline. Click: anchor, Backspace: back one, Enter or click the start: close, Esc: drop."
+msgstr "Clicca per iniziare, poi segui un contorno. Clic: ancoraggio, Backspace: indietro di uno, Invio o clic sul punto iniziale: chiudi, Esc: annulla."
+
+#: crates/painter-app/src/magnetic.rs:212
+msgid "Background tolerance"
+msgstr "Tolleranza sfondo"
+
+#: crates/painter-app/src/magnetic.rs:213
+msgid "Drag a rectangle round the object: what differs from the background at the rectangle's edge is selected."
+msgstr "Trascina un rettangolo attorno all'oggetto: viene selezionato ciò che differisce dallo sfondo sul bordo del rettangolo."
+
+#: crates/painter-app/src/modifier_keys.rs:88
+msgid "Drag to move"
+msgstr "Trascina per spostare"
+
+#: crates/painter-app/src/nav_gizmo.rs:90
+msgid "Click an axis to look along it; drag to orbit"
+msgstr "Clicca un asse per guardare lungo di esso; trascina per orbitare"
+
+#: crates/painter-app/src/panels.rs:35 crates/ui-workspace/src/command_palette.rs:30
+msgid "File"
+msgstr "File"
+
+#: crates/painter-app/src/panels.rs:36 crates/painter-app/src/workspace_ui.rs:1026
+msgid "New Canvas..."
+msgstr "Nuova tela..."
+
+#: crates/painter-app/src/panels.rs:41 crates/painter-app/src/workspace_ui.rs:1027
+msgid "New from Clipboard"
+msgstr "Nuovo dagli appunti"
+
+#: crates/painter-app/src/panels.rs:42
+msgid "A document the size of the copied picture or selection"
+msgstr "Un documento grande quanto l'immagine o la selezione copiata"
+
+#: crates/painter-app/src/panels.rs:48 crates/painter-app/src/workspace_ui.rs:1028
+msgid "New Comic Page / Storyboard..."
+msgstr "Nuova pagina fumetto / storyboard..."
+
+#: crates/painter-app/src/panels.rs:52 crates/painter-app/src/workspace_ui.rs:1029
+msgid "Open..."
+msgstr "Apri..."
+
+#: crates/painter-app/src/panels.rs:56 crates/painter-app/src/workspace_ui.rs:1030
+msgid "Shared Session..."
+msgstr "Sessione condivisa..."
+
+#: crates/painter-app/src/panels.rs:56
+msgid "Draw together with others: host this document or join one"
+msgstr "Disegna insieme ad altri: ospita questo documento o partecipa a uno"
+
+#: crates/painter-app/src/panels.rs:62
+msgid "Open Recent"
+msgstr "Apri recenti"
+
+#: crates/painter-app/src/panels.rs:72
+msgid "Clear Recent Files"
+msgstr "Cancella file recenti"
+
+#: crates/painter-app/src/panels.rs:84
+msgid "Documents"
+msgstr "Documenti"
+
+#: crates/painter-app/src/panels.rs:87
+msgid "Empty. Copy projects, images, models or brushes into Painter's folder in the Files app."
+msgstr "Vuoto. Copia progetti, immagini, modelli o pennelli nella cartella di Painter nell'app File."
+
+#: crates/painter-app/src/panels.rs:103 crates/painter-app/src/workspace_ui.rs:1032
+msgid "Save As..."
+msgstr "Salva con nome..."
+
+#: crates/painter-app/src/panels.rs:107
+msgid "Save All"
+msgstr "Salva tutto"
+
+#: crates/painter-app/src/panels.rs:112
+msgid "Close"
+msgstr "Chiudi"
+
+#: crates/painter-app/src/panels.rs:117
+msgid "Close All"
+msgstr "Chiudi tutto"
+
+#: crates/painter-app/src/panels.rs:122
+msgid "Import"
+msgstr "Importa"
+
+#: crates/painter-app/src/panels.rs:123
+msgid "PNG as Layer..."
+msgstr "PNG come livello..."
+
+#: crates/painter-app/src/panels.rs:127
+msgid "From Scanner or Camera..."
+msgstr "Da scanner o fotocamera..."
+
+#: crates/painter-app/src/panels.rs:132
+msgid "Brushes..."
+msgstr "Pennelli..."
+
+#: crates/painter-app/src/panels.rs:138
+msgid "PNG..."
+msgstr "PNG..."
+
+#: crates/painter-app/src/panels.rs:142
+msgid "PSD..."
+msgstr "PSD..."
+
+#: crates/painter-app/src/panels.rs:146
+msgid "Krita (.kra)..."
+msgstr "Krita (.kra)..."
+
+#: crates/painter-app/src/panels.rs:150
+msgid "OpenRaster (.ora)..."
+msgstr "OpenRaster (.ora)..."
+
+#: crates/painter-app/src/panels.rs:154
+msgid "Clip Studio (.clip)..."
+msgstr "Clip Studio (.clip)..."
+
+#: crates/painter-app/src/panels.rs:158
+msgid "Layer / Canvas as SVG..."
+msgstr "Livello / tela come SVG..."
+
+#: crates/painter-app/src/panels.rs:163
+msgid "All Brushes..."
+msgstr "Tutti i pennelli..."
+
+#: crates/painter-app/src/panels.rs:169 crates/painter-app/src/print_dialog.rs:321 crates/painter-app/src/workspace_ui.rs:1038
+msgid "Print..."
+msgstr "Stampa..."
+
+#: crates/painter-app/src/panels.rs:175 crates/painter-app/src/workspace_ui.rs:1033
+msgid "Set Up File Types..."
+msgstr "Configura tipi di file..."
+
+#: crates/painter-app/src/panels.rs:175
+msgid "Thumbnails and Open with in the file manager"
+msgstr "Miniature e Apri con nel gestore file"
+
+#: crates/painter-app/src/panels.rs:182 crates/painter-app/src/workspace_ui.rs:1045
+msgid "Quit"
+msgstr "Esci"
+
+#: crates/painter-app/src/panels.rs:188 crates/ui-workspace/src/command_palette.rs:31
+msgid "Edit"
+msgstr "Modifica"
+
+#: crates/painter-app/src/panels.rs:200 crates/painter-app/src/workspace_ui.rs:1052
+msgid "Image Size..."
+msgstr "Dimensione immagine..."
+
+#: crates/painter-app/src/panels.rs:200
+msgid "Resize the whole image; Nearest neighbour keeps pixels sharp"
+msgstr "Ridimensiona tutta l'immagine; Vicino più prossimo mantiene i pixel netti"
+
+#: crates/painter-app/src/panels.rs:206 crates/painter-app/src/workspace_ui.rs:1053
+msgid "Clear Selected"
+msgstr "Cancella selezione"
+
+#: crates/painter-app/src/panels.rs:212
+msgid "Paste Keeps Print Size"
+msgstr "Incolla mantenendo la dimensione di stampa"
+
+#: crates/painter-app/src/panels.rs:213
+msgid "Between documents at different resolutions, pasted and copied layers are resampled to the same size on paper"
+msgstr "Tra documenti a risoluzioni diverse, i livelli incollati e copiati vengono ricampionati alla stessa dimensione su carta"
+
+#: crates/painter-app/src/panels.rs:215 crates/ui-workspace/src/command_palette.rs:32
+msgid "Select"
+msgstr "Selezione"
+
+#: crates/painter-app/src/panels.rs:216 crates/painter-app/src/panels.rs:813 crates/painter-app/src/search_layer.rs:46
+msgid "All"
+msgstr "Tutto"
+
+#: crates/painter-app/src/panels.rs:220 crates/painter-app/src/panels.rs:816 crates/painter-app/src/workspace_ui.rs:1065
+msgid "Deselect"
+msgstr "Deseleziona"
+
+#: crates/painter-app/src/panels.rs:229 crates/ui-workspace/src/command_palette.rs:33
+msgid "Layer"
+msgstr "Livello"
+
+#: crates/painter-app/src/panels.rs:245
+msgid "New Correction Layer"
+msgstr "Nuovo livello di correzione"
+
+#: crates/painter-app/src/panels.rs:255 crates/painter-app/src/workspace_ui.rs:1076
+msgid "Add Layer Mask"
+msgstr "Aggiungi maschera di livello"
+
+#: crates/painter-app/src/panels.rs:259 crates/painter-app/src/workspace_ui.rs:1077
+msgid "Delete Layer Mask"
+msgstr "Elimina maschera di livello"
+
+#: crates/painter-app/src/panels.rs:264 crates/painter-app/src/workspace_ui.rs:1078
+msgid "Delete Layer"
+msgstr "Elimina livello"
+
+#: crates/painter-app/src/panels.rs:272
+msgid "Copy Layer to Document"
+msgstr "Copia livello nel documento"
+
+#: crates/painter-app/src/panels.rs:283
+msgid "Or drag the layer from the Layers panel onto a document tab"
+msgstr "Oppure trascina il livello dal pannello Livelli sul tab di un documento"
+
+#: crates/painter-app/src/panels.rs:285 crates/ui-workspace/src/command_palette.rs:37
+msgid "Filter"
+msgstr "Filtro"
+
+#: crates/painter-app/src/panels.rs:293
+msgid "On the edited layer, inside the selection"
+msgstr "Sul livello in modifica, dentro la selezione"
+
+#: crates/painter-app/src/panels.rs:295 crates/ui-workspace/src/command_palette.rs:34
+msgid "View"
+msgstr "Visualizza"
+
+#: crates/painter-app/src/panels.rs:296
+msgid "Tool Strip"
+msgstr "Barra strumenti"
+
+#: crates/painter-app/src/panels.rs:296
+msgid "The tools on the left"
+msgstr "Gli strumenti a sinistra"
+
+#: crates/painter-app/src/panels.rs:297
+msgid "Command Bar"
+msgstr "Barra comandi"
+
+#: crates/painter-app/src/panels.rs:297
+msgid "The icon buttons under the menu"
+msgstr "I pulsanti a icona sotto il menu"
+
+#: crates/painter-app/src/panels.rs:298
+msgid "Workspace Bar"
+msgstr "Barra dei workspace"
+
+#: crates/painter-app/src/panels.rs:299
+msgid "The workspace tabs (Painting, Inking…); hidden, switch workspaces from View > Workspace"
+msgstr "I tab dei workspace (Pittura, Inchiostrazione…); se nascosti, cambia workspace da Visualizza > Workspace"
+
+#: crates/painter-app/src/panels.rs:301
+msgid "Language"
+msgstr "Lingua"
+
+#: crates/painter-app/src/panels.rs:305
+msgid "System default"
+msgstr "Predefinita di sistema"
+
+#: crates/painter-app/src/panels.rs:314
+msgid "Translations are .po files: see locales/README.md"
+msgstr "Le traduzioni sono file .po: vedi locales/README.md"
+
+#: crates/painter-app/src/panels.rs:318
+msgid "Interface language:"
+msgstr "Lingua dell'interfaccia:"
+
+#: crates/painter-app/src/panels.rs:323 crates/ui-workspace/src/command_palette.rs:38
+msgid "Workspace"
+msgstr "Workspace"
+
+#: crates/painter-app/src/panels.rs:335
+msgid "Clock and Battery"
+msgstr "Orologio e batteria"
+
+#: crates/painter-app/src/panels.rs:335
+msgid "The time and the battery's charge in the canvas's corner"
+msgstr "L'ora e la carica della batteria nell'angolo della tela"
+
+#: crates/painter-app/src/panels.rs:336
+msgid "Screen Mode"
+msgstr "Modalità schermo"
+
+#: crates/painter-app/src/panels.rs:344
+msgid "F cycles them, Shift+F goes back"
+msgstr "F le scorre, Maiusc+F torna indietro"
+
+#: crates/painter-app/src/panels.rs:347 crates/painter-app/src/workspace_ui.rs:1079
+msgid "Fit to Window"
+msgstr "Adatta alla finestra"
+
+#: crates/painter-app/src/panels.rs:351 crates/painter-app/src/workspace_ui.rs:1080
+msgid "Actual Pixels (100%)"
+msgstr "Pixel effettivi (100%)"
+
+#: crates/painter-app/src/panels.rs:355 crates/painter-app/src/workspace_ui.rs:1083
+msgid "Reset Rotation"
+msgstr "Ripristina rotazione"
+
+#: crates/painter-app/src/panels.rs:359
+msgid "Flip Horizontally"
+msgstr "Rifletti orizzontalmente"
+
+#: crates/painter-app/src/panels.rs:362
+msgid "Draw With the Pen Only"
+msgstr "Disegna solo con la penna"
+
+#: crates/painter-app/src/panels.rs:363
+msgid "Fingers move the view instead of painting (iPad: Apple Pencil draws, fingers navigate)"
+msgstr "Le dita spostano la vista invece di dipingere (iPad: la Apple Pencil disegna, le dita navigano)"
+
+#: crates/painter-app/src/panels.rs:364 crates/painter-app/src/workspace_ui.rs:1097
+msgid "On-Screen Modifier Keys"
+msgstr "Tasti modificatori sullo schermo"
+
+#: crates/painter-app/src/panels.rs:365
+msgid "Ctrl, Shift and Alt buttons for touch screens: tap to hold a key, tap again to release it"
+msgstr "Pulsanti Ctrl, Maiusc e Alt per gli schermi touch: tocca per tenere premuto un tasto, tocca di nuovo per rilasciarlo"
+
+#: crates/painter-app/src/panels.rs:368
+msgid "Grid"
+msgstr "Griglia"
+
+#: crates/painter-app/src/panels.rs:368
+msgid "Ctrl+'"
+msgstr "Ctrl+'"
+
+#: crates/painter-app/src/panels.rs:372 crates/painter-app/src/workspace_ui.rs:1088
+msgid "Snap to Rulers"
+msgstr "Aggancia ai righelli"
+
+#: crates/painter-app/src/panels.rs:372
+msgid "Ctrl+1"
+msgstr "Ctrl+1"
+
+#: crates/painter-app/src/panels.rs:376
+msgid "Window"
+msgstr "Finestra"
+
+#: crates/painter-app/src/panels.rs:384 crates/painter-app/src/workspace_ui.rs:1112
+msgid "Reset Workspace Layout"
+msgstr "Ripristina layout del workspace"
+
+#: crates/painter-app/src/panels.rs:389
+msgid "Command Palette..."
+msgstr "Palette comandi..."
+
+#: crates/painter-app/src/panels.rs:393
+msgid "Zen Mode"
+msgstr "Modalità zen"
+
+#: crates/painter-app/src/panels.rs:397 crates/painter-app/src/workspace_ui.rs:1111
+msgid "Theme Editor..."
+msgstr "Editor del tema..."
+
+#: crates/painter-app/src/panels.rs:401
+msgid "Interface Size"
+msgstr "Dimensione interfaccia"
+
+#: crates/painter-app/src/panels.rs:406
+msgid "Help"
+msgstr "Aiuto"
+
+#: crates/painter-app/src/panels.rs:407 crates/painter-app/src/workspace_ui.rs:1046
+msgid "Welcome Screen"
+msgstr "Schermata di benvenuto"
+
+#: crates/painter-app/src/panels.rs:411 crates/painter-app/src/workspace_ui.rs:1049
+msgid "Check for Updates..."
+msgstr "Controlla aggiornamenti..."
+
+#: crates/painter-app/src/panels.rs:415 crates/painter-app/src/workspace_ui.rs:1048
+msgid "Reset Settings..."
+msgstr "Ripristina impostazioni..."
+
+#: crates/painter-app/src/panels.rs:419 crates/painter-app/src/welcome.rs:197 crates/painter-app/src/workspace_ui.rs:1047
+msgid "About Painter"
+msgstr "Informazioni su Painter"
+
+#: crates/painter-app/src/panels.rs:444
+msgid "Saved in the project and written into PNG and PSD exports.\nPixels aren't resampled."
+msgstr "Salvata nel progetto e scritta negli export PNG e PSD.\nI pixel non vengono ricampionati."
+
+#: crates/painter-app/src/panels.rs:456
+msgid "Painted layer tiles held in memory"
+msgstr "Tile dei livelli dipinti tenuti in memoria"
+
+#: crates/painter-app/src/panels.rs:460
+msgid "Shared GPU tile atlas: grows with painted area, not layer count"
+msgstr "Atlante di tile GPU condiviso: cresce con l'area dipinta, non con il numero di livelli"
+
+#: crates/painter-app/src/panels.rs:493
+msgid "Edit numerically"
+msgstr "Modifica numericamente"
+
+#: crates/painter-app/src/panels.rs:572
+msgid "No brushes in this group yet. Import some with the button below."
+msgstr "Ancora nessun pennello in questo gruppo. Importane alcuni con il pulsante qui sotto."
+
+#: crates/painter-app/src/panels.rs:616
+msgid "Reset to Default"
+msgstr "Ripristina predefinito"
+
+#: crates/painter-app/src/panels.rs:617 crates/painter-app/src/panels.rs:918
+msgid "Imported brushes have no default to go back to"
+msgstr "I pennelli importati non hanno un'impostazione predefinita a cui tornare"
+
+#: crates/painter-app/src/panels.rs:623 crates/painter-app/src/panels.rs:1438
+msgid "Duplicate"
+msgstr "Duplica"
+
+#: crates/painter-app/src/panels.rs:662
+msgid "Add Back Missing Default Brushes"
+msgstr "Ripristina i pennelli predefiniti mancanti"
+
+#: crates/painter-app/src/panels.rs:666
+msgid "Reset Built-in Brushes"
+msgstr "Ripristina i pennelli integrati"
+
+#: crates/painter-app/src/panels.rs:666
+msgid "Edited built-in brushes back to default; imported brushes stay"
+msgstr "Pennelli integrati modificati riportati al predefinito; quelli importati restano"
+
+#: crates/painter-app/src/panels.rs:670
+msgid "Reset Whole Brush List…"
+msgstr "Ripristina l'intero elenco dei pennelli…"
+
+#: crates/painter-app/src/panels.rs:670
+msgid "Only the default brushes: imported ones are removed"
+msgstr "Solo i pennelli predefiniti: quelli importati vengono rimossi"
+
+#: crates/painter-app/src/panels.rs:698
+msgid "Dismiss"
+msgstr "Ignora"
+
+#: crates/painter-app/src/panels.rs:711 crates/painter-app/src/tools.rs:181
+msgid "Rulers and Guides"
+msgstr "Righelli e guide"
+
+#: crates/painter-app/src/panels.rs:715 crates/painter-app/src/shape_tool.rs:51
+msgid "Fill"
+msgstr "Riempimento"
+
+#: crates/painter-app/src/panels.rs:718 crates/painter-app/src/panels.rs:793
+msgid "Close gaps"
+msgstr "Chiudi i buchi"
+
+#: crates/painter-app/src/panels.rs:726
+msgid "Gap size"
+msgstr "Dimensione dei buchi"
+
+#: crates/painter-app/src/panels.rs:730 crates/painter-app/src/panels.rs:789
+msgid "Tolerance"
+msgstr "Tolleranza"
+
+#: crates/painter-app/src/panels.rs:734 crates/painter-app/src/panels.rs:797
+msgid "Expand"
+msgstr "Espandi"
+
+#: crates/painter-app/src/panels.rs:737
+msgid "Expand slips the colour under the lines so no white halo is left; below 0 it keeps clear of them."
+msgstr "Espandi fa scorrere il colore sotto le linee così non resta un alone bianco; sotto 0 se ne tiene lontano."
+
+#: crates/painter-app/src/panels.rs:738 crates/painter-app/src/panels.rs:800
+msgid "Contiguous"
+msgstr "Contiguo"
+
+#: crates/painter-app/src/panels.rs:741 crates/painter-app/src/panels.rs:803
+msgid "Refer to"
+msgstr "Riferimento"
+
+#: crates/painter-app/src/panels.rs:749
+msgid "Include hidden layers"
+msgstr "Includi livelli nascosti"
+
+#: crates/painter-app/src/panels.rs:750
+msgid "Ignore locked layers"
+msgstr "Ignora livelli bloccati"
+
+#: crates/painter-app/src/panels.rs:759
+msgid "Fills the edited layer or mask with the main colour, inside the selection."
+msgstr "Riempie il livello o la maschera in modifica con il colore principale, dentro la selezione."
+
+#: crates/painter-app/src/panels.rs:762 crates/painter-app/src/tools.rs:170
+msgid "Gradient"
+msgstr "Sfumatura"
+
+#: crates/painter-app/src/panels.rs:768
+msgid "Main colour to transparent"
+msgstr "Colore principale a trasparente"
+
+#: crates/painter-app/src/panels.rs:770
+msgid "Main colour to sub colour"
+msgstr "Colore principale a colore secondario"
+
+#: crates/painter-app/src/panels.rs:772
+msgid "Drag on the canvas. On a gradient layer this edits the layer; elsewhere it paints."
+msgstr "Trascina sulla tela. Su un livello sfumatura modifica il livello; altrove dipinge."
+
+#: crates/painter-app/src/panels.rs:775
+msgid "Selection"
+msgstr "Selezione"
+
+#: crates/painter-app/src/panels.rs:781
+msgid "Shift: add · Alt: subtract · Shift+Alt: intersect. Click to deselect."
+msgstr "Maiusc: aggiungi · Alt: sottrai · Maiusc+Alt: interseca. Clic per deselezionare."
+
+#: crates/painter-app/src/panels.rs:810
+msgid "Shared with the fill bucket."
+msgstr "Condivisa con il secchiello."
+
+#: crates/painter-app/src/panels.rs:825 crates/painter-app/src/scene_ui.rs:785 crates/painter-app/src/tools.rs:177
+msgid "Transform"
+msgstr "Trasforma"
+
+#: crates/painter-app/src/panels.rs:834
+msgid "Drag the handles on the canvas. Shift keeps proportions and snaps rotation to 15°; Alt scales about the pivot."
+msgstr "Trascina le maniglie sulla tela. Maiusc mantiene le proporzioni e aggancia la rotazione a 15°; Alt scala attorno al perno."
+
+#: crates/painter-app/src/panels.rs:835
+msgid "Enter applies, Esc cancels."
+msgstr "Invio applica, Esc annulla."
+
+#: crates/painter-app/src/panels.rs:838
+msgid "Click the canvas (or press Ctrl+T) to transform the active layer, or the selection on it."
+msgstr "Clicca la tela (o premi Ctrl+T) per trasformare il livello attivo, o la selezione su di esso."
+
+#: crates/painter-app/src/panels.rs:843
+msgid "3D Layer"
+msgstr "Livello 3D"
+
+#: crates/painter-app/src/panels.rs:847 crates/painter-app/src/tools.rs:179
+msgid "Panel Frames"
+msgstr "Cornici vignette"
+
+#: crates/painter-app/src/panels.rs:851
+msgid "Crop"
+msgstr "Ritaglia"
+
+#: crates/painter-app/src/panels.rs:853
+msgid "Drag the box or its handles; drag outside it to draw a new one. The bar under the canvas sets the aspect ratio."
+msgstr "Trascina il riquadro o le sue maniglie; trascina fuori per disegnarne uno nuovo. La barra sotto la tela imposta le proporzioni."
+
+#: crates/painter-app/src/panels.rs:855
+msgid "Pixels outside the new canvas are kept and come back if it grows. Enter applies, Esc cancels."
+msgstr "I pixel fuori dalla nuova tela vengono conservati e tornano se la tela cresce. Invio applica, Esc annulla."
+
+#: crates/painter-app/src/panels.rs:858 crates/painter-app/src/tools.rs:182
+msgid "Eyedropper"
+msgstr "Contagocce"
+
+#: crates/painter-app/src/panels.rs:862 crates/painter-app/src/tools.rs:183
+msgid "Vector Points"
+msgstr "Punti vettoriali"
+
+#: crates/painter-app/src/panels.rs:880
+msgid "Hand"
+msgstr "Mano"
+
+#: crates/painter-app/src/panels.rs:881
+msgid "Drag to pan. Wheel zooms, , and . rotate, 0 fits."
+msgstr "Trascina per spostare. La rotella zooma, , e . ruotano, 0 adatta."
+
+#: crates/painter-app/src/panels.rs:911 crates/painter-app/src/workspace_ui.rs:1102
+msgid "Advanced Tool Settings..."
+msgstr "Impostazioni avanzate strumento..."
+
+#: crates/painter-app/src/panels.rs:911
+msgid "Every setting by category; export for Photoshop or Clip Studio"
+msgstr "Tutte le impostazioni per categoria; esporta per Photoshop o Clip Studio"
+
+#: crates/painter-app/src/panels.rs:917
+msgid "Back to this brush's default settings"
+msgstr "Torna alle impostazioni predefinite di questo pennello"
+
+#: crates/painter-app/src/panels.rs:928
+msgid "Tip preview"
+msgstr "Anteprima punta"
+
+#: crates/painter-app/src/panels.rs:931
+msgid "Crosshair"
+msgstr "Mirino"
+
+#: crates/painter-app/src/panels.rs:931
+msgid "Off: only the brush outline shows where you paint"
+msgstr "Spento: solo il contorno del pennello mostra dove dipingi"
+
+#: crates/painter-app/src/panels.rs:932
+msgid "Smart shape"
+msgstr "Forma intelligente"
+
+#: crates/painter-app/src/panels.rs:933
+msgid "Draw a line, circle, rectangle or triangle and keep the pen still at the end: it becomes the clean shape, drawn with this brush"
+msgstr "Disegna una linea, un cerchio, un rettangolo o un triangolo e tieni ferma la penna alla fine: diventa la forma pulita, disegnata con questo pennello"
+
+#: crates/painter-app/src/panels.rs:940
+msgid "Minimum size"
+msgstr "Dimensione minima"
+
+#: crates/painter-app/src/panels.rs:945
+msgid "Blending"
+msgstr "Fusione"
+
+#: crates/painter-app/src/panels.rs:949
+msgid "Paints only where the layer is still transparent: under the lines, on the same layer"
+msgstr "Dipinge solo dove il livello è ancora trasparente: sotto le linee, sullo stesso livello"
+
+#: crates/painter-app/src/panels.rs:958
+msgid "Pressure:"
+msgstr "Pressione:"
+
+#: crates/painter-app/src/panels.rs:959
+msgid "Size follows pressure"
+msgstr "La dimensione segue la pressione"
+
+#: crates/painter-app/src/panels.rs:960
+msgid "Density follows pressure"
+msgstr "La densità segue la pressione"
+
+#: crates/painter-app/src/panels.rs:962
+msgid "Spacing"
+msgstr "Spaziatura"
+
+#: crates/painter-app/src/panels.rs:989
+msgid "Vector layers"
+msgstr "Livelli vettoriali"
+
+#: crates/painter-app/src/panels.rs:1007
+msgid "Dynamics"
+msgstr "Dinamiche"
+
+#: crates/painter-app/src/panels.rs:1012
+msgid "Tip rotation"
+msgstr "Rotazione punta"
+
+#: crates/painter-app/src/panels.rs:1014
+msgid "Follows stroke direction"
+msgstr "Segue la direzione del tratto"
+
+#: crates/painter-app/src/panels.rs:1032
+msgid "Tilt"
+msgstr "Inclinazione"
+
+#: crates/painter-app/src/panels.rs:1035
+msgid "Tilt comes from WinTab or XInput2 tablets and the Apple Pencil; speed is measured on the canvas."
+msgstr "L'inclinazione viene dalle tavolette WinTab o XInput2 e dalla Apple Pencil; la velocità è misurata sulla tela."
+
+#: crates/painter-app/src/panels.rs:1039
+msgid "Pressure curve"
+msgstr "Curva di pressione"
+
+#: crates/painter-app/src/panels.rs:1063
+msgid "Zoom"
+msgstr "Zoom"
+
+#: crates/painter-app/src/panels.rs:1218
+msgid "Show / hide (all the selected layers, when this one is selected)"
+msgstr "Mostra / nascondi (tutti i livelli selezionati, quando questo è selezionato)"
+
+#: crates/painter-app/src/panels.rs:1241
+msgid "Select or deselect this layer (Shift: the range from the active one)"
+msgstr "Seleziona o deseleziona questo livello (Maiusc: l'intervallo da quello attivo)"
+
+#: crates/painter-app/src/panels.rs:1319
+msgid "This layer has rulers: click to show or hide them"
+msgstr "Questo livello ha dei righelli: clicca per mostrarli o nasconderli"
+
+#: crates/painter-app/src/panels.rs:1418
+msgid "Blend (all)"
+msgstr "Fusione (tutti)"
+
+#: crates/painter-app/src/panels.rs:1428
+msgid "Opacity (all)"
+msgstr "Opacità (tutti)"
+
+#: crates/painter-app/src/panels.rs:1441
+msgid "Group"
+msgstr "Raggruppa"
+
+#: crates/painter-app/src/panels.rs:1444
+msgid "Draft on / off"
+msgstr "Bozza sì / no"
+
+#: crates/painter-app/src/panels.rs:1468
+msgid "Opacity: drag sideways or type"
+msgstr "Opacità: trascina di lato o scrivi"
+
+#: crates/painter-app/src/panels.rs:1509
+msgid "Pass-through blending"
+msgstr "Fusione passante"
+
+#: crates/painter-app/src/panels.rs:1513
+msgid "Paper colour"
+msgstr "Colore della carta"
+
+#: crates/painter-app/src/panels.rs:1519
+msgid "From"
+msgstr "Da"
+
+#: crates/painter-app/src/panels.rs:1521
+msgid "To"
+msgstr "A"
+
+#: crates/painter-app/src/panels.rs:1529
+msgid "Drag with the Gradient tool to place it."
+msgstr "Trascina con lo strumento Sfumatura per posizionarla."
+
+#: crates/painter-app/src/panels.rs:1536
+msgid "Dot pitch"
+msgstr "Passo dei punti"
+
+#: crates/painter-app/src/panels.rs:1557
+msgid "Mask"
+msgstr "Maschera"
+
+#: crates/painter-app/src/panels.rs:1558
+msgid "Edit mask"
+msgstr "Modifica maschera"
+
+#: crates/painter-app/src/panels.rs:1559
+msgid "Brush hides, eraser reveals, fill/gradient hide"
+msgstr "Il pennello nasconde, la gomma rivela, riempimento/sfumatura nascondono"
+
+#: crates/painter-app/src/panels.rs:1560
+msgid "Delete the mask"
+msgstr "Elimina la maschera"
+
+#: crates/painter-app/src/panels.rs:1611
+msgid "(imported)"
+msgstr "(importato)"
+
+#: crates/painter-app/src/pen_x11.rs:209
+msgid "XInput2"
+msgstr "XInput2"
+
+#: crates/painter-app/src/pose_ui.rs:113
+msgid "Pose kept"
+msgstr "Posa mantenuta"
+
+#: crates/painter-app/src/pose_ui.rs:197
+msgid "Move the pen or mouse to pose; click to keep it, Esc to cancel"
+msgstr "Muovi la penna o il mouse per mettere in posa; clic per mantenerla, Esc per annullare"
+
+#: crates/painter-app/src/pose_ui.rs:222
+msgid "Pose cancelled"
+msgstr "Posa annullata"
+
+#: crates/painter-app/src/pose_ui.rs:263
+msgid "IK"
+msgstr "IK"
+
+#: crates/painter-app/src/pose_ui.rs:263
+msgid "Inverse kinematics: drag a joint and the bones above it bend to follow (a hand moves the arm)"
+msgstr "Cinematica inversa: trascina un'articolazione e le ossa sopra si piegano per seguirla (una mano muove il braccio)"
+
+#: crates/painter-app/src/pose_ui.rs:264
+msgid "FK"
+msgstr "FK"
+
+#: crates/painter-app/src/pose_ui.rs:264
+msgid "Forward kinematics: drag a joint to turn its own bone (what hangs from it follows)"
+msgstr "Cinematica diretta: trascina un'articolazione per ruotare il suo osso (ciò che vi è appeso segue)"
+
+#: crates/painter-app/src/pose_ui.rs:267
+msgid "How many bones above the dragged joint bend"
+msgstr "Quante ossa sopra l'articolazione trascinata si piegano"
+
+#: crates/painter-app/src/pose_ui.rs:270
+msgid "Drag a joint on the canvas, or click it and move the pen or mouse: click again to keep, Esc to cancel."
+msgstr "Trascina un'articolazione sulla tela, oppure cliccala e muovi la penna o il mouse: clicca di nuovo per mantenere, Esc per annullare."
+
+#: crates/painter-app/src/pose_ui.rs:271
+msgid "Find a bone"
+msgstr "Trova un osso"
+
+#: crates/painter-app/src/pose_ui.rs:313
+msgid "Reset bone"
+msgstr "Ripristina osso"
+
+#: crates/painter-app/src/pose_ui.rs:317
+msgid "Reset pose"
+msgstr "Ripristina posa"
+
+#: crates/painter-app/src/pose_ui.rs:317
+msgid "Every bone back to the model's rest pose"
+msgstr "Tutte le ossa tornano alla posa di riposo del modello"
+
+#: crates/painter-app/src/print_dialog.rs:113
+msgid "Print"
+msgstr "Stampa"
+
+#: crates/painter-app/src/print_dialog.rs:271
+msgid "Margins"
+msgstr "Margini"
+
+#: crates/painter-app/src/print_dialog.rs:277
+msgid "Fit to page"
+msgstr "Adatta alla pagina"
+
+#: crates/painter-app/src/print_dialog.rs:279
+msgid "As big as the document's resolution says"
+msgstr "Grande quanto indica la risoluzione del documento"
+
+#: crates/painter-app/src/print_dialog.rs:297
+msgid "No printer found. Add one in the system settings, or save a PDF."
+msgstr "Nessuna stampante trovata. Aggiungine una nelle impostazioni di sistema, o salva un PDF."
+
+#: crates/painter-app/src/print_dialog.rs:300
+msgid "Printer"
+msgstr "Stampante"
+
+#: crates/painter-app/src/print_dialog.rs:311
+msgid "Copies"
+msgstr "Copie"
+
+#: crates/painter-app/src/print_dialog.rs:326
+msgid "Save as PDF..."
+msgstr "Salva come PDF..."
+
+#: crates/painter-app/src/print_ui.rs:164
+msgid "New Canvas"
+msgstr "Nuova tela"
+
+#: crates/painter-app/src/print_ui.rs:206
+msgid "Colour mode"
+msgstr "Metodo colore"
+
+#: crates/painter-app/src/print_ui.rs:231
+msgid "8 bit"
+msgstr "8 bit"
+
+#: crates/painter-app/src/print_ui.rs:245
+msgid "Written into PNG and PSD exports so other programs read the colours as meant"
+msgstr "Scritto negli export PNG e PSD così gli altri programmi leggono i colori come previsto"
+
+#: crates/painter-app/src/print_ui.rs:250
+msgid "Press"
+msgstr "Stampa"
+
+#: crates/painter-app/src/print_ui.rs:258 crates/painter-core/src/blend.rs:55
+msgid "Screen"
+msgstr "Schermo"
+
+#: crates/painter-app/src/print_ui.rs:271
+msgid "Print bleed and safe area"
+msgstr "Stampa abbondanza e area di sicurezza"
+
+#: crates/painter-app/src/print_ui.rs:272
+msgid "The canvas grows by the bleed on every side; trim, safe area and crop marks are drawn as guides"
+msgstr "La tela cresce dell'abbondanza su ogni lato; rifilo, area di sicurezza e crocini sono disegnati come guide"
+
+#: crates/painter-app/src/ruler_bar.rs:126
+msgid "Ruler bar units: click to switch pixels / millimetres"
+msgstr "Unità della barra righelli: clicca per passare tra pixel e millimetri"
+
+#: crates/painter-app/src/ruler_bar.rs:158
+msgid "Guide added: move it with the Ruler tool, or drag it back onto the ruler bar"
+msgstr "Guida aggiunta: spostala con lo strumento Righello, o trascinala di nuovo sulla barra righelli"
+
+#: crates/painter-app/src/rulers_ui.rs:346
+msgid "Snap to rulers  (Ctrl+1)"
+msgstr "Aggancia ai righelli  (Ctrl+1)"
+
+#: crates/painter-app/src/rulers_ui.rs:352 crates/painter-app/src/scene_ui.rs:834
+msgid "Perspective"
+msgstr "Prospettiva"
+
+#: crates/painter-app/src/rulers_ui.rs:370
+msgid "Symmetry"
+msgstr "Simmetria"
+
+#: crates/painter-app/src/rulers_ui.rs:380
+msgid "Special"
+msgstr "Speciale"
+
+#: crates/painter-app/src/rulers_ui.rs:394
+msgid "Guide"
+msgstr "Guida"
+
+#: crates/painter-app/src/rulers_ui.rs:395
+msgid "Horizontal"
+msgstr "Orizzontale"
+
+#: crates/painter-app/src/rulers_ui.rs:399 crates/painter-app/src/text_tool.rs:974
+msgid "Vertical"
+msgstr "Verticale"
+
+#: crates/painter-app/src/rulers_ui.rs:410
+msgid "No rulers yet. Add one above, then drag its handles on the canvas."
+msgstr "Ancora nessun righello. Aggiungine uno qui sopra, poi trascina le sue maniglie sulla tela."
+
+#: crates/painter-app/src/rulers_ui.rs:432
+msgid "Show"
+msgstr "Mostra"
+
+#: crates/painter-app/src/rulers_ui.rs:433
+msgid "Snap strokes to it"
+msgstr "Aggancia i tratti a questo"
+
+#: crates/painter-app/src/rulers_ui.rs:437
+msgid "Not active on the layer being edited"
+msgstr "Non attivo sul livello in modifica"
+
+#: crates/painter-app/src/rulers_ui.rs:457
+msgid "Applies to"
+msgstr "Si applica a"
+
+#: crates/painter-app/src/rulers_ui.rs:466
+msgid "Give the ruler to the layer being edited"
+msgstr "Assegna il righello al livello in modifica"
+
+#: crates/painter-app/src/rulers_ui.rs:483
+msgid "Drag the points on the canvas. Strokes follow the line towards the point they head for; one and two points also give vertical (and horizontal) lines."
+msgstr "Trascina i punti sulla tela. I tratti seguono la linea verso il punto a cui puntano; uno e due punti danno anche linee verticali (e orizzontali)."
+
+#: crates/painter-app/src/rulers_ui.rs:486
+msgid "Lines"
+msgstr "Linee"
+
+#: crates/painter-app/src/rulers_ui.rs:489
+msgid "Drag the centre, and the second handle to turn the axis."
+msgstr "Trascina il centro, e la seconda maniglia per ruotare l'asse."
+
+#: crates/painter-app/src/rulers_ui.rs:495
+msgid "Ellipse ratio"
+msgstr "Rapporto dell'ellisse"
+
+#: crates/painter-app/src/rulers_ui.rs:502
+msgid "Fifth point (fisheye)"
+msgstr "Quinto punto (fisheye)"
+
+#: crates/painter-app/src/rulers_ui.rs:502
+msgid "Lines also run straight out of the centre"
+msgstr "Le linee partono anche dritte dal centro"
+
+#: crates/painter-app/src/rulers_ui.rs:508
+msgid "Drag the centre, the right point (turns the horizon) and the lower point. Strokes bend into arcs through the pair of points they head for."
+msgstr "Trascina il centro, il punto destro (ruota l'orizzonte) e il punto inferiore. I tratti si curvano in archi attraverso la coppia di punti verso cui vanno."
+
+#: crates/painter-app/src/rulers_ui.rs:511
+msgid "Drag its handles on the canvas."
+msgstr "Trascina le sue maniglie sulla tela."
+
+#: crates/painter-app/src/rulers_ui.rs:517
+msgid "Show grid  (Ctrl+')"
+msgstr "Mostra griglia  (Ctrl+')"
+
+#: crates/painter-app/src/rulers_ui.rs:522
+msgid "Subdivisions"
+msgstr "Suddivisioni"
+
+#: crates/painter-app/src/scene_ui.rs:263
+msgid "Select a 3D layer to add the model to"
+msgstr "Seleziona un livello 3D a cui aggiungere il modello"
+
+#: crates/painter-app/src/scene_ui.rs:701 crates/painter-app/src/workspace_ui.rs:883
+msgid "The active layer isn't a 3D layer."
+msgstr "Il livello attivo non è un livello 3D."
+
+#: crates/painter-app/src/scene_ui.rs:702
+msgid "New 3D layer from a model…"
+msgstr "Nuovo livello 3D da un modello…"
+
+#: crates/painter-app/src/scene_ui.rs:702
+msgid ".blend (Blender 3.4+), .obj, .fbx, .gltf or .glb"
+msgstr ".blend (Blender 3.4+), .obj, .fbx, .gltf o .glb"
+
+#: crates/painter-app/src/scene_ui.rs:705 crates/painter-app/src/workspace_ui.rs:888
+msgid "New 3D layer from the perspective ruler"
+msgstr "Nuovo livello 3D dal righello prospettico"
+
+#: crates/painter-app/src/scene_ui.rs:705
+msgid "Turns the drawing's vanishing points into a 3D space; drop models on the canvas to place them"
+msgstr "Trasforma i punti di fuga del disegno in uno spazio 3D; trascina i modelli sulla tela per posizionarli"
+
+#: crates/painter-app/src/scene_ui.rs:750
+msgid "Local"
+msgstr "Locale"
+
+#: crates/painter-app/src/scene_ui.rs:750
+msgid "Gizmo along the object's own axes"
+msgstr "Gizmo lungo gli assi dell'oggetto"
+
+#: crates/painter-app/src/scene_ui.rs:757
+msgid "Objects"
+msgstr "Oggetti"
+
+#: crates/painter-app/src/scene_ui.rs:810
+msgid "Colour"
+msgstr "Colore"
+
+#: crates/painter-app/src/scene_ui.rs:830
+msgid "Camera"
+msgstr "Fotocamera"
+
+#: crates/painter-app/src/scene_ui.rs:838
+msgid "Orthographic"
+msgstr "Ortografica"
+
+#: crates/painter-app/src/scene_ui.rs:845
+msgid "FOV"
+msgstr "FOV"
+
+#: crates/painter-app/src/scene_ui.rs:866
+msgid "Orbit"
+msgstr "Orbita"
+
+#: crates/painter-app/src/scene_ui.rs:867
+msgid "Turntable"
+msgstr "Piatto rotante"
+
+#: crates/painter-app/src/scene_ui.rs:868
+msgid "Trackball"
+msgstr "Trackball"
+
+#: crates/painter-app/src/scene_ui.rs:872
+msgid "Blender Camera"
+msgstr "Fotocamera Blender"
+
+#: crates/painter-app/src/scene_ui.rs:875
+msgid "Perspective Ruler from View"
+msgstr "Righello prospettico dalla vista"
+
+#: crates/painter-app/src/scene_ui.rs:876
+msgid "Set this layer's perspective ruler to the vanishing points of the scene's axes in this view"
+msgstr "Imposta il righello prospettico di questo livello sui punti di fuga degli assi della scena in questa vista"
+
+#: crates/painter-app/src/scene_ui.rs:879
+msgid "Middle drag orbits · Shift pans · Ctrl or wheel zooms"
+msgstr "Trascina col tasto centrale per orbitare · Maiusc sposta · Ctrl o rotella zooma"
+
+#: crates/painter-app/src/scene_ui.rs:882
+msgid "Lights"
+msgstr "Luci"
+
+#: crates/painter-app/src/scene_ui.rs:883
+msgid "Ambient"
+msgstr "Ambiente"
+
+#: crates/painter-app/src/scene_ui.rs:896
+msgid "Intensity"
+msgstr "Intensità"
+
+#: crates/painter-app/src/scene_ui.rs:904
+msgid "Azimuth"
+msgstr "Azimut"
+
+#: crates/painter-app/src/scene_ui.rs:905
+msgid "Elevation"
+msgstr "Elevazione"
+
+#: crates/painter-app/src/scene_ui.rs:915
+msgid "Position"
+msgstr "Posizione"
+
+#: crates/painter-app/src/scene_ui.rs:935
+msgid "+ Sun"
+msgstr "+ Sole"
+
+#: crates/painter-app/src/scene_ui.rs:944
+msgid "+ Point"
+msgstr "+ Punto"
+
+#: crates/painter-app/src/scene_ui.rs:992
+msgid "3D layer flattened to pixels"
+msgstr "Livello 3D appiattito in pixel"
+
+#: crates/painter-app/src/search_layer.rs:47
+msgid "Raster"
+msgstr "Raster"
+
+#: crates/painter-app/src/search_layer.rs:48
+msgid "Vector"
+msgstr "Vettoriale"
+
+#: crates/painter-app/src/search_layer.rs:49
+msgid "Folders"
+msgstr "Cartelle"
+
+#: crates/painter-app/src/search_layer.rs:51
+msgid "3D"
+msgstr "3D"
+
+#: crates/painter-app/src/search_layer.rs:52
+msgid "Paper, gradient, tone"
+msgstr "Carta, sfumatura, retino"
+
+#: crates/painter-app/src/search_layer.rs:53
+msgid "With a mask"
+msgstr "Con una maschera"
+
+#: crates/painter-app/src/search_layer.rs:54
+msgid "Reference"
+msgstr "Riferimento"
+
+#: crates/painter-app/src/search_layer.rs:55
+msgid "Hidden"
+msgstr "Nascosti"
+
+#: crates/painter-app/src/search_layer.rs:56
+msgid "Locked"
+msgstr "Bloccati"
+
+#: crates/painter-app/src/search_layer.rs:105
+msgid "Type search keywords"
+msgstr "Scrivi parole chiave"
+
+#: crates/painter-app/src/search_layer.rs:109
+msgid "Type a name, or choose a kind of layer."
+msgstr "Scrivi un nome, o scegli un tipo di livello."
+
+#: crates/painter-app/src/settings_reset.rs:79
+msgid "Reset Settings"
+msgstr "Ripristina impostazioni"
+
+#: crates/painter-app/src/settings_reset.rs:85
+msgid "Put back as Painter comes:"
+msgstr "Riporta come arriva Painter:"
+
+#: crates/painter-app/src/settings_reset.rs:87 crates/painter-app/src/workspace_ui.rs:326
+msgid "Interface"
+msgstr "Interfaccia"
+
+#: crates/painter-app/src/settings_reset.rs:88
+msgid "Workspaces and panels, toolbars, theme, interface size, screen mode, the welcome screen"
+msgstr "Workspace e pannelli, barre degli strumenti, tema, dimensione interfaccia, modalità schermo, schermata di benvenuto"
+
+#: crates/painter-app/src/settings_reset.rs:89
+msgid "Tool options"
+msgstr "Opzioni degli strumenti"
+
+#: crates/painter-app/src/settings_reset.rs:90
+msgid "Fill, selection, shape, stamp and other tool settings; channels"
+msgstr "Impostazioni di riempimento, selezione, forme, timbro e altri strumenti; canali"
+
+#: crates/painter-app/src/settings_reset.rs:91
+msgid "Built-in brushes"
+msgstr "Pennelli integrati"
+
+#: crates/painter-app/src/settings_reset.rs:92
+msgid "Their settings back to the defaults; brushes you imported or made stay"
+msgstr "Le loro impostazioni tornano ai valori predefiniti; i pennelli importati o creati da te restano"
+
+#: crates/painter-app/src/settings_reset.rs:93
+msgid "Colour sets and colour history"
+msgstr "Set di colori e cronologia colori"
+
+#: crates/painter-app/src/settings_reset.rs:94
+msgid "Recent files list"
+msgstr "Elenco dei file recenti"
+
+#: crates/painter-app/src/settings_reset.rs:95
+msgid "Update checks"
+msgstr "Controllo aggiornamenti"
+
+#: crates/painter-app/src/settings_reset.rs:98
+msgid "Open documents, your files, actions and patterns aren't touched. This can't be undone."
+msgstr "I documenti aperti, i tuoi file, le azioni e i motivi non vengono toccati. Non si può annullare."
+
+#: crates/painter-app/src/shape_tool.rs:30 crates/painter-core/src/text.rs:56
+msgid "Rectangle"
+msgstr "Rettangolo"
+
+#: crates/painter-app/src/shape_tool.rs:31 crates/painter-core/src/text.rs:54
+msgid "Ellipse"
+msgstr "Ellisse"
+
+#: crates/painter-app/src/shape_tool.rs:32 crates/painter-core/src/effects.rs:93
+msgid "Line"
+msgstr "Linea"
+
+#: crates/painter-app/src/shape_tool.rs:33 crates/painter-core/src/text.rs:59
+msgid "Polygon"
+msgstr "Poligono"
+
+#: crates/painter-app/src/shape_tool.rs:50 crates/painter-app/src/text_tool.rs:979
+msgid "Outline"
+msgstr "Contorno"
+
+#: crates/painter-app/src/shape_tool.rs:52
+msgid "Fill and outline"
+msgstr "Riempimento e contorno"
+
+#: crates/painter-app/src/shape_tool.rs:217
+msgid "Vector layers take outlines; fills go on raster layers"
+msgstr "I livelli vettoriali accettano contorni; i riempimenti vanno sui livelli raster"
+
+#: crates/painter-app/src/shape_tool.rs:289
+msgid "Rounded corners"
+msgstr "Angoli arrotondati"
+
+#: crates/painter-app/src/shape_tool.rs:296
+msgid "Outlines use the current brush; fills the main colour."
+msgstr "I contorni usano il pennello corrente; i riempimenti il colore principale."
+
+#: crates/painter-app/src/smart_shape.rs:43
+msgid "line"
+msgstr "linea"
+
+#: crates/painter-app/src/smart_shape.rs:44
+msgid "triangle"
+msgstr "triangolo"
+
+#: crates/painter-app/src/smart_shape.rs:45
+msgid "rectangle"
+msgstr "rettangolo"
+
+#: crates/painter-app/src/smart_shape.rs:46
+msgid "polygon"
+msgstr "poligono"
+
+#: crates/painter-app/src/smart_shape.rs:47
+msgid "polyline"
+msgstr "polilinea"
+
+#: crates/painter-app/src/smart_shape.rs:48
+msgid "circle"
+msgstr "cerchio"
+
+#: crates/painter-app/src/smart_shape.rs:49
+msgid "ellipse"
+msgstr "ellisse"
+
+#: crates/painter-app/src/stamp_tool.rs:119
+msgid "Clone stamp: Alt-click where to copy from first"
+msgstr "Timbro clone: prima Alt-clic dove copiare"
+
+#: crates/painter-app/src/stamp_tool.rs:156
+msgid "History brush: nothing to go back to yet"
+msgstr "Pennello storia: ancora niente a cui tornare"
+
+#: crates/painter-app/src/stamp_tool.rs:197
+msgid "Aligned"
+msgstr "Allineato"
+
+#: crates/painter-app/src/stamp_tool.rs:197
+msgid "Keep the same offset from one stroke to the next"
+msgstr "Mantieni lo stesso scostamento da un tratto al successivo"
+
+#: crates/painter-app/src/stamp_tool.rs:199
+msgid "Sample"
+msgstr "Campiona"
+
+#: crates/painter-app/src/stamp_tool.rs:201 crates/painter-core/src/fill_tool/reference_mask.rs:31 crates/painter-core/src/rulers.rs:94
+msgid "All layers"
+msgstr "Tutti i livelli"
+
+#: crates/painter-app/src/stamp_tool.rs:211
+msgid "Pattern"
+msgstr "Motivo"
+
+#: crates/painter-app/src/stamp_tool.rs:217 crates/painter-app/src/text_tool.rs:966
+msgid "Main colour"
+msgstr "Colore principale"
+
+#: crates/painter-app/src/stamp_tool.rs:217
+msgid "Paint the pattern's shapes in the main colour"
+msgstr "Dipingi le forme del motivo nel colore principale"
+
+#: crates/painter-app/src/stamp_tool.rs:218
+msgid "Define Pattern from Selection"
+msgstr "Definisci motivo dalla selezione"
+
+#: crates/painter-app/src/stamp_tool.rs:225
+msgid "Pick another state with the brush button in the History panel."
+msgstr "Scegli un altro stato con il pulsante pennello nel pannello Cronologia."
+
+#: crates/painter-app/src/stamp_tool.rs:228
+msgid "The tip and dynamics are the current brush's: pick one in the Tool Group."
+msgstr "La punta e le dinamiche sono quelle del pennello corrente: scegline uno nel Gruppo strumenti."
+
+#: crates/painter-app/src/stamp_tool.rs:236
+msgid "Define Pattern works on pixel layers"
+msgstr "Definisci motivo funziona sui livelli di pixel"
+
+#: crates/painter-app/src/stamp_tool.rs:244
+msgid "Define Pattern: nothing there"
+msgstr "Definisci motivo: lì non c'è niente"
+
+#: crates/painter-app/src/stamp_tool.rs:263
+msgid "Couldn't save the pattern; it's there until Painter closes"
+msgstr "Impossibile salvare il motivo; resta disponibile finché Painter è aperto"
+
+#: crates/painter-app/src/tablet.rs:64
+msgid "ios"
+msgstr "ios"
+
+#: crates/painter-app/src/text_tool.rs:60
+msgid "Rounded balloon"
+msgstr "Balloon arrotondato"
+
+#: crates/painter-app/src/text_tool.rs:61
+msgid "Rough rounded balloon"
+msgstr "Balloon arrotondato ruvido"
+
+#: crates/painter-app/src/text_tool.rs:62
+msgid "Ellipse balloon"
+msgstr "Balloon ellittico"
+
+#: crates/painter-app/src/text_tool.rs:63
+msgid "Rectangle balloon"
+msgstr "Balloon rettangolare"
+
+#: crates/painter-app/src/text_tool.rs:64
+msgid "Polygon balloon"
+msgstr "Balloon poligonale"
+
+#: crates/painter-app/src/text_tool.rs:65
+msgid "Thought balloon"
+msgstr "Balloon pensiero"
+
+#: crates/painter-app/src/text_tool.rs:66
+msgid "Flash balloon"
+msgstr "Balloon flash"
+
+#: crates/painter-app/src/text_tool.rs:67
+msgid "Balloon pen"
+msgstr "Penna balloon"
+
+#: crates/painter-app/src/text_tool.rs:68
+msgid "Balloon tail"
+msgstr "Coda balloon"
+
+#: crates/painter-app/src/text_tool.rs:69
+msgid "Thought balloon tail"
+msgstr "Coda balloon pensiero"
+
+#: crates/painter-app/src/text_tool.rs:400
+msgid "Drag from inside a balloon to draw its tail"
+msgstr "Trascina dall'interno di un balloon per disegnarne la coda"
+
+#: crates/painter-app/src/text_tool.rs:545
+msgid "Draw the balloon's outline round the words"
+msgstr "Disegna il contorno del balloon attorno alle parole"
+
+#: crates/painter-app/src/text_tool.rs:661 crates/painter-app/src/text_tool.rs:744 crates/painter-app/src/tools.rs:185
+msgid "Text"
+msgstr "Testo"
+
+#: crates/painter-app/src/text_tool.rs:671
+msgid "Type here"
+msgstr "Scrivi qui"
+
+#: crates/painter-app/src/text_tool.rs:683 crates/painter-app/src/toolbar.rs:411 crates/painter-app/src/toolbar.rs:634
+msgid "Done"
+msgstr "Fatto"
+
+#: crates/painter-app/src/text_tool.rs:754
+msgid "New texts take the main colour."
+msgstr "I nuovi testi prendono il colore principale."
+
+#: crates/painter-app/src/text_tool.rs:798
+msgid "At the base, as a share of the balloon's shorter half side"
+msgstr "Alla base, come frazione del semilato più corto del balloon"
+
+#: crates/painter-app/src/text_tool.rs:799
+msgid "Tails take the balloon's colours."
+msgstr "Le code prendono i colori del balloon."
+
+#: crates/painter-app/src/text_tool.rs:803 crates/painter-app/src/text_tool.rs:999
+msgid "Line color"
+msgstr "Colore linea"
+
+#: crates/painter-app/src/text_tool.rs:808 crates/painter-app/src/text_tool.rs:1002
+msgid "Fill color"
+msgstr "Colore riempimento"
+
+#: crates/painter-app/src/text_tool.rs:813
+msgid "How to add"
+msgstr "Come aggiungere"
+
+#: crates/painter-app/src/text_tool.rs:817
+msgid "Add to new layer"
+msgstr "Aggiungi a un nuovo livello"
+
+#: crates/painter-app/src/text_tool.rs:818
+msgid "Add to selected layer"
+msgstr "Aggiungi al livello selezionato"
+
+#: crates/painter-app/src/text_tool.rs:841
+msgid "Own"
+msgstr "Proprio"
+
+#: crates/painter-app/src/text_tool.rs:841
+msgid "A colour of its own"
+msgstr "Un colore suo"
+
+#: crates/painter-app/src/text_tool.rs:855
+msgid "Figure"
+msgstr "Figura"
+
+#: crates/painter-app/src/text_tool.rs:865
+msgid "Roundness of corner"
+msgstr "Arrotondamento angoli"
+
+#: crates/painter-app/src/text_tool.rs:870
+msgid "Sides"
+msgstr "Lati"
+
+#: crates/painter-app/src/text_tool.rs:886
+msgid "Brush shape"
+msgstr "Forma pennello"
+
+#: crates/painter-app/src/text_tool.rs:890
+msgid "Smooth"
+msgstr "Liscia"
+
+#: crates/painter-app/src/text_tool.rs:891
+msgid "Rough"
+msgstr "Ruvida"
+
+#: crates/painter-app/src/text_tool.rs:897
+msgid "How rough"
+msgstr "Quanto ruvida"
+
+#: crates/painter-app/src/text_tool.rs:945
+msgid "Font"
+msgstr "Font"
+
+#: crates/painter-app/src/text_tool.rs:950
+msgid "Search fonts"
+msgstr "Cerca font"
+
+#: crates/painter-app/src/text_tool.rs:961
+msgid "Looking for the fonts on this computer…"
+msgstr "Ricerca dei font su questo computer…"
+
+#: crates/painter-app/src/text_tool.rs:971
+msgid "Left"
+msgstr "Sinistra"
+
+#: crates/painter-app/src/text_tool.rs:972
+msgid "Centre"
+msgstr "Centro"
+
+#: crates/painter-app/src/text_tool.rs:973
+msgid "Right"
+msgstr "Destra"
+
+#: crates/painter-app/src/text_tool.rs:976
+msgid "Line spacing"
+msgstr "Interlinea"
+
+#: crates/painter-app/src/text_tool.rs:977
+msgid "Letter spacing"
+msgstr "Spaziatura lettere"
+
+#: crates/painter-app/src/text_tool.rs:987 crates/painter-app/src/tools.rs:186
+msgid "Balloon"
+msgstr "Balloon"
+
+#: crates/painter-app/src/text_tool.rs:1019
+msgid "Fit to Text"
+msgstr "Adatta al testo"
+
+#: crates/painter-app/src/text_tool.rs:1019
+msgid "Size the balloon round the words"
+msgstr "Dimensiona il balloon attorno alle parole"
+
+#: crates/painter-app/src/text_tool.rs:1023
+msgid "Tails"
+msgstr "Code"
+
+#: crates/painter-app/src/text_tool.rs:1029
+msgid "Thought"
+msgstr "Pensiero"
+
+#: crates/painter-app/src/text_tool.rs:1030
+msgid "Straighten"
+msgstr "Raddrizza"
+
+#: crates/painter-app/src/text_tool.rs:1042
+msgid "Add Tail"
+msgstr "Aggiungi coda"
+
+#: crates/painter-app/src/text_tool.rs:1042
+msgid "Or drag one out of the balloon with the Balloon tail tool"
+msgstr "Oppure trascinane una fuori dal balloon con lo strumento Coda balloon"
+
+#: crates/painter-app/src/texture_paint.rs:98
+msgid "Painting on a model: select its object to see the texture."
+msgstr "Pittura su un modello: seleziona il suo oggetto per vedere la texture."
+
+#: crates/painter-app/src/texture_paint.rs:107
+msgid "Texture painting"
+msgstr "Pittura texture"
+
+#: crates/painter-app/src/texture_paint.rs:110
+msgid "No texture yet: the object shows its colour."
+msgstr "Ancora nessuna texture: l'oggetto mostra il suo colore."
+
+#: crates/painter-app/src/texture_paint.rs:127
+msgid "A new transparent texture over the colour (replaces the current one)"
+msgstr "Una nuova texture trasparente sopra il colore (sostituisce quella attuale)"
+
+#: crates/painter-app/src/texture_paint.rs:130
+msgid "Load…"
+msgstr "Carica…"
+
+#: crates/painter-app/src/texture_paint.rs:130
+msgid "An image file as the texture"
+msgstr "Un file immagine come texture"
+
+#: crates/painter-app/src/texture_paint.rs:135
+msgid "Save…"
+msgstr "Salva…"
+
+#: crates/painter-app/src/texture_paint.rs:135
+msgid "The texture as a PNG"
+msgstr "La texture come PNG"
+
+#: crates/painter-app/src/texture_paint.rs:144
+msgid "Stop painting"
+msgstr "Smetti di dipingere"
+
+#: crates/painter-app/src/texture_paint.rs:148
+msgid "Paint on model"
+msgstr "Dipingi sul modello"
+
+#: crates/painter-app/src/texture_paint.rs:149
+msgid "Paint over the model with any tool; each stroke goes onto the texture"
+msgstr "Dipingi sul modello con qualsiasi strumento; ogni tratto va sulla texture"
+
+#: crates/painter-app/src/texture_paint.rs:155
+msgid "Edit texture (UV)"
+msgstr "Modifica texture (UV)"
+
+#: crates/painter-app/src/texture_paint.rs:156
+msgid "Open the texture as a document, with the UV layout and a live 3D preview"
+msgstr "Apri la texture come documento, con la disposizione UV e un'anteprima 3D dal vivo"
+
+#: crates/painter-app/src/texture_paint.rs:163
+msgid "Paint on the “Paint on model” layer; middle drag turns the model, the wheel zooms."
+msgstr "Dipingi sul livello “Dipingi sul modello”; trascina col tasto centrale per ruotare il modello, la rotella zooma."
+
+#: crates/painter-app/src/texture_paint.rs:250
+msgid "Painting on the model: each stroke goes onto its texture. Middle drag turns it, the wheel zooms"
+msgstr "Pittura sul modello: ogni tratto va sulla sua texture. Trascina col tasto centrale per ruotarlo, la rotella zooma"
+
+#: crates/painter-app/src/texture_paint.rs:295
+msgid "That paint didn't land on the model (off it, or behind something)"
+msgstr "Quella pittura non è finita sul modello (fuori, o dietro qualcosa)"
+
+#: crates/painter-app/src/texture_paint.rs:337
+msgid "Texture opened: paint it here, the model follows. The UV layout is drawn over it"
+msgstr "Texture aperta: dipingila qui, il modello la segue. La disposizione UV è disegnata sopra"
+
+#: crates/painter-app/src/texture_paint.rs:421
+msgid "3D Preview"
+msgstr "Anteprima 3D"
+
+#: crates/painter-app/src/texture_paint.rs:444
+msgid "Drag to turn, wheel to zoom. Painting here updates the model."
+msgstr "Trascina per ruotare, rotella per zoomare. Dipingere qui aggiorna il modello."
+
+#: crates/painter-app/src/toolbar.rs:182
+msgid "Hide Tool Strip"
+msgstr "Nascondi barra strumenti"
+
+#: crates/painter-app/src/toolbar.rs:182
+msgid "View → Tool Strip shows it again"
+msgstr "Visualizza → Barra strumenti la mostra di nuovo"
+
+#: crates/painter-app/src/toolbar.rs:277
+msgid "Remove from Toolbar"
+msgstr "Rimuovi dalla barra strumenti"
+
+#: crates/painter-app/src/toolbar.rs:291
+msgid "Group Tools"
+msgstr "Raggruppa strumenti"
+
+#: crates/painter-app/src/toolbar.rs:291
+msgid "Tools of a family share one button, as in Photoshop"
+msgstr "Gli strumenti di una famiglia condividono un pulsante, come in Photoshop"
+
+#: crates/painter-app/src/toolbar.rs:294
+msgid "Customize Toolbar..."
+msgstr "Personalizza barra strumenti..."
+
+#: crates/painter-app/src/toolbar.rs:400
+msgid "Customize Toolbar"
+msgstr "Personalizza barra strumenti"
+
+#: crates/painter-app/src/toolbar.rs:403
+msgid "Drag the toolbar's buttons to reorder them; right-click one to remove it."
+msgstr "Trascina i pulsanti della barra per riordinarli; clic destro su uno per rimuoverlo."
+
+#: crates/painter-app/src/toolbar.rs:405 crates/painter-app/src/toolbar.rs:628
+msgid "+ Separator"
+msgstr "+ Separatore"
+
+#: crates/painter-app/src/toolbar.rs:408
+msgid "Back to the standard toolbar"
+msgstr "Torna alla barra strumenti standard"
+
+#: crates/painter-app/src/toolbar.rs:418
+msgid "Tools not on the toolbar"
+msgstr "Strumenti non presenti nella barra"
+
+#: crates/painter-app/src/toolbar.rs:433 crates/painter-app/src/toolbar.rs:639
+msgid "Add a command"
+msgstr "Aggiungi un comando"
+
+#: crates/painter-app/src/toolbar.rs:435 crates/painter-app/src/toolbar.rs:641
+msgid "Search commands"
+msgstr "Cerca comandi"
+
+#: crates/painter-app/src/toolbar.rs:542
+msgid "Customize Command Bar..."
+msgstr "Personalizza barra comandi..."
+
+#: crates/painter-app/src/toolbar.rs:546
+msgid "Hide Command Bar"
+msgstr "Nascondi barra comandi"
+
+#: crates/painter-app/src/toolbar.rs:546
+msgid "View → Command Bar shows it again"
+msgstr "Visualizza → Barra comandi la mostra di nuovo"
+
+#: crates/painter-app/src/toolbar.rs:566
+msgid "Remove from Command Bar"
+msgstr "Rimuovi dalla barra comandi"
+
+#: crates/painter-app/src/toolbar.rs:625
+msgid "Customize Command Bar"
+msgstr "Personalizza barra comandi"
+
+#: crates/painter-app/src/toolbar.rs:626
+msgid "Drag the bar's buttons to reorder them; right-click one to remove it."
+msgstr "Trascina i pulsanti della barra per riordinarli; clic destro su uno per rimuoverlo."
+
+#: crates/painter-app/src/toolbar.rs:631
+msgid "Back to the standard command bar"
+msgstr "Torna alla barra comandi standard"
+
+#: crates/painter-app/src/tools.rs:168 crates/painter-app/src/tools.rs:269 crates/ui-workspace/src/command_palette.rs:36
+msgid "Brush"
+msgstr "Pennello"
+
+#: crates/painter-app/src/tools.rs:169
+msgid "Fill Bucket"
+msgstr "Secchiello"
+
+#: crates/painter-app/src/tools.rs:171
+msgid "Rectangle Selection"
+msgstr "Selezione rettangolare"
+
+#: crates/painter-app/src/tools.rs:172
+msgid "Ellipse Selection"
+msgstr "Selezione ellittica"
+
+#: crates/painter-app/src/tools.rs:173
+msgid "Lasso Selection"
+msgstr "Selezione lazo"
+
+#: crates/painter-app/src/tools.rs:174
+msgid "Auto Select"
+msgstr "Selezione automatica"
+
+#: crates/painter-app/src/tools.rs:175
+msgid "Magnetic Lasso"
+msgstr "Lazo magnetico"
+
+#: crates/painter-app/src/tools.rs:176
+msgid "Object Selection"
+msgstr "Selezione oggetto"
+
+#: crates/painter-app/src/tools.rs:178
+msgid "Crop / Resize Canvas"
+msgstr "Ritaglia / ridimensiona tela"
+
+#: crates/painter-app/src/tools.rs:180
+msgid "3D Layer Tool"
+msgstr "Strumento livello 3D"
+
+#: crates/painter-app/src/tools.rs:187
+msgid "Clone Stamp"
+msgstr "Timbro clone"
+
+#: crates/painter-app/src/tools.rs:188
+msgid "Pattern Stamp"
+msgstr "Timbro motivo"
+
+#: crates/painter-app/src/tools.rs:189
+msgid "History Brush"
+msgstr "Pennello storia"
+
+#: crates/painter-app/src/tools.rs:190
+msgid "Hand (pan)"
+msgstr "Mano (sposta)"
+
+#: crates/painter-app/src/tools.rs:223
+msgid "Brush / eraser (B, E)"
+msgstr "Pennello / gomma (B, E)"
+
+#: crates/painter-app/src/tools.rs:224
+msgid "Fill bucket (G)"
+msgstr "Secchiello (G)"
+
+#: crates/painter-app/src/tools.rs:225
+msgid "Gradient: drag on the canvas (Shift+G)"
+msgstr "Sfumatura: trascina sulla tela (Maiusc+G)"
+
+#: crates/painter-app/src/tools.rs:226
+msgid "Rectangle selection (M). Shift adds, Alt subtracts"
+msgstr "Selezione rettangolare (M). Maiusc aggiunge, Alt sottrae"
+
+#: crates/painter-app/src/tools.rs:227
+msgid "Ellipse selection (Shift+M)"
+msgstr "Selezione ellittica (Maiusc+M)"
+
+#: crates/painter-app/src/tools.rs:228
+msgid "Lasso selection (L)"
+msgstr "Selezione lazo (L)"
+
+#: crates/painter-app/src/tools.rs:229
+msgid "Auto select (W): click an area to select what a fill would cover"
+msgstr "Selezione automatica (W): clicca un'area per selezionare ciò che un riempimento coprirebbe"
+
+#: crates/painter-app/src/tools.rs:230
+msgid "Magnetic lasso (Shift+L): click, then move along an outline; Enter or a click on the start closes"
+msgstr "Lazo magnetico (Maiusc+L): clicca, poi segui un contorno; Invio o un clic sul punto iniziale chiude"
+
+#: crates/painter-app/src/tools.rs:231
+msgid "Object selection (Shift+W): drag a rectangle round an object"
+msgstr "Selezione oggetto (Maiusc+W): trascina un rettangolo attorno a un oggetto"
+
+#: crates/painter-app/src/tools.rs:232
+msgid "Transform the layer or selection (Ctrl+T). Enter applies, Esc cancels"
+msgstr "Trasforma il livello o la selezione (Ctrl+T). Invio applica, Esc annulla"
+
+#: crates/painter-app/src/tools.rs:233
+msgid "Crop / resize the canvas (Shift+C). Enter applies, Esc cancels"
+msgstr "Ritaglia / ridimensiona la tela (Maiusc+C). Invio applica, Esc annulla"
+
+#: crates/painter-app/src/tools.rs:234
+msgid "Panel frames (U): draw rectangles or polygons, divide panels, reshape them"
+msgstr "Cornici vignette (U): disegna rettangoli o poligoni, dividi le vignette, rimodellale"
+
+#: crates/painter-app/src/tools.rs:235
+msgid "3D layer: middle drag orbits, Shift pans, wheel zooms; click picks, G / R / S gizmo"
+msgstr "Livello 3D: trascina col tasto centrale per orbitare, Maiusc sposta, rotella zooma; clic seleziona, gizmo G / R / S"
+
+#: crates/painter-app/src/tools.rs:236
+msgid "Rulers: perspective, symmetry, special rulers and guides. Drag their handles; Ctrl+1 toggles snapping"
+msgstr "Righelli: prospettiva, simmetria, righelli speciali e guide. Trascina le maniglie; Ctrl+1 attiva l'aggancio"
+
+#: crates/painter-app/src/tools.rs:237
+msgid "Eyedropper (I): pick a colour from the canvas or the current layer. Alt with a brush, or hold a finger still on an iPad"
+msgstr "Contagocce (I): prendi un colore dalla tela o dal livello corrente. Alt con un pennello, o tieni fermo un dito su iPad"
+
+#: crates/painter-app/src/tools.rs:238
+msgid "Vector points (O): pick a vector line, drag its control points to reshape it, drag the line to move it"
+msgstr "Punti vettoriali (O): scegli una linea vettoriale, trascina i suoi punti di controllo per rimodellarla, trascina la linea per spostarla"
+
+#: crates/painter-app/src/tools.rs:239
+msgid "Shapes (R): rectangles, ellipses, lines and polygons. Shift constrains, Alt draws from the centre"
+msgstr "Forme (R): rettangoli, ellissi, linee e poligoni. Maiusc vincola, Alt disegna dal centro"
+
+#: crates/painter-app/src/tools.rs:240
+msgid "Clone stamp (S): Alt-click where to copy from, then paint with the current brush's tip"
+msgstr "Timbro clone (S): Alt-clic dove copiare, poi dipingi con la punta del pennello corrente"
+
+#: crates/painter-app/src/tools.rs:241
+msgid "Pattern stamp (Shift+S): paint a pattern with the current brush's tip"
+msgstr "Timbro motivo (Maiusc+S): dipingi un motivo con la punta del pennello corrente"
+
+#: crates/painter-app/src/tools.rs:242
+msgid "History brush (Y): paint back an earlier state (pick it in the History panel)"
+msgstr "Pennello storia (Y): ridipingi uno stato precedente (sceglilo nel pannello Cronologia)"
+
+#: crates/painter-app/src/tools.rs:243
+msgid "Text (T): click to write, click a text to edit it, drag it to move it"
+msgstr "Testo (T): clicca per scrivere, clicca un testo per modificarlo, trascinalo per spostarlo"
+
+#: crates/painter-app/src/tools.rs:244
+msgid "Balloon (Shift+T): balloons, the balloon pen and tails, as Clip Studio's; drag one, then write in it"
+msgstr "Balloon (Maiusc+T): balloon, penna balloon e code, come in Clip Studio; trascinane uno, poi scrivici dentro"
+
+#: crates/painter-app/src/tools.rs:245
+msgid "Pan the canvas (H, or hold Space)"
+msgstr "Sposta la tela (H, o tieni premuto Spazio)"
+
+#: crates/painter-app/src/tools.rs:267
+msgid "Pen"
+msgstr "Penna"
+
+#: crates/painter-app/src/tools.rs:268
+msgid "Pencil"
+msgstr "Matita"
+
+#: crates/painter-app/src/tools.rs:270
+msgid "Airbrush"
+msgstr "Aerografo"
+
+#: crates/painter-app/src/tools.rs:271
+msgid "Eraser"
+msgstr "Gomma"
+
+#: crates/painter-app/src/tools.rs:780
+msgid "Touched area"
+msgstr "Area toccata"
+
+#: crates/painter-app/src/tools.rs:781
+msgid "Whole stroke"
+msgstr "Tratto intero"
+
+#: crates/painter-app/src/tools.rs:782
+msgid "Up to intersection"
+msgstr "Fino all'intersezione"
+
+#: crates/painter-app/src/transform_ui.rs:148
+msgid "Nothing to transform on this layer"
+msgstr "Niente da trasformare su questo livello"
+
+#: crates/painter-app/src/transform_ui.rs:172
+msgid "Transform: drag the handles. Enter applies, Esc cancels"
+msgstr "Trasforma: trascina le maniglie. Invio applica, Esc annulla"
+
+#: crates/painter-app/src/transform_ui.rs:214
+msgid "Transform cancelled"
+msgstr "Trasformazione annullata"
+
+#: crates/painter-app/src/transform_ui.rs:376
+msgid "Copy works on raster layers"
+msgstr "La copia funziona sui livelli raster"
+
+#: crates/painter-app/src/transform_ui.rs:381
+msgid "Nothing to copy"
+msgstr "Niente da copiare"
+
+#: crates/painter-app/src/transform_ui.rs:413
+msgid "The clipboard has no picture: copy one (or a selection) first"
+msgstr "Gli appunti non contengono un'immagine: copiane una (o una selezione) prima"
+
+#: crates/painter-app/src/transform_ui.rs:440
+msgid "Nothing copied yet"
+msgstr "Ancora niente di copiato"
+
+#: crates/painter-app/src/transform_ui.rs:609
+msgid "X"
+msgstr "X"
+
+#: crates/painter-app/src/transform_ui.rs:611
+msgid "Y"
+msgstr "Y"
+
+#: crates/painter-app/src/transform_ui.rs:615
+msgid "W"
+msgstr "L"
+
+#: crates/painter-app/src/transform_ui.rs:617
+msgid "H"
+msgstr "A"
+
+#: crates/painter-app/src/transform_ui.rs:634
+msgid "Whole pixels"
+msgstr "Pixel interi"
+
+#: crates/painter-app/src/transform_ui.rs:635
+msgid "Scale by ×2, ×3… or ½, ⅓…, turn by quarter turns and stay on the pixel grid, so every pixel stays a square block"
+msgstr "Scala di ×2, ×3… o ½, ⅓…, ruota di quarti di giro e resta sulla griglia dei pixel, così ogni pixel resta un blocco quadrato"
+
+#: crates/painter-app/src/transform_ui.rs:663
+msgid "Aspect"
+msgstr "Proporzioni"
+
+#: crates/painter-app/src/transform_ui.rs:674
+msgid "Custom"
+msgstr "Personalizzate"
+
+#: crates/painter-app/src/transform_ui.rs:686
+msgid "Apply"
+msgstr "Applica"
+
+#: crates/painter-app/src/transform_ui.rs:686
+msgid "Enter"
+msgstr "Invio"
+
+#: crates/painter-app/src/transform_ui.rs:689
+msgid "Esc"
+msgstr "Esc"
+
+#: crates/painter-app/src/updater.rs:501
+msgid "Updates"
+msgstr "Aggiornamenti"
+
+#: crates/painter-app/src/updater.rs:514
+msgid "Looking for a new version…"
+msgstr "Ricerca di una nuova versione…"
+
+#: crates/painter-app/src/updater.rs:518
+msgid "It's the latest version."
+msgstr "È l'ultima versione."
+
+#: crates/painter-app/src/updater.rs:539
+msgid "Later"
+msgstr "Più tardi"
+
+#: crates/painter-app/src/updater.rs:542
+msgid "Skip this version"
+msgstr "Salta questa versione"
+
+#: crates/painter-app/src/updater.rs:547
+msgid "The new APK downloads in the browser: open it to install over this one."
+msgstr "Il nuovo APK si scarica nel browser: aprilo per installarlo sopra questo."
+
+#: crates/painter-app/src/updater.rs:549
+msgid "Sideload the new IPA as you did this one (AltStore, Sideloadly…)."
+msgstr "Installa il nuovo IPA come hai fatto con questo (AltStore, Sideloadly…)."
+
+#: crates/painter-app/src/updater.rs:560
+msgid "It starts when Painter closes (you're asked about unsaved documents first)."
+msgstr "Parte quando Painter si chiude (prima ti viene chiesto dei documenti non salvati)."
+
+#: crates/painter-app/src/updater.rs:561
+msgid "Restart now"
+msgstr "Riavvia ora"
+
+#: crates/painter-app/src/updater.rs:567
+msgid "Open the website"
+msgstr "Apri il sito"
+
+#: crates/painter-app/src/updater.rs:574
+msgid "Check for updates once a day"
+msgstr "Controlla gli aggiornamenti una volta al giorno"
+
+#: crates/painter-app/src/vector_edit.rs:65
+msgid "Vector Points works on vector layers"
+msgstr "Punti vettoriali funziona sui livelli vettoriali"
+
+#: crates/painter-app/src/vector_edit.rs:206
+msgid "Click a vector line to pick it. Drag its square points to reshape it, drag the line to move it. Alt + click removes a point; Delete removes the line."
+msgstr "Clicca una linea vettoriale per sceglierla. Trascina i suoi punti quadrati per rimodellarla, trascina la linea per spostarla. Alt + clic rimuove un punto; Canc rimuove la linea."
+
+#: crates/painter-app/src/vector_edit.rs:223
+msgid "Simplify"
+msgstr "Semplifica"
+
+#: crates/painter-app/src/vector_edit.rs:223
+msgid "Keep only the points that make its shape (smoother, easier to edit)"
+msgstr "Tieni solo i punti che danno la forma (più morbida, più facile da modificare)"
+
+#: crates/painter-app/src/vector_edit.rs:224
+msgid "Delete line"
+msgstr "Elimina linea"
+
+#: crates/painter-app/src/welcome.rs:60
+msgid "Welcome to Painter"
+msgstr "Benvenuto in Painter"
+
+#: crates/painter-app/src/welcome.rs:73 crates/painter-app/src/welcome.rs:205
+msgid "Painter"
+msgstr "Painter"
+
+#: crates/painter-app/src/welcome.rs:75
+msgid "Paint, ink and lay out comics."
+msgstr "Dipingi, inchiostra e impagina fumetti."
+
+#: crates/painter-app/src/welcome.rs:83
+msgid "Recent"
+msgstr "Recenti"
+
+#: crates/painter-app/src/welcome.rs:85
+msgid "Forget the list (the files stay)"
+msgstr "Dimentica l'elenco (i file restano)"
+
+#: crates/painter-app/src/welcome.rs:122
+msgid "Remove from the list"
+msgstr "Rimuovi dall'elenco"
+
+#: crates/painter-app/src/welcome.rs:149
+msgid "New Canvas…"
+msgstr "Nuova tela…"
+
+#: crates/painter-app/src/welcome.rs:152
+msgid "Open…"
+msgstr "Apri…"
+
+#: crates/painter-app/src/welcome.rs:155
+msgid "New Comic Page…"
+msgstr "Nuova pagina fumetto…"
+
+#: crates/painter-app/src/welcome.rs:158
+msgid "Start Painting"
+msgstr "Inizia a dipingere"
+
+#: crates/painter-app/src/welcome.rs:170
+msgid "Show at startup"
+msgstr "Mostra all'avvio"
+
+#: crates/painter-app/src/welcome.rs:208
+msgid "A painting app for illustration and comics, written in Rust with a GPU canvas."
+msgstr "Un'app di pittura per illustrazione e fumetti, scritta in Rust con una tela su GPU."
+
+#: crates/painter-app/src/welcome.rs:209
+msgid "MIT or Apache-2.0"
+msgstr "MIT o Apache-2.0"
+
+#: crates/painter-app/src/welcome.rs:232
+msgid "Reset the brush list?"
+msgstr "Ripristinare l'elenco dei pennelli?"
+
+#: crates/painter-app/src/welcome.rs:237
+msgid "The brush list goes back to Painter's default brushes, with their default settings."
+msgstr "L'elenco dei pennelli torna ai pennelli predefiniti di Painter, con le loro impostazioni predefinite."
+
+#: crates/painter-app/src/welcome.rs:240
+msgid "Export them first (right-click the export button: all brushes) to keep a copy."
+msgstr "Esportali prima (clic destro sul pulsante di esportazione: tutti i pennelli) per conservarne una copia."
+
+#: crates/painter-app/src/widgets.rs:218
+msgid "Main / sub colour. Click or press X to swap; double-click one to pick it"
+msgstr "Colore principale / secondario. Clicca o premi X per scambiarli; doppio clic su uno per sceglierlo"
+
+#: crates/painter-app/src/widgets.rs:262
+msgid "Transparent colour: brushes erase with their own shape (pick any colour to go back)"
+msgstr "Colore trasparente: i pennelli cancellano con la loro forma (scegli un colore qualsiasi per tornare)"
+
+#: crates/painter-app/src/wintab.rs:217
+msgid "WinTab"
+msgstr "WinTab"
+
+#: crates/painter-app/src/workspace_ui.rs:337
+msgid "Ctrl + and Ctrl − change it, Ctrl 0 resets it."
+msgstr "Ctrl + e Ctrl − la cambiano, Ctrl 0 la ripristina."
+
+#: crates/painter-app/src/workspace_ui.rs:404
+msgid "Show the panels again (Tab, F11, four-finger tap)"
+msgstr "Mostra di nuovo i pannelli (Tab, F11, tocco con quattro dita)"
+
+#: crates/painter-app/src/workspace_ui.rs:441
+msgid "Hide Workspace Bar"
+msgstr "Nascondi barra dei workspace"
+
+#: crates/painter-app/src/workspace_ui.rs:441
+msgid "View > Workspace Bar shows it again"
+msgstr "Visualizza > Barra dei workspace la mostra di nuovo"
+
+#: crates/painter-app/src/workspace_ui.rs:461
+msgid "New workspace: a copy of this one"
+msgstr "Nuovo workspace: una copia di questo"
+
+#: crates/painter-app/src/workspace_ui.rs:500
+msgid "Workspace bar hidden: View > Workspace Bar shows it again"
+msgstr "Barra dei workspace nascosta: Visualizza > Barra dei workspace la mostra di nuovo"
+
+#: crates/painter-app/src/workspace_ui.rs:518
+msgid "The last workspace can't be deleted"
+msgstr "L'ultimo workspace non si può eliminare"
+
+#: crates/painter-app/src/workspace_ui.rs:680
+msgid "Show Instead"
+msgstr "Mostra invece"
+
+#: crates/painter-app/src/workspace_ui.rs:690
+msgid "Split Right"
+msgstr "Dividi a destra"
+
+#: crates/painter-app/src/workspace_ui.rs:694
+msgid "Split Down"
+msgstr "Dividi in basso"
+
+#: crates/painter-app/src/workspace_ui.rs:698
+msgid "Add Tab"
+msgstr "Aggiungi tab"
+
+#: crates/painter-app/src/workspace_ui.rs:706
+msgid "Float"
+msgstr "Fluttuante"
+
+#: crates/painter-app/src/workspace_ui.rs:707
+msgid "Detach this panel into its own window"
+msgstr "Stacca questo pannello in una finestra a sé"
+
+#: crates/painter-app/src/workspace_ui.rs:715
+msgid "Panel scale"
+msgstr "Scala del pannello"
+
+#: crates/painter-app/src/workspace_ui.rs:719
+msgid "Panel Scale 100%"
+msgstr "Scala del pannello 100%"
+
+#: crates/painter-app/src/workspace_ui.rs:719
+msgid "Ctrl + Alt + wheel over a panel changes its scale"
+msgstr "Ctrl + Alt + rotella su un pannello ne cambia la scala"
+
+#: crates/painter-app/src/workspace_ui.rs:726
+msgid "Close Tab"
+msgstr "Chiudi tab"
+
+#: crates/painter-app/src/workspace_ui.rs:730
+msgid "Close Area"
+msgstr "Chiudi area"
+
+#: crates/painter-app/src/workspace_ui.rs:731
+msgid "The area holding the canvas stays"
+msgstr "L'area che contiene la tela resta"
+
+#: crates/painter-app/src/workspace_ui.rs:760
+msgid "The canvas is shown in another area"
+msgstr "La tela è mostrata in un'altra area"
+
+#: crates/painter-app/src/workspace_ui.rs:805
+msgid "Panel scale (Ctrl + Alt + wheel over the panel)"
+msgstr "Scala del pannello (Ctrl + Alt + rotella sul pannello)"
+
+#: crates/painter-app/src/workspace_ui.rs:884
+msgid "3D layers render straight onto the canvas; their objects, camera and lights are edited here."
+msgstr "I livelli 3D vengono resi direttamente sulla tela; i loro oggetti, la fotocamera e le luci si modificano qui."
+
+#: crates/painter-app/src/workspace_ui.rs:885
+msgid "New 3D layer from a model..."
+msgstr "Nuovo livello 3D da un modello..."
+
+#: crates/painter-app/src/workspace_ui.rs:897
+msgid "No comic panels on this page."
+msgstr "Nessuna vignetta in questa pagina."
+
+#: crates/painter-app/src/workspace_ui.rs:898
+msgid "New comic page..."
+msgstr "Nuova pagina fumetto..."
+
+#: crates/painter-app/src/workspace_ui.rs:901
+msgid "Or draw frames with the Frame tool (U)."
+msgstr "Oppure disegna cornici con lo strumento Cornice (U)."
+
+#: crates/painter-app/src/workspace_ui.rs:919
+msgid "The area is kept in the layout; switch it to another editor from the menu at its top left."
+msgstr "L'area resta nella disposizione; passala a un altro editor dal menu in alto a sinistra."
+
+#: crates/painter-app/src/workspace_ui.rs:956
+msgid "The last panel stays docked"
+msgstr "L'ultimo pannello resta agganciato"
+
+#: crates/painter-app/src/workspace_ui.rs:965
+msgid "The canvas needs an area; it stays here"
+msgstr "La tela ha bisogno di un'area; resta qui"
+
+#: crates/painter-app/src/workspace_ui.rs:1034
+msgid "Import PNG as Layer..."
+msgstr "Importa PNG come livello..."
+
+#: crates/painter-app/src/workspace_ui.rs:1035
+msgid "Import from Scanner or Camera..."
+msgstr "Importa da scanner o fotocamera..."
+
+#: crates/painter-app/src/workspace_ui.rs:1036
+msgid "Import Brushes..."
+msgstr "Importa pennelli..."
+
+#: crates/painter-app/src/workspace_ui.rs:1037
+msgid "Export PNG..."
+msgstr "Esporta PNG..."
+
+#: crates/painter-app/src/workspace_ui.rs:1039
+msgid "Export PSD..."
+msgstr "Esporta PSD..."
+
+#: crates/painter-app/src/workspace_ui.rs:1040
+msgid "Export Krita (.kra)..."
+msgstr "Esporta Krita (.kra)..."
+
+#: crates/painter-app/src/workspace_ui.rs:1041
+msgid "Export OpenRaster (.ora)..."
+msgstr "Esporta OpenRaster (.ora)..."
+
+#: crates/painter-app/src/workspace_ui.rs:1042
+msgid "Export Clip Studio (.clip)..."
+msgstr "Esporta Clip Studio (.clip)..."
+
+#: crates/painter-app/src/workspace_ui.rs:1043
+msgid "Export SVG..."
+msgstr "Esporta SVG..."
+
+#: crates/painter-app/src/workspace_ui.rs:1044
+msgid "Export All Brushes..."
+msgstr "Esporta tutti i pennelli..."
+
+#: crates/painter-app/src/workspace_ui.rs:1054
+msgid "Define Pattern"
+msgstr "Definisci motivo"
+
+#: crates/painter-app/src/workspace_ui.rs:1055
+msgid "Mode: RGB Color"
+msgstr "Metodo: Colore RGB"
+
+#: crates/painter-app/src/workspace_ui.rs:1056
+msgid "Mode: Grayscale"
+msgstr "Metodo: Scala di grigio"
+
+#: crates/painter-app/src/workspace_ui.rs:1057
+msgid "Mode: Bitmap..."
+msgstr "Metodo: Bitmap..."
+
+#: crates/painter-app/src/workspace_ui.rs:1058
+msgid "Mode: CMYK Color..."
+msgstr "Metodo: Colore CMYK..."
+
+#: crates/painter-app/src/workspace_ui.rs:1059
+msgid "Mode: Duotone..."
+msgstr "Metodo: Due tonalità..."
+
+#: crates/painter-app/src/workspace_ui.rs:1060
+msgid "Mode: Indexed Color..."
+msgstr "Metodo: Scala di colore..."
+
+#: crates/painter-app/src/workspace_ui.rs:1061
+msgid "Mode: Lab Color"
+msgstr "Metodo: Colore Lab"
+
+#: crates/painter-app/src/workspace_ui.rs:1062
+msgid "Mode: Multichannel"
+msgstr "Metodo: Multicanale"
+
+#: crates/painter-app/src/workspace_ui.rs:1064
+msgid "Select All"
+msgstr "Seleziona tutto"
+
+#: crates/painter-app/src/workspace_ui.rs:1066
+msgid "Invert Selection"
+msgstr "Inverti selezione"
+
+#: crates/painter-app/src/workspace_ui.rs:1067
+msgid "Save Selection as Channel"
+msgstr "Salva selezione come canale"
+
+#: crates/painter-app/src/workspace_ui.rs:1068
+msgid "New Raster Layer"
+msgstr "Nuovo livello raster"
+
+#: crates/painter-app/src/workspace_ui.rs:1069
+msgid "New Vector Layer"
+msgstr "Nuovo livello vettoriale"
+
+#: crates/painter-app/src/workspace_ui.rs:1070
+msgid "New Folder"
+msgstr "Nuova cartella"
+
+#: crates/painter-app/src/workspace_ui.rs:1071
+msgid "New Gradient Layer"
+msgstr "Nuovo livello sfumatura"
+
+#: crates/painter-app/src/workspace_ui.rs:1072
+msgid "New 3D Layer from Model..."
+msgstr "Nuovo livello 3D da modello..."
+
+#: crates/painter-app/src/workspace_ui.rs:1073
+msgid "New 3D Layer from Perspective Ruler"
+msgstr "Nuovo livello 3D dal righello prospettico"
+
+#: crates/painter-app/src/workspace_ui.rs:1074
+msgid "New File Object Layer..."
+msgstr "Nuovo livello oggetto file..."
+
+#: crates/painter-app/src/workspace_ui.rs:1075
+msgid "New Tone Layer (from selection)"
+msgstr "Nuovo livello retino (dalla selezione)"
+
+#: crates/painter-app/src/workspace_ui.rs:1081
+msgid "Rotate View Left"
+msgstr "Ruota vista a sinistra"
+
+#: crates/painter-app/src/workspace_ui.rs:1082
+msgid "Rotate View Right"
+msgstr "Ruota vista a destra"
+
+#: crates/painter-app/src/workspace_ui.rs:1084
+msgid "Show Tool Strip"
+msgstr "Mostra barra strumenti"
+
+#: crates/painter-app/src/workspace_ui.rs:1085
+msgid "Show Command Bar"
+msgstr "Mostra barra comandi"
+
+#: crates/painter-app/src/workspace_ui.rs:1086
+msgid "Flip View Horizontally"
+msgstr "Rifletti vista orizzontalmente"
+
+#: crates/painter-app/src/workspace_ui.rs:1087
+msgid "Show Grid"
+msgstr "Mostra griglia"
+
+#: crates/painter-app/src/workspace_ui.rs:1089
+msgid "Toggle Zen Mode"
+msgstr "Attiva/disattiva modalità zen"
+
+#: crates/painter-app/src/workspace_ui.rs:1090
+msgid "Screen Mode: Standard"
+msgstr "Modalità schermo: standard"
+
+#: crates/painter-app/src/workspace_ui.rs:1091
+msgid "Screen Mode: Full Screen with Menus"
+msgstr "Modalità schermo: schermo intero con menu"
+
+#: crates/painter-app/src/workspace_ui.rs:1092
+msgid "Screen Mode: Full Screen"
+msgstr "Modalità schermo: schermo intero"
+
+#: crates/painter-app/src/workspace_ui.rs:1093
+msgid "Ruler Bar"
+msgstr "Barra righelli"
+
+#: crates/painter-app/src/workspace_ui.rs:1094
+msgid "Brush Crosshair On / Off"
+msgstr "Mirino del pennello sì / no"
+
+#: crates/painter-app/src/workspace_ui.rs:1095
+msgid "Clock and Battery On / Off"
+msgstr "Orologio e batteria sì / no"
+
+#: crates/painter-app/src/workspace_ui.rs:1096
+msgid "Workspace Bar On / Off"
+msgstr "Barra dei workspace sì / no"
+
+#: crates/painter-app/src/workspace_ui.rs:1098
+msgid "Duplicate Layers"
+msgstr "Duplica livelli"
+
+#: crates/painter-app/src/workspace_ui.rs:1099
+msgid "Group Layers into Folder"
+msgstr "Raggruppa livelli in cartella"
+
+#: crates/painter-app/src/workspace_ui.rs:1100
+msgid "Toggle Draft Layer"
+msgstr "Attiva/disattiva livello bozza"
+
+#: crates/painter-app/src/workspace_ui.rs:1101
+msgid "Transparent Colour"
+msgstr "Colore trasparente"
+
+#: crates/painter-app/src/workspace_ui.rs:1103
+msgid "Export Brush for Photoshop (.abr)..."
+msgstr "Esporta pennello per Photoshop (.abr)..."
+
+#: crates/painter-app/src/workspace_ui.rs:1104
+msgid "Export Brush for Clip Studio (.sut)..."
+msgstr "Esporta pennello per Clip Studio (.sut)..."
+
+#: crates/painter-app/src/workspace_ui.rs:1105
+msgid "Export Brush for Krita (.bundle)..."
+msgstr "Esporta pennello per Krita (.bundle)..."
+
+#: crates/painter-app/src/workspace_ui.rs:1106
+msgid "Export Brush for MyPaint (.myb)..."
+msgstr "Esporta pennello per MyPaint (.myb)..."
+
+#: crates/painter-app/src/workspace_ui.rs:1107
+msgid "Export Brush for GIMP (.gbr / .vbr)..."
+msgstr "Esporta pennello per GIMP (.gbr / .vbr)..."
+
+#: crates/painter-app/src/workspace_ui.rs:1108
+msgid "Bigger Interface"
+msgstr "Interfaccia più grande"
+
+#: crates/painter-app/src/workspace_ui.rs:1109
+msgid "Smaller Interface"
+msgstr "Interfaccia più piccola"
+
+#: crates/painter-app/src/workspace_ui.rs:1110
+msgid "Interface Size 100%"
+msgstr "Dimensione interfaccia 100%"
+
+#: crates/painter-app/src/workspace_ui.rs:1113
+msgid "New Workspace (copy of this one)"
+msgstr "Nuovo workspace (copia di questo)"
+
+#: crates/painter-app/src/workspace_ui.rs:1336
+msgid "Command palette"
+msgstr "Palette comandi"
+
+#: crates/painter-app/src/workspace_ui.rs:1345
+msgid "Search commands, tools, brushes, workspaces..."
+msgstr "Cerca comandi, strumenti, pennelli, workspace..."
+
+#: crates/painter-app/src/workspace_ui.rs:1354
+msgid "No command matches"
+msgstr "Nessun comando corrispondente"
+
+#: crates/painter-app/src/workspace_ui.rs:1392
+msgid "Up / Down to pick, Enter to run, Esc to close"
+msgstr "Su / Giù per scegliere, Invio per eseguire, Esc per chiudere"
+
+#: crates/painter-app/src/workspace_ui.rs:1410 crates/painter-app/src/workspace_ui.rs:1413
+msgid "Theme"
+msgstr "Tema"
+
+#: crates/painter-app/src/workspace_ui.rs:1436
+msgid "Editing a built-in theme makes a copy of it."
+msgstr "Modificare un tema integrato ne crea una copia."
+
+#: crates/painter-app/src/workspace_ui.rs:1458
+msgid "Text size"
+msgstr "Dimensione testo"
+
+#: crates/painter-app/src/workspace_ui.rs:1461
+msgid "Rounding"
+msgstr "Arrotondamento"
+
+#: crates/painter-app/src/workspace_ui.rs:1476
+msgid "Import..."
+msgstr "Importa..."
+
+#: crates/painter-app/src/workspace_ui.rs:1476
+msgid "A theme JSON file; missing colours come from its base"
+msgstr "Un file JSON di tema; i colori mancanti vengono dalla sua base"
+
+#: crates/painter-app/src/workspace_ui.rs:1477
+msgid "Export..."
+msgstr "Esporta..."
+
+#: crates/painter-core/src/adjust.rs:124
+msgid "Brightness / Contrast"
+msgstr "Luminosità / Contrasto"
+
+#: crates/painter-core/src/adjust.rs:126
+msgid "Tone Curve"
+msgstr "Curva tonale"
+
+#: crates/painter-core/src/adjust.rs:127
+msgid "Hue / Saturation / Lightness"
+msgstr "Tonalità / Saturazione / Luminosità"
+
+#: crates/painter-core/src/adjust.rs:128
+msgid "Color Balance"
+msgstr "Bilanciamento colore"
+
+#: crates/painter-core/src/adjust.rs:129
+msgid "Posterize"
+msgstr "Posterizza"
+
+#: crates/painter-core/src/adjust.rs:132
+msgid "Gradient Map"
+msgstr "Mappa sfumatura"
+
+#: crates/painter-core/src/blend.rs:49
+msgid "Normal"
+msgstr "Normale"
+
+#: crates/painter-core/src/blend.rs:50
+msgid "Darken"
+msgstr "Scurisci"
+
+#: crates/painter-core/src/blend.rs:51
+msgid "Multiply"
+msgstr "Moltiplica"
+
+#: crates/painter-core/src/blend.rs:52
+msgid "Color Burn"
+msgstr "Brucia colore"
+
+#: crates/painter-core/src/blend.rs:53
+msgid "Linear Burn"
+msgstr "Brucia lineare"
+
+#: crates/painter-core/src/blend.rs:54
+msgid "Lighten"
+msgstr "Schiarisci"
+
+#: crates/painter-core/src/blend.rs:56
+msgid "Color Dodge"
+msgstr "Scherma colore"
+
+#: crates/painter-core/src/blend.rs:57
+msgid "Add (Linear Dodge)"
+msgstr "Aggiungi (Scherma lineare)"
+
+#: crates/painter-core/src/blend.rs:58
+msgid "Overlay"
+msgstr "Sovrapponi"
+
+#: crates/painter-core/src/blend.rs:59
+msgid "Soft Light"
+msgstr "Luce soffusa"
+
+#: crates/painter-core/src/blend.rs:60
+msgid "Hard Light"
+msgstr "Luce intensa"
+
+#: crates/painter-core/src/blend.rs:61
+msgid "Difference"
+msgstr "Differenza"
+
+#: crates/painter-core/src/brush.rs:32 crates/painter-core/src/text.rs:81
+msgid "Weak"
+msgstr "Debole"
+
+#: crates/painter-core/src/brush.rs:33 crates/painter-core/src/fill_tool/gap_detection.rs:42 crates/painter-core/src/text.rs:82
+msgid "Medium"
+msgstr "Medio"
+
+#: crates/painter-core/src/brush.rs:34 crates/painter-core/src/text.rs:83
+msgid "Strong"
+msgstr "Forte"
+
+#: crates/painter-core/src/brush.rs:111
+msgid "Behind"
+msgstr "Dietro"
+
+#: crates/painter-core/src/brush.rs:140
+msgid "Weighted average"
+msgstr "Media ponderata"
+
+#: crates/painter-core/src/brush.rs:141
+msgid "Pulled string"
+msgstr "Filo tirato"
+
+#: crates/painter-core/src/cmyk.rs:36
+msgid "Perceptual"
+msgstr "Percettivo"
+
+#: crates/painter-core/src/cmyk.rs:37
+msgid "Relative Colorimetric"
+msgstr "Colorimetrico relativo"
+
+#: crates/painter-core/src/cmyk.rs:38
+msgid "Saturation"
+msgstr "Saturazione"
+
+#: crates/painter-core/src/cmyk.rs:39
+msgid "Absolute Colorimetric"
+msgstr "Colorimetrico assoluto"
+
+#: crates/painter-core/src/color_mode.rs:58
+msgid "RGB Color"
+msgstr "Colore RGB"
+
+#: crates/painter-core/src/color_mode.rs:59
+msgid "CMYK Color"
+msgstr "Colore CMYK"
+
+#: crates/painter-core/src/color_mode.rs:60 crates/painter-core/src/indexed.rs:35
+msgid "Grayscale"
+msgstr "Scala di grigio"
+
+#: crates/painter-core/src/color_mode.rs:62
+msgid "Duotone"
+msgstr "Due tonalità"
+
+#: crates/painter-core/src/color_mode.rs:64
+msgid "Lab Color"
+msgstr "Colore Lab"
+
+#: crates/painter-core/src/color_mode.rs:65
+msgid "Multichannel"
+msgstr "Multicanale"
+
+#: crates/painter-core/src/color_profile.rs:29
+msgid "sRGB IEC61966-2.1"
+msgstr "sRGB IEC61966-2.1"
+
+#: crates/painter-core/src/color_profile.rs:30
+msgid "Display P3"
+msgstr "Display P3"
+
+#: crates/painter-core/src/color_profile.rs:31
+msgid "Adobe RGB (1998)"
+msgstr "Adobe RGB (1998)"
+
+#: crates/painter-core/src/color_profile.rs:32
+msgid "Gray Gamma 2.2"
+msgstr "Gray Gamma 2.2"
+
+#: crates/painter-core/src/effects.rs:38
+msgid "Gray"
+msgstr "Grigio"
+
+#: crates/painter-core/src/effects.rs:90
+msgid "Circle"
+msgstr "Cerchio"
+
+#: crates/painter-core/src/effects.rs:91
+msgid "Square"
+msgstr "Quadrato"
+
+#: crates/painter-core/src/effects.rs:92
+msgid "Diamond"
+msgstr "Rombo"
+
+#: crates/painter-core/src/effects.rs:94
+msgid "Cross"
+msgstr "Croce"
+
+#: crates/painter-core/src/effects.rs:95
+msgid "Noise"
+msgstr "Rumore"
+
+#: crates/painter-core/src/fill_tool/gap_detection.rs:41
+msgid "Small"
+msgstr "Piccolo"
+
+#: crates/painter-core/src/fill_tool/gap_detection.rs:43
+msgid "Large"
+msgstr "Grande"
+
+#: crates/painter-core/src/fill_tool/reference_mask.rs:30
+msgid "Edited layer"
+msgstr "Livello in modifica"
+
+#: crates/painter-core/src/fill_tool/reference_mask.rs:32
+msgid "Reference layers"
+msgstr "Livelli di riferimento"
+
+#: crates/painter-core/src/filters.rs:30
+msgid "Gaussian Blur"
+msgstr "Sfocatura gaussiana"
+
+#: crates/painter-core/src/filters.rs:31
+msgid "Motion Blur"
+msgstr "Sfocatura movimento"
+
+#: crates/painter-core/src/filters.rs:32
+msgid "Radial Blur"
+msgstr "Sfocatura radiale"
+
+#: crates/painter-core/src/filters.rs:33
+msgid "Unsharp Mask"
+msgstr "Maschera di contrasto"
+
+#: crates/painter-core/src/filters.rs:34
+msgid "Add Noise"
+msgstr "Aggiungi disturbo"
+
+#: crates/painter-core/src/indexed.rs:31
+msgid "Local (Adaptive)"
+msgstr "Locale (adattiva)"
+
+#: crates/painter-core/src/indexed.rs:32
+msgid "Exact"
+msgstr "Esatta"
+
+#: crates/painter-core/src/indexed.rs:33
+msgid "Web"
+msgstr "Web"
+
+#: crates/painter-core/src/indexed.rs:34
+msgid "Uniform"
+msgstr "Uniforme"
+
+#: crates/painter-core/src/procedural.rs:24
+msgid "Linear"
+msgstr "Lineare"
+
+#: crates/painter-core/src/procedural.rs:25
+msgid "Radial"
+msgstr "Radiale"
+
+#: crates/painter-core/src/rulers.rs:92
+msgid "Only its layer"
+msgstr "Solo il suo livello"
+
+#: crates/painter-core/src/rulers.rs:93
+msgid "Layers in the same folder"
+msgstr "Livelli nella stessa cartella"
+
+#: crates/painter-core/src/rulers.rs:152
+msgid "1-point perspective"
+msgstr "Prospettiva a 1 punto"
+
+#: crates/painter-core/src/rulers.rs:153
+msgid "2-point perspective"
+msgstr "Prospettiva a 2 punti"
+
+#: crates/painter-core/src/rulers.rs:154
+msgid "3-point perspective"
+msgstr "Prospettiva a 3 punti"
+
+#: crates/painter-core/src/rulers.rs:156
+msgid "Mirror symmetry"
+msgstr "Simmetria speculare"
+
+#: crates/painter-core/src/rulers.rs:157
+msgid "Kaleidoscope"
+msgstr "Caleidoscopio"
+
+#: crates/painter-core/src/rulers.rs:158
+msgid "Rotational symmetry"
+msgstr "Simmetria rotazionale"
+
+#: crates/painter-core/src/rulers.rs:159
+msgid "Parallel lines"
+msgstr "Linee parallele"
+
+#: crates/painter-core/src/rulers.rs:160
+msgid "Concentric circles"
+msgstr "Cerchi concentrici"
+
+#: crates/painter-core/src/rulers.rs:161
+msgid "Radial lines"
+msgstr "Linee radiali"
+
+#: crates/painter-core/src/rulers.rs:162
+msgid "Straight ruler"
+msgstr "Righello dritto"
+
+#: crates/painter-core/src/rulers.rs:163
+msgid "Vertical guide"
+msgstr "Guida verticale"
+
+#: crates/painter-core/src/rulers.rs:164
+msgid "Horizontal guide"
+msgstr "Guida orizzontale"
+
+#: crates/painter-core/src/rulers.rs:165
+msgid "4-point curvilinear perspective"
+msgstr "Prospettiva curvilinea a 4 punti"
+
+#: crates/painter-core/src/rulers.rs:166
+msgid "5-point curvilinear perspective"
+msgstr "Prospettiva curvilinea a 5 punti"
+
+#: crates/painter-core/src/selection.rs:24
+msgid "Subtract"
+msgstr "Sottrai"
+
+#: crates/painter-core/src/selection.rs:25
+msgid "Intersect"
+msgstr "Interseca"
+
+#: crates/painter-core/src/text.rs:55
+msgid "Rounded"
+msgstr "Arrotondato"
+
+#: crates/painter-core/src/text.rs:57
+msgid "Cloud"
+msgstr "Nuvola"
+
+#: crates/painter-core/src/text.rs:58
+msgid "Flash"
+msgstr "Flash"
+
+#: crates/painter-core/src/text.rs:60
+msgid "Free"
+msgstr "Libero"
+
+#: crates/ui-workspace/src/command_palette.rs:35
+msgid "Tool"
+msgstr "Strumento"
+
+#: crates/ui-workspace/src/command_palette.rs:39
+msgid "Script"
+msgstr "Script"
+
+#: crates/ui-workspace/src/tabs.rs:26
+msgid "Painting"
+msgstr "Pittura"
+
+#: crates/ui-workspace/src/tabs.rs:27
+msgid "Inking"
+msgstr "Inchiostrazione"
+
+#: crates/ui-workspace/src/tabs.rs:28
+msgid "3D Layout"
+msgstr "Layout 3D"
+
+#: crates/ui-workspace/src/tabs.rs:29
+msgid "Comic"
+msgstr "Fumetto"
+
+#: crates/ui-workspace/src/tabs.rs:30
+msgid "Compositing"
+msgstr "Compositing"
+
+#: crates/ui-workspace/src/tiles.rs:83
+msgid "Reference View"
+msgstr "Vista di riferimento"
+
+#: crates/ui-workspace/src/tiles.rs:84
+msgid "3D Scene"
+msgstr "Scena 3D"
+
+#: crates/ui-workspace/src/tiles.rs:85
+msgid "Layers"
+msgstr "Livelli"
+
+#: crates/ui-workspace/src/tiles.rs:86
+msgid "Tool Settings"
+msgstr "Impostazioni strumento"
+
+#: crates/ui-workspace/src/tiles.rs:87
+msgid "Tool Group"
+msgstr "Gruppo strumenti"
+
+#: crates/ui-workspace/src/tiles.rs:89
+msgid "Color Wheel"
+msgstr "Ruota colori"
+
+#: crates/ui-workspace/src/tiles.rs:90
+msgid "Navigator"
+msgstr "Navigatore"
+
+#: crates/ui-workspace/src/tiles.rs:91
+msgid "Comic Panels"
+msgstr "Vignette fumetto"
+
+#: crates/ui-workspace/src/tiles.rs:92
+msgid "Timeline"
+msgstr "Timeline"
+
+#: crates/ui-workspace/src/tiles.rs:93
+msgid "Node Graph"
+msgstr "Grafo nodi"
+
+#: crates/ui-workspace/src/tiles.rs:94
+msgid "Color Slider"
+msgstr "Cursori colore"
+
+#: crates/ui-workspace/src/tiles.rs:95
+msgid "Color Set"
+msgstr "Set di colori"
+
+#: crates/ui-workspace/src/tiles.rs:96
+msgid "Color History"
+msgstr "Cronologia colori"
+
+#: crates/ui-workspace/src/tiles.rs:97
+msgid "Intermediate Color"
+msgstr "Colore intermedio"
+
+#: crates/ui-workspace/src/tiles.rs:98
+msgid "Approximate Color"
+msgstr "Colore approssimativo"
+
+#: crates/ui-workspace/src/tiles.rs:99
+msgid "Color Mixing"
+msgstr "Miscela colori"
+
+#: crates/ui-workspace/src/tiles.rs:100
+msgid "Search Layer"
+msgstr "Cerca livello"
+
+#: crates/ui-workspace/src/tiles.rs:101
+msgid "Extended Color Selector"
+msgstr "Selettore colore esteso"
+
+#: crates/ui-workspace/src/tiles.rs:102
+msgid "History"
+msgstr "Cronologia"
+
+#: crates/ui-workspace/src/tiles.rs:103
+msgid "Channels"
+msgstr "Canali"
+
+#: crates/ui-workspace/src/tiles.rs:104
+msgid "Actions"
+msgstr "Azioni"
+
+#: crates/ui-workspace/src/tiles.rs:105
+msgid "Session"
+msgstr "Sessione"
+
+#: crates/ui-workspace/src/tiles.rs:106
+msgid "Layer Properties"
+msgstr "Proprietà livello"
+

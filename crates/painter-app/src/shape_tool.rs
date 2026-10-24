@@ -7,6 +7,7 @@
 //! one again, double-click or press Enter to close; Esc drops it.
 
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Stroke};
+use crate::i18n::tr;
 use painter_core::{selection, BrushMode, StrokePoint};
 use painter_render::Plane;
 
@@ -213,7 +214,7 @@ impl PainterApp {
     fn fill_target(&mut self) -> Option<Plane> {
         let plane = self.target_plane()?;
         if matches!(plane, Plane::Color(id) if self.doc.find(id).is_some_and(painter_core::Layer::is_vector)) {
-            self.status = "Vector layers take outlines; fills go on raster layers".into();
+            self.status = tr("Vector layers take outlines; fills go on raster layers").into();
             return None;
         }
         Some(plane)
@@ -273,26 +274,26 @@ impl PainterApp {
         let o = &mut self.tools.shapes;
         ui.horizontal_wrapped(|ui| {
             for k in ShapeKind::ALL {
-                ui.selectable_value(&mut o.kind, k, k.name());
+                ui.selectable_value(&mut o.kind, k, tr(k.name()));
             }
         });
         if o.kind != ShapeKind::Line {
             ui.horizontal_wrapped(|ui| {
                 for s in ShapeStyle::ALL {
-                    ui.selectable_value(&mut o.style, s, s.name());
+                    ui.selectable_value(&mut o.style, s, tr(s.name()));
                 }
             });
         }
         if o.kind == ShapeKind::Rectangle {
             ui.add(
-                egui::Slider::new(&mut o.corner, 0.0..=500.0).logarithmic(true).max_decimals(0).text("Rounded corners").suffix(" px"),
+                egui::Slider::new(&mut o.corner, 0.0..=500.0).logarithmic(true).max_decimals(0).text(tr("Rounded corners")).suffix(" px"),
             );
         }
         ui.small(match o.kind {
             ShapeKind::Polygon => "Click the corners; click the first again, double-click or Enter to close. Esc drops it.",
             _ => "Drag on the canvas. Shift: square / circle (lines: 15° steps). Alt: from the centre.",
         });
-        ui.small("Outlines use the current brush; fills the main colour.");
+        ui.small(tr("Outlines use the current brush; fills the main colour."));
     }
 }
 

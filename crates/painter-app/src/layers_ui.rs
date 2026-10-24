@@ -4,6 +4,7 @@
 //! or marked as drafts together. Every change is one undo step.
 
 use eframe::egui::Modifiers;
+use crate::i18n::tr;
 use painter_core::layer_ops::LayerDrop;
 use painter_core::LayerId;
 
@@ -110,7 +111,7 @@ impl PainterApp {
         let before = self.doc.clone();
         let n = self.doc.delete_layers(&ids);
         if n == 0 {
-            self.status = "Can't delete the last layer".into();
+            self.status = tr("Can't delete the last layer").into();
             return;
         }
         self.history.push(&before);

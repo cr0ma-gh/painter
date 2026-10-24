@@ -8,6 +8,7 @@
 //! colours. See `painter_core::color_mode`.
 
 use eframe::egui::{self, Color32, Rect, Sense, Vec2};
+use crate::i18n::tr;
 use painter_core::color_mode::{self, BitmapMethod, ColorMode};
 use painter_core::duotone::{Duotone, DuotoneInk};
 use painter_core::indexed::{self, Dither, Forced, IndexedOptions, PaletteKind};
@@ -85,19 +86,19 @@ impl PainterApp {
                     color_mode::gray_layers(&mut self.doc.layers, canvas);
                 }
                 self.enter_mode(ColorMode::Grayscale);
-                self.status = "Grayscale: colours are grey from now on (Edit > Mode > RGB Color brings colour back)".into();
+                self.status = tr("Grayscale: colours are grey from now on (Edit > Mode > RGB Color brings colour back)").into();
             }
             ColorMode::Rgb => {
                 self.next_label = Some("Mode: RGB Color".into());
                 self.checkpoint();
                 self.enter_mode(ColorMode::Rgb);
-                self.status = "RGB Color: colour can be used again".into();
+                self.status = tr("RGB Color: colour can be used again").into();
             }
             ColorMode::Lab => {
                 self.next_label = Some("Mode: Lab Color".into());
                 self.checkpoint();
                 self.enter_mode(ColorMode::Lab);
-                self.status = "Lab Color: channels Lightness, a and b (Channels panel); colours are kept".into();
+                self.status = tr("Lab Color: channels Lightness, a and b (Channels panel); colours are kept").into();
             }
             ColorMode::Multichannel => {
                 self.next_label = Some("Mode: Multichannel".into());
@@ -106,7 +107,7 @@ impl PainterApp {
                     // Spot inks print on white: nothing is see-through.
                     painter_core::print::on_paper(rgba).as_chunks::<3>().0.iter().flat_map(|c| [c[0], c[1], c[2], 255]).collect()
                 });
-                self.status = "Multichannel: cyan, magenta and yellow spot channels (layers merged)".into();
+                self.status = tr("Multichannel: cyan, magenta and yellow spot channels (layers merged)").into();
             }
         }
     }
@@ -236,26 +237,26 @@ impl PainterApp {
     pub(crate) fn bitmap_window(&mut self, ctx: &egui::Context) {
         let Some(mut d) = self.bitmap_dialog else { return };
         let (mut open, mut go, mut cancel) = (true, false, false);
-        egui::Window::new("Bitmap")
+        egui::Window::new(tr("Bitmap"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
-                ui.label("The image becomes one black-and-white layer.");
+                ui.label(tr("The image becomes one black-and-white layer."));
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut d.method, 0, "50% Threshold");
-                    ui.selectable_value(&mut d.method, 1, "Diffusion Dither");
-                    ui.selectable_value(&mut d.method, 2, "Halftone Screen");
+                    ui.selectable_value(&mut d.method, 0, tr("50% Threshold"));
+                    ui.selectable_value(&mut d.method, 1, tr("Diffusion Dither"));
+                    ui.selectable_value(&mut d.method, 2, tr("Halftone Screen"));
                 });
                 if d.method == 2 {
-                    ui.add(egui::Slider::new(&mut d.cell, 3.0..=64.0).text("Cell size").suffix(" px"));
-                    ui.add(egui::Slider::new(&mut d.angle, 0.0..=90.0).text("Angle").suffix("°"));
+                    ui.add(egui::Slider::new(&mut d.cell, 3.0..=64.0).text(tr("Cell size")).suffix(" px"));
+                    ui.add(egui::Slider::new(&mut d.angle, 0.0..=90.0).text(tr("Angle")).suffix("°"));
                 }
-                ui.small("Layers are merged. Undo brings them back.");
+                ui.small(tr("Layers are merged. Undo brings them back."));
                 ui.horizontal(|ui| {
-                    go = ui.button("OK").clicked();
-                    cancel = ui.button("Cancel").clicked();
+                    go = ui.button(tr("OK")).clicked();
+                    cancel = ui.button(tr("Cancel")).clicked();
                 });
             });
         self.bitmap_dialog = if go || cancel || !open { None } else { Some(d) };
@@ -273,14 +274,14 @@ impl PainterApp {
     pub(crate) fn duotone_window(&mut self, ctx: &egui::Context) {
         let Some(mut d) = self.duotone_dialog.take() else { return };
         let (mut open, mut ok, mut cancel) = (true, false, false);
-        egui::Window::new("Duotone Options")
+        egui::Window::new(tr("Duotone Options"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Preset");
+                    ui.label(tr("Preset"));
                     egui::ComboBox::from_id_salt("duotone_preset").selected_text("Choose…").width(200.0).show_ui(ui, |ui| {
                         for (name, preset) in Duotone::presets() {
                             if ui.selectable_label(false, name).clicked() {
@@ -291,7 +292,7 @@ impl PainterApp {
                     });
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Type");
+                    ui.label(tr("Type"));
                     let mut count = d.duotone.inks.len();
                     for (n, name) in [(1, "Monotone"), (2, "Duotone"), (3, "Tritone"), (4, "Quadtone")] {
                         ui.selectable_value(&mut count, n, name);
@@ -307,14 +308,14 @@ impl PainterApp {
                         ui.horizontal(|ui| {
                             ui.label(format!("Ink {}", i + 1));
                             let open = d.curve_open == Some(i);
-                            if ui.add(curve_thumb(&ink.curve)).on_hover_text("Edit the ink's curve").clicked() {
+                            if ui.add(curve_thumb(&ink.curve)).on_hover_text(tr("Edit the ink's curve")).clicked() {
                                 d.curve_open = if open { None } else { Some(i) };
                             }
                             ui.color_edit_button_srgb(&mut ink.color);
                             ui.add(egui::TextEdit::singleline(&mut ink.name).desired_width(140.0));
                         });
                         if d.curve_open == Some(i) {
-                            ui.small("Grey's darkness (across) → how much of this ink (up)");
+                            ui.small(tr("Grey's darkness (across) → how much of this ink (up)"));
                             crate::curve::curve_editor(ui, &format!("duotone_curve_{i}"), &mut ink.curve);
                         }
                     });
@@ -333,11 +334,11 @@ impl PainterApp {
                 }
                 ui.painter().rect_stroke(rect, 0.0, egui::Stroke::new(1.0_f32, theme::line()), egui::StrokeKind::Inside);
                 if !self.doc.mode.is_gray() {
-                    ui.small("The image is made grey first; layers stay.");
+                    ui.small(tr("The image is made grey first; layers stay."));
                 }
                 ui.horizontal(|ui| {
-                    ok = ui.button("OK").clicked();
-                    cancel = ui.button("Cancel").clicked();
+                    ok = ui.button(tr("OK")).clicked();
+                    cancel = ui.button(tr("Cancel")).clicked();
                 });
             });
         if ok {
@@ -351,7 +352,7 @@ impl PainterApp {
     pub(crate) fn indexed_window(&mut self, ctx: &egui::Context) {
         let Some(mut d) = self.indexed_dialog else { return };
         let (mut open, mut ok, mut cancel) = (true, false, false);
-        egui::Window::new("Indexed Color")
+        egui::Window::new(tr("Indexed Color"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -359,17 +360,17 @@ impl PainterApp {
             .show(ctx, |ui| {
                 let o = &mut d.options;
                 egui::Grid::new("indexed_options").num_columns(2).spacing([10.0, 8.0]).show(ui, |ui| {
-                    ui.label("Palette");
-                    egui::ComboBox::from_id_salt("indexed_palette").selected_text(o.palette.name()).width(170.0).show_ui(ui, |ui| {
+                    ui.label(tr("Palette"));
+                    egui::ComboBox::from_id_salt("indexed_palette").selected_text(tr(o.palette.name())).width(170.0).show_ui(ui, |ui| {
                         for p in PaletteKind::ALL {
-                            ui.selectable_value(&mut o.palette, p, p.name());
+                            ui.selectable_value(&mut o.palette, p, tr(p.name()));
                         }
                     });
                     ui.end_row();
-                    ui.label("Colors");
+                    ui.label(tr("Colors"));
                     ui.add_enabled(o.palette.takes_count(), egui::DragValue::new(&mut o.colors).range(2..=256));
                     ui.end_row();
-                    ui.label("Forced");
+                    ui.label(tr("Forced"));
                     egui::ComboBox::from_id_salt("indexed_forced")
                         .selected_text(match o.forced {
                             Forced::None => "None",
@@ -377,15 +378,15 @@ impl PainterApp {
                             Forced::Primaries => "Primaries",
                         })
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut o.forced, Forced::None, "None");
-                            ui.selectable_value(&mut o.forced, Forced::BlackAndWhite, "Black and White");
-                            ui.selectable_value(&mut o.forced, Forced::Primaries, "Primaries");
+                            ui.selectable_value(&mut o.forced, Forced::None, tr("None"));
+                            ui.selectable_value(&mut o.forced, Forced::BlackAndWhite, tr("Black and White"));
+                            ui.selectable_value(&mut o.forced, Forced::Primaries, tr("Primaries"));
                         });
                     ui.end_row();
-                    ui.label("");
-                    ui.checkbox(&mut o.transparency, "Transparency").on_hover_text("Keep see-through pixels (else they become white)");
+                    ui.label(tr(""));
+                    ui.checkbox(&mut o.transparency, tr("Transparency")).on_hover_text(tr("Keep see-through pixels (else they become white)"));
                     ui.end_row();
-                    ui.label("Dither");
+                    ui.label(tr("Dither"));
                     egui::ComboBox::from_id_salt("indexed_dither")
                         .selected_text(match o.dither {
                             Dither::None => "None",
@@ -404,17 +405,17 @@ impl PainterApp {
                             }
                         });
                     ui.end_row();
-                    ui.label("Amount");
+                    ui.label(tr("Amount"));
                     let mut pct = o.amount * 100.0;
                     if ui.add_enabled(o.dither != Dither::None, egui::Slider::new(&mut pct, 1.0..=100.0).suffix(" %")).changed() {
                         o.amount = pct / 100.0;
                     }
                     ui.end_row();
                 });
-                ui.small("Layers are merged into one. Undo brings them back.");
+                ui.small(tr("Layers are merged into one. Undo brings them back."));
                 ui.horizontal(|ui| {
-                    ok = ui.button("OK").clicked();
-                    cancel = ui.button("Cancel").clicked();
+                    ok = ui.button(tr("OK")).clicked();
+                    cancel = ui.button(tr("Cancel")).clicked();
                 });
             });
         self.indexed_dialog = if ok || cancel || !open { None } else { Some(d) };
@@ -425,7 +426,7 @@ impl PainterApp {
 
     pub(crate) fn open_color_table(&mut self) {
         if self.doc.mode != ColorMode::Indexed || self.doc.palette.is_empty() {
-            self.status = "Color Table: for Indexed Color images (Edit > Mode > Indexed Color)".into();
+            self.status = tr("Color Table: for Indexed Color images (Edit > Mode > Indexed Color)").into();
             return;
         }
         let table = self.doc.palette.clone();
@@ -436,14 +437,14 @@ impl PainterApp {
     pub(crate) fn color_table_window(&mut self, ctx: &egui::Context) {
         let Some(mut d) = self.color_table.take() else { return };
         let (mut open, mut ok, mut cancel) = (true, false, false);
-        egui::Window::new("Color Table")
+        egui::Window::new(tr("Color Table"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Table");
+                    ui.label(tr("Table"));
                     egui::ComboBox::from_id_salt("color_table_preset").selected_text("Custom").show_ui(ui, |ui| {
                         let n = d.original.len();
                         // By position, as in Photoshop: colour i takes the table's colour i.
@@ -462,7 +463,7 @@ impl PainterApp {
                     });
                     #[cfg(not(any(target_os = "ios", target_os = "android")))]
                     {
-                        if ui.button("Load...").on_hover_text("A Photoshop colour table (.act)").clicked() {
+                        if ui.button(tr("Load...")).on_hover_text(tr("A Photoshop colour table (.act)")).clicked() {
                             if let Some(path) = rfd::FileDialog::new().add_filter("Color table", &["act"]).pick_file() {
                                 if let Ok(bytes) = std::fs::read(&path) {
                                     let colors: Vec<[u8; 3]> = bytes.as_chunks::<3>().0.iter().take(256).copied().collect();
@@ -471,7 +472,7 @@ impl PainterApp {
                                 }
                             }
                         }
-                        if ui.button("Save...").clicked() {
+                        if ui.button(tr("Save...")).clicked() {
                             if let Some(path) =
                                 rfd::FileDialog::new().add_filter("Color table", &["act"]).set_file_name("colors.act").save_file()
                             {
@@ -513,8 +514,8 @@ impl PainterApp {
                     });
                 }
                 ui.horizontal(|ui| {
-                    ok = ui.button("OK").clicked();
-                    cancel = ui.button("Cancel").clicked();
+                    ok = ui.button(tr("OK")).clicked();
+                    cancel = ui.button(tr("Cancel")).clicked();
                 });
             });
         if ok {
@@ -553,7 +554,7 @@ impl PainterApp {
 
     /// Edit → Mode.
     pub(crate) fn mode_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Mode", |ui| {
+        ui.menu_button(tr("Mode"), |ui| {
             for mode in ColorMode::ALL {
                 let asks = matches!(mode, ColorMode::Bitmap | ColorMode::Cmyk | ColorMode::Duotone | ColorMode::Indexed);
                 let label = if asks { format!("{}...", mode.name()) } else { mode.name().to_string() };
@@ -573,15 +574,15 @@ impl PainterApp {
                 }
             }
             ui.separator();
-            let _ = ui.radio(true, "8 Bits/Channel");
+            let _ = ui.radio(true, tr("8 Bits/Channel"));
             for bits in ["16 Bits/Channel", "32 Bits/Channel"] {
                 ui.add_enabled(false, egui::RadioButton::new(false, bits))
-                    .on_disabled_hover_text("Not yet: Painter paints and blends at 8 bits per channel");
+                    .on_disabled_hover_text(tr("Not yet: Painter paints and blends at 8 bits per channel"));
             }
             ui.separator();
             if ui
-                .add_enabled(self.doc.mode == ColorMode::Indexed, egui::Button::new("Color Table..."))
-                .on_disabled_hover_text("For Indexed Color images")
+                .add_enabled(self.doc.mode == ColorMode::Indexed, egui::Button::new(tr("Color Table...")))
+                .on_disabled_hover_text(tr("For Indexed Color images"))
                 .clicked()
             {
                 ui.close_menu();
@@ -589,11 +590,11 @@ impl PainterApp {
             }
             ui.separator();
             // Photoshop's Assign Profile: the colours' meaning in exports; pixels don't change.
-            ui.menu_button("Assign Profile", |ui| {
+            ui.menu_button(tr("Assign Profile"), |ui| {
                 use painter_core::color_profile::ColorProfile;
                 let choices: &[ColorProfile] = if self.doc.mode.is_gray() { &ColorProfile::GRAY } else { &ColorProfile::RGB };
                 for p in choices {
-                    if ui.radio(self.doc.profile == *p, p.name()).clicked() {
+                    if ui.radio(self.doc.profile == *p, tr(p.name())).clicked() {
                         self.doc.profile = *p;
                         self.dirty = true;
                         ui.close_menu();

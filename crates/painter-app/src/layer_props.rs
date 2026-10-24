@@ -10,6 +10,7 @@
 //! show on the canvas and in exports and turn off again (`painter_core::effects`).
 
 use std::collections::HashSet;
+use crate::i18n::tr;
 
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use painter_core::effects::{self, Border, BorderKind, DotShape, Expression, ExtractLine, ToneEffect};
@@ -84,6 +85,7 @@ fn effect_button(ui: &mut egui::Ui, effect: Effect, on: bool, hint: &str) -> boo
 
 /// A section title with a line after it, as the palette's group headers.
 fn section(ui: &mut egui::Ui, title: &str) {
+    let title = crate::i18n::tr_str(title);
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         ui.label(RichText::new(title).strong());
@@ -99,12 +101,12 @@ impl PainterApp {
     pub(crate) fn layer_properties_panel(&mut self, ui: &mut egui::Ui) {
         let id = self.doc.active;
         let Some(layer) = self.doc.find(id) else {
-            ui.label("No layer");
+            ui.label(tr("No layer"));
             return;
         };
         if !layer.has_pixels() {
             ui.label(RichText::new(format!("“{}”", layer.name)).strong());
-            ui.small("Effects and expression colour work on raster and vector layers.");
+            ui.small(tr("Effects and expression colour work on raster and vector layers."));
             return;
         }
         let dpi = self.doc.dpi.max(1) as f32;
@@ -149,29 +151,29 @@ impl PainterApp {
         if let Some(b) = &mut fx.border {
             section(ui, "Border effect");
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut b.kind, BorderKind::Edge, "Edge");
-                ui.selectable_value(&mut b.kind, BorderKind::Watercolor, "Watercolor edge");
+                ui.selectable_value(&mut b.kind, BorderKind::Edge, tr("Edge"));
+                ui.selectable_value(&mut b.kind, BorderKind::Watercolor, tr("Watercolor edge"));
             });
             grid(ui, "fx_border", &mut |ui| match b.kind {
                 BorderKind::Edge => {
-                    ui.label("Thickness of edge");
+                    ui.label(tr("Thickness of edge"));
                     ui.add(egui::Slider::new(&mut b.width, 1.0..=100.0).logarithmic(true).suffix(" px"));
                     ui.end_row();
-                    ui.label("Edge color");
+                    ui.label(tr("Edge color"));
                     ui.color_edit_button_srgb(&mut b.color);
                     ui.end_row();
                 }
                 BorderKind::Watercolor => {
-                    ui.label("Range");
+                    ui.label(tr("Range"));
                     ui.add(egui::Slider::new(&mut b.width, 1.0..=100.0).logarithmic(true).suffix(" px"));
                     ui.end_row();
-                    ui.label("Transparency");
+                    ui.label(tr("Transparency"));
                     crate::panels::percent_slider(ui, &mut b.transparency, "", 0.0..=100.0);
                     ui.end_row();
-                    ui.label("Darkness");
+                    ui.label(tr("Darkness"));
                     crate::panels::percent_slider(ui, &mut b.darkness, "", 0.0..=100.0);
                     ui.end_row();
-                    ui.label("Blur");
+                    ui.label(tr("Blur"));
                     ui.add(egui::Slider::new(&mut b.blur, 0.0..=30.0).suffix(" px"));
                     ui.end_row();
                 }
@@ -180,13 +182,13 @@ impl PainterApp {
         if let Some(e) = &mut fx.extract {
             section(ui, "Extract line");
             grid(ui, "fx_extract", &mut |ui| {
-                ui.label("Edge threshold");
+                ui.label(tr("Edge threshold"));
                 crate::panels::percent_slider(ui, &mut e.edge, "", 1.0..=100.0);
                 ui.end_row();
-                ui.label("Line width");
+                ui.label(tr("Line width"));
                 ui.add(egui::Slider::new(&mut e.width, 1.0..=20.0).suffix(" px"));
                 ui.end_row();
-                ui.label("Black fill");
+                ui.label(tr("Black fill"));
                 crate::panels::percent_slider(ui, &mut e.black, "", 0.0..=100.0);
                 ui.end_row();
             });
@@ -194,36 +196,36 @@ impl PainterApp {
         if let Some(t) = &mut fx.tone {
             section(ui, "Tone");
             grid(ui, "fx_tone", &mut |ui| {
-                ui.label("Frequency");
+                ui.label(tr("Frequency"));
                 // Lines per inch at the document's resolution.
                 let mut lpi = dpi / t.cell.max(1.0);
                 if ui.add(egui::Slider::new(&mut lpi, 5.0..=200.0).logarithmic(true).suffix(" lpi")).changed() {
                     t.cell = (dpi / lpi).max(2.0);
                 }
                 ui.end_row();
-                ui.label("Type of dot");
-                egui::ComboBox::from_id_salt("fx_dot").selected_text(t.dot.name()).show_ui(ui, |ui| {
+                ui.label(tr("Type of dot"));
+                egui::ComboBox::from_id_salt("fx_dot").selected_text(tr(t.dot.name())).show_ui(ui, |ui| {
                     for d in DotShape::ALL {
-                        ui.selectable_value(&mut t.dot, d, d.name());
+                        ui.selectable_value(&mut t.dot, d, tr(d.name()));
                     }
                 });
                 ui.end_row();
-                ui.label("Angle");
+                ui.label(tr("Angle"));
                 ui.add(egui::Slider::new(&mut t.angle, 0.0..=180.0).suffix("°"));
                 ui.end_row();
-                ui.label("Density");
+                ui.label(tr("Density"));
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut t.from_alpha, false, "Brightness");
-                    ui.selectable_value(&mut t.from_alpha, true, "Opacity");
+                    ui.selectable_value(&mut t.from_alpha, false, tr("Brightness"));
+                    ui.selectable_value(&mut t.from_alpha, true, tr("Opacity"));
                 });
                 ui.end_row();
-                ui.label("Color");
+                ui.label(tr("Color"));
                 ui.horizontal(|ui| {
                     let mut own = t.color.is_none();
-                    if ui.selectable_value(&mut own, true, "Image").clicked() {
+                    if ui.selectable_value(&mut own, true, tr("Image")).clicked() {
                         t.color = None;
                     }
-                    if ui.selectable_value(&mut own, false, "Set").clicked() && t.color.is_none() {
+                    if ui.selectable_value(&mut own, false, tr("Set")).clicked() && t.color.is_none() {
                         t.color = Some([0, 0, 0]);
                     }
                     if let Some(c) = &mut t.color {
@@ -231,35 +233,35 @@ impl PainterApp {
                     }
                 });
                 ui.end_row();
-                ui.label("");
-                ui.checkbox(&mut t.paper, "White paper between dots");
+                ui.label(tr(""));
+                ui.checkbox(&mut t.paper, tr("White paper between dots"));
                 ui.end_row();
             });
         }
         if let Some(c) = &mut tint {
             section(ui, "Layer color");
             ui.horizontal(|ui| {
-                ui.label("Color");
+                ui.label(tr("Color"));
                 ui.color_edit_button_srgb(c);
-                ui.small("On screen only");
+                ui.small(tr("On screen only"));
             });
         }
 
         section(ui, "Expression color");
         let expression_before = fx.expression;
-        egui::ComboBox::from_id_salt("fx_expression").selected_text(fx.expression.name()).width(160.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("fx_expression").selected_text(tr(fx.expression.name())).width(160.0).show_ui(ui, |ui| {
             for e in Expression::ALL {
-                ui.selectable_value(&mut fx.expression, e, e.name());
+                ui.selectable_value(&mut fx.expression, e, tr(e.name()));
             }
         });
         if fx.expression == Expression::Monochrome {
             ui.horizontal(|ui| {
-                ui.label("Display color");
-                ui.checkbox(&mut fx.show_black, "Black");
-                ui.checkbox(&mut fx.show_white, "White");
+                ui.label(tr("Display color"));
+                ui.checkbox(&mut fx.show_black, tr("Black"));
+                ui.checkbox(&mut fx.show_white, tr("White"));
             });
             ui.horizontal(|ui| {
-                ui.label("Threshold");
+                ui.label(tr("Threshold"));
                 crate::panels::percent_slider(ui, &mut fx.threshold, "", 1.0..=99.0);
             });
         }

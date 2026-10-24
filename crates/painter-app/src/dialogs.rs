@@ -1,6 +1,7 @@
 //! File → Import → From Scanner and File → Export → SVG dialogs.
 
 use std::thread::JoinHandle;
+use crate::i18n::tr;
 
 use eframe::egui::{self, Color32, Sense, Stroke, Vec2};
 use painter_core::{Layer, TileStore};
@@ -345,12 +346,12 @@ impl PainterApp {
         }
         dialog.show_page(ctx);
         let mut pick = false;
-        egui::Window::new("Import from Scanner or Camera").collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
+        egui::Window::new(tr("Import from Scanner or Camera")).collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
             ui.set_width(520.0);
             if let Some(job) = &dialog.job {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label(job.label());
+                    ui.label(tr(job.label()));
                 });
             }
             let busy = dialog.job.is_some();
@@ -358,21 +359,21 @@ impl PainterApp {
             ui.horizontal(|ui| {
                 if crate::scan_source::camera_supported()
                     && ui
-                        .add_enabled(!busy && !crate::scan_source::camera_active(), egui::Button::new("Scan with camera"))
-                        .on_hover_text("The camera finds the sheet and straightens it; take as many pages as you like")
+                        .add_enabled(!busy && !crate::scan_source::camera_active(), egui::Button::new(tr("Scan with camera")))
+                        .on_hover_text(tr("The camera finds the sheet and straightens it; take as many pages as you like"))
                         .clicked()
                 {
                     dialog.message.clear();
                     crate::scan_source::start_camera();
                 }
                 if ui
-                    .add_enabled(!busy, egui::Button::new("From photo or file..."))
-                    .on_hover_text("A photo or a scan of a page, cleaned up like a scan")
+                    .add_enabled(!busy, egui::Button::new(tr("From photo or file...")))
+                    .on_hover_text(tr("A photo or a scan of a page, cleaned up like a scan"))
                     .clicked()
                 {
                     pick = true;
                 }
-                if !dialog.pages.is_empty() && ui.add_enabled(!busy, egui::Button::new("Use a scanner")).on_hover_text("Forget these pages").clicked()
+                if !dialog.pages.is_empty() && ui.add_enabled(!busy, egui::Button::new(tr("Use a scanner"))).on_hover_text(tr("Forget these pages")).clicked()
                 {
                     dialog.pages.clear();
                     dialog.preview = None;
@@ -520,19 +521,19 @@ impl PainterApp {
         };
         let mut open = true;
         let mut export = false;
-        egui::Window::new("Export SVG").collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
+        egui::Window::new(tr("Export SVG")).collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
             ui.set_width(320.0);
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut dialog.active_layer_only, false, "Whole canvas");
-                ui.selectable_value(&mut dialog.active_layer_only, true, "Active layer");
+                ui.selectable_value(&mut dialog.active_layer_only, false, tr("Whole canvas"));
+                ui.selectable_value(&mut dialog.active_layer_only, true, tr("Active layer"));
             });
             ui.separator();
-            ui.label(egui::RichText::new("Raster tracing").strong());
+            ui.label(egui::RichText::new(tr("Raster tracing")).strong());
             let trace = &mut dialog.options.trace;
             ui.horizontal(|ui| {
-                ui.label("Ink from");
-                ui.selectable_value(&mut trace.source, ThresholdSource::Alpha, "Opacity");
-                ui.selectable_value(&mut trace.source, ThresholdSource::Luminance, "Darkness");
+                ui.label(tr("Ink from"));
+                ui.selectable_value(&mut trace.source, ThresholdSource::Alpha, tr("Opacity"));
+                ui.selectable_value(&mut trace.source, ThresholdSource::Luminance, tr("Darkness"));
             });
             let mut threshold = trace.threshold as f32;
             if prop_slider(ui, "Threshold", &mut threshold, 0.0..=254.0, "", 0, false) {
@@ -540,19 +541,19 @@ impl PainterApp {
             }
             prop_slider(ui, "Path simplification", &mut trace.simplify, 0.0..=4.0, " px", 2, false);
             prop_slider(ui, "Corner sensitivity", &mut trace.corner_angle, 10.0..=170.0, "°", 0, false);
-            ui.small("Turns sharper than this angle stay corners; lower is more angular.");
+            ui.small(tr("Turns sharper than this angle stay corners; lower is more angular."));
             prop_slider(ui, "Remove specks under", &mut trace.despeckle, 0.0..=200.0, " px²", 0, false);
             ui.separator();
-            ui.label(egui::RichText::new("Vector strokes").strong());
+            ui.label(egui::RichText::new(tr("Vector strokes")).strong());
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut dialog.options.strokes, StrokeMode::FilledOutline, "Pressure outline");
-                ui.selectable_value(&mut dialog.options.strokes, StrokeMode::Centerline, "Centre line");
+                ui.selectable_value(&mut dialog.options.strokes, StrokeMode::FilledOutline, tr("Pressure outline"));
+                ui.selectable_value(&mut dialog.options.strokes, StrokeMode::Centerline, tr("Centre line"));
             });
             ui.separator();
-            ui.checkbox(&mut dialog.options.include_paper, "Include paper as background");
-            ui.checkbox(&mut dialog.options.skip_hidden, "Skip hidden layers");
+            ui.checkbox(&mut dialog.options.include_paper, tr("Include paper as background"));
+            ui.checkbox(&mut dialog.options.skip_hidden, tr("Skip hidden layers"));
             ui.add_space(4.0);
-            export = ui.button("Export…").clicked();
+            export = ui.button(tr("Export…")).clicked();
         });
         if export {
             dialog.options.scope = if dialog.active_layer_only { ExportScope::Layer(self.doc.active) } else { ExportScope::Canvas };
@@ -600,11 +601,11 @@ fn scanner_controls(ui: &mut egui::Ui, dialog: &mut ScannerDialog, busy: bool) {
             ui.small(err.to_string());
         }
         if cfg!(target_os = "ios") {
-            ui.small("Network scanners (AirScan) on your Wi-Fi show up here; or type the scanner's address below, scan with the camera, or pick a photo of the page.");
+            ui.small(tr("Network scanners (AirScan) on your Wi-Fi show up here; or type the scanner's address below, scan with the camera, or pick a photo of the page."));
         } else if dialog.errors.is_empty() {
-            ui.small("Connect and switch on a scanner, then refresh; or pick a photo of the page.");
+            ui.small(tr("Connect and switch on a scanner, then refresh; or pick a photo of the page."));
         }
-        if ui.add_enabled(!busy, egui::Button::new("Look again")).clicked() {
+        if ui.add_enabled(!busy, egui::Button::new(tr("Look again"))).clicked() {
             crate::scan_source::find_network_scanners();
             dialog.refresh();
         }
@@ -617,7 +618,7 @@ fn scanner_controls(ui: &mut egui::Ui, dialog: &mut ScannerDialog, busy: bool) {
             ui.vertical(|ui| {
                 ui.set_width(220.0);
                 let names: Vec<String> = dialog.devices.iter().map(|d| format!("{} ({})", d.name, d.backend.name())).collect();
-                egui::ComboBox::from_label("Device").selected_text(&names[dialog.device]).show_ui(ui, |ui| {
+                egui::ComboBox::from_label(tr("Device")).selected_text(&names[dialog.device]).show_ui(ui, |ui| {
                     for (i, name) in names.iter().enumerate() {
                         ui.selectable_value(&mut dialog.device, i, name);
                     }
@@ -628,14 +629,14 @@ fn scanner_controls(ui: &mut egui::Ui, dialog: &mut ScannerDialog, busy: bool) {
                 } else if !caps.resolutions.contains(&dialog.settings.dpi) {
                     dialog.settings.dpi = caps.nearest_resolution(300).unwrap_or(300);
                 }
-                egui::ComboBox::from_label("Resolution").selected_text(format!("{} dpi", dialog.settings.dpi)).show_ui(ui, |ui| {
+                egui::ComboBox::from_label(tr("Resolution")).selected_text(format!("{} dpi", dialog.settings.dpi)).show_ui(ui, |ui| {
                     for dpi in &caps.resolutions {
                         ui.selectable_value(&mut dialog.settings.dpi, *dpi, format!("{dpi} dpi"));
                     }
                 });
-                egui::ComboBox::from_label("Mode").selected_text(dialog.settings.color_mode.name()).show_ui(ui, |ui| {
+                egui::ComboBox::from_label(tr("Mode")).selected_text(tr(dialog.settings.color_mode.name())).show_ui(ui, |ui| {
                     for mode in ColorMode::ALL.into_iter().filter(|m| caps.color_modes.contains(m)) {
-                        ui.selectable_value(&mut dialog.settings.color_mode, mode, mode.name());
+                        ui.selectable_value(&mut dialog.settings.color_mode, mode, tr(mode.name()));
                     }
                 });
                 ui.separator();
@@ -649,15 +650,15 @@ fn scanner_controls(ui: &mut egui::Ui, dialog: &mut ScannerDialog, busy: bool) {
     ui.separator();
     ui.add_enabled_ui(!busy, |ui| {
         ui.horizontal(|ui| {
-            if ui.button("Preview").clicked() {
+            if ui.button(tr("Preview")).clicked() {
                 dialog.message.clear();
                 dialog.start_preview();
             }
-            if ui.button("Scan and import").clicked() {
+            if ui.button(tr("Scan and import")).clicked() {
                 dialog.message.clear();
                 dialog.start_scan();
             }
-            if ui.button("Refresh devices").clicked() {
+            if ui.button(tr("Refresh devices")).clicked() {
                 dialog.refresh();
             }
         });
@@ -674,13 +675,13 @@ fn page_controls(ui: &mut egui::Ui, dialog: &mut ScannerDialog, busy: bool) {
                 ui.set_width(220.0);
                 let count = dialog.pages.len();
                 if count > 1 {
-                    egui::ComboBox::from_label("Page").selected_text(format!("{} of {count}", dialog.page + 1)).show_ui(ui, |ui| {
+                    egui::ComboBox::from_label(tr("Page")).selected_text(format!("{} of {count}", dialog.page + 1)).show_ui(ui, |ui| {
                         for i in 0..count {
                             ui.selectable_value(&mut dialog.page, i, format!("Page {}", i + 1));
                         }
                     });
                 }
-                egui::ComboBox::from_label("Paper").selected_text(PAGE_SIZES[dialog.paper].0).show_ui(ui, |ui| {
+                egui::ComboBox::from_label(tr("Paper")).selected_text(PAGE_SIZES[dialog.paper].0).show_ui(ui, |ui| {
                     for (i, (name, mm)) in PAGE_SIZES.iter().enumerate() {
                         ui.selectable_value(&mut dialog.paper, i, format!("{name}  ({:.0}×{:.0} mm)", mm[0], mm[1]));
                     }
@@ -699,15 +700,15 @@ fn page_controls(ui: &mut egui::Ui, dialog: &mut ScannerDialog, busy: bool) {
     ui.separator();
     ui.add_enabled_ui(!busy, |ui| {
         ui.horizontal(|ui| {
-            if ui.button("Import page").on_hover_text("As a new layer").clicked() {
+            if ui.button(tr("Import page")).on_hover_text(tr("As a new layer")).clicked() {
                 dialog.message.clear();
                 dialog.start_pages(false);
             }
-            if dialog.pages.len() > 1 && ui.button(format!("Import all {} pages", dialog.pages.len())).on_hover_text("One layer each, same crop and cleanup").clicked() {
+            if dialog.pages.len() > 1 && ui.button(format!("Import all {} pages", dialog.pages.len())).on_hover_text(tr("One layer each, same crop and cleanup")).clicked() {
                 dialog.message.clear();
                 dialog.start_pages(true);
             }
-            if ui.button("Remove page").clicked() {
+            if ui.button(tr("Remove page")).clicked() {
                 dialog.pages.remove(dialog.page);
                 dialog.page = dialog.page.min(dialog.pages.len().saturating_sub(1));
                 dialog.previewed = None;
@@ -723,10 +724,10 @@ fn page_controls(ui: &mut egui::Ui, dialog: &mut ScannerDialog, busy: bool) {
 /// A network (AirScan / eSCL) scanner by its address, for when it isn't found by itself.
 fn network_row(ui: &mut egui::Ui, dialog: &mut ScannerDialog, busy: bool) {
     ui.horizontal(|ui| {
-        ui.label("Address");
-        let field = ui.add(egui::TextEdit::singleline(&mut dialog.address).hint_text("192.168.1.30").desired_width(150.0));
+        ui.label(tr("Address"));
+        let field = ui.add(egui::TextEdit::singleline(&mut dialog.address).hint_text(tr("192.168.1.30")).desired_width(150.0));
         let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        if (ui.add_enabled(!busy, egui::Button::new("Add")).on_hover_text("A scanner on your network that scans over AirScan (eSCL)").clicked() || enter) && !busy {
+        if (ui.add_enabled(!busy, egui::Button::new(tr("Add"))).on_hover_text(tr("A scanner on your network that scans over AirScan (eSCL)")).clicked() || enter) && !busy {
             match scanner_io::add_address(&dialog.address) {
                 Ok(_) => {
                     dialog.message.clear();
@@ -749,7 +750,7 @@ fn cleanup_controls(ui: &mut egui::Ui, dialog: &mut ScannerDialog) {
     // How the page lies; the preview shows the result.
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
-        ui.label("Rotate");
+        ui.label(tr("Rotate"));
         let o = &mut dialog.orientation;
         if icon_button(ui, Icon::RotateLeft, 16.0, false, "Rotate 90° anticlockwise").clicked() {
             o.rotation = o.rotation.turned_ccw();
@@ -763,14 +764,14 @@ fn cleanup_controls(ui: &mut egui::Ui, dialog: &mut ScannerDialog) {
         }
     });
     ui.horizontal(|ui| {
-        ui.label("Flip");
-        ui.checkbox(&mut dialog.orientation.flip_horizontal, "horizontal");
-        ui.checkbox(&mut dialog.orientation.flip_vertical, "vertical");
+        ui.label(tr("Flip"));
+        ui.checkbox(&mut dialog.orientation.flip_horizontal, tr("horizontal"));
+        ui.checkbox(&mut dialog.orientation.flip_vertical, tr("vertical"));
     });
     ui.separator();
-    egui::ComboBox::from_label("Put it in").selected_text(dialog.oversize.label()).show_ui(ui, |ui| {
+    egui::ComboBox::from_label(tr("Put it in")).selected_text(tr(dialog.oversize.label())).show_ui(ui, |ui| {
         for o in Oversize::ALL {
-            ui.selectable_value(&mut dialog.oversize, o, o.label());
+            ui.selectable_value(&mut dialog.oversize, o, tr(o.label()));
         }
     });
     // How big the scan will be, from the device's bed and the crop, or the page in hand.
@@ -786,20 +787,20 @@ fn cleanup_controls(ui: &mut egui::Ui, dialog: &mut ScannerDialog) {
     if let Some(text) = expected.and_then(|(w, h, dpi)| size_warning((w, h), dpi, dialog.canvas, dialog.oversize)) {
         ui.colored_label(theme::warning(), text);
     }
-    ui.checkbox(&mut dialog.auto_contrast, "Auto contrast");
+    ui.checkbox(&mut dialog.auto_contrast, tr("Auto contrast"));
     let mut extract = dialog.line_art.is_some();
-    if ui.checkbox(&mut extract, "Extract line art (paper → transparent)").changed() {
+    if ui.checkbox(&mut extract, tr("Extract line art (paper → transparent)")).changed() {
         dialog.line_art = extract.then(LineArtOptions::default);
     }
     if let Some(line_art) = &mut dialog.line_art {
         prop_percent(ui, "Paper above", &mut line_art.paper, 0.0..=100.0);
         prop_percent(ui, "Solid ink below", &mut line_art.ink, 0.0..=100.0);
-        ui.checkbox(&mut line_art.keep_color, "Keep line colour");
+        ui.checkbox(&mut line_art.keep_color, tr("Keep line colour"));
     }
-    ui.checkbox(&mut dialog.panels, "Extract panels")
-        .on_hover_text("Rectangles drawn as frames become a layer each, in a Panels folder");
+    ui.checkbox(&mut dialog.panels, tr("Extract panels"))
+        .on_hover_text(tr("Rectangles drawn as frames become a layer each, in a Panels folder"));
     if dialog.panels {
-        ui.checkbox(&mut dialog.panels_rtl, "Right to left (manga order)");
+        ui.checkbox(&mut dialog.panels_rtl, tr("Right to left (manga order)"));
     }
 }
 
@@ -929,19 +930,19 @@ impl PainterApp {
         let (cw, ch) = self.doc.canvas();
         let mut open = true;
         let mut apply = false;
-        egui::Window::new("Image Size").collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
+        egui::Window::new(tr("Image Size")).collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
             ui.label(format!("Now {cw} × {ch} px, {} dpi", self.doc.dpi));
             ui.separator();
             let max = painter_core::MAX_CANVAS_SIZE;
             let (w0, h0) = (dialog.width, dialog.height);
             egui::Grid::new("image_size_grid").num_columns(2).show(ui, |ui| {
-                ui.label("Width");
+                ui.label(tr("Width"));
                 ui.add(egui::DragValue::new(&mut dialog.width).range(1..=max).suffix(" px"));
                 ui.end_row();
-                ui.label("Height");
+                ui.label(tr("Height"));
                 ui.add(egui::DragValue::new(&mut dialog.height).range(1..=max).suffix(" px"));
                 ui.end_row();
-                ui.label("Scale");
+                ui.label(tr("Scale"));
                 let mut percent = dialog.width as f32 / cw as f32 * 100.0;
                 if ui.add(egui::DragValue::new(&mut percent).range(1.0..=10_000.0).suffix(" %").max_decimals(1)).changed() {
                     dialog.width = ((cw as f32 * percent / 100.0).round() as u32).clamp(1, max);
@@ -964,9 +965,9 @@ impl PainterApp {
                     }
                 }
             });
-            ui.checkbox(&mut dialog.keep_ratio, "Keep proportions");
+            ui.checkbox(&mut dialog.keep_ratio, tr("Keep proportions"));
             ui.separator();
-            egui::ComboBox::from_label("Resampling").selected_text(filter_label(dialog.filter)).show_ui(ui, |ui| {
+            egui::ComboBox::from_label(tr("Resampling")).selected_text(filter_label(dialog.filter)).show_ui(ui, |ui| {
                 for f in transform_tools::Interpolation::ALL {
                     ui.selectable_value(&mut dialog.filter, f, filter_label(f));
                 }
@@ -980,7 +981,7 @@ impl PainterApp {
                     );
                 }
             }
-            ui.checkbox(&mut dialog.keep_print_size, "Keep the size on paper (the resolution changes)");
+            ui.checkbox(&mut dialog.keep_print_size, tr("Keep the size on paper (the resolution changes)"));
             if dialog.keep_print_size {
                 let dpi = (self.doc.dpi as f32 * dialog.width as f32 / cw as f32).round();
                 ui.small(format!("{dpi} dpi"));
@@ -988,7 +989,7 @@ impl PainterApp {
             ui.separator();
             ui.horizontal(|ui| {
                 let same = (dialog.width, dialog.height) == (cw, ch);
-                if ui.add_enabled(!same, egui::Button::new("Resize")).clicked() {
+                if ui.add_enabled(!same, egui::Button::new(tr("Resize"))).clicked() {
                     apply = true;
                 }
             });
@@ -1066,29 +1067,29 @@ impl PainterApp {
         let Some(mut prompt) = self.save_as_prompt.take() else { return };
         let mut open = true;
         let mut action = None;
-        egui::Window::new("Save As").collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
+        egui::Window::new(tr("Save As")).collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("Name");
+                ui.label(tr("Name"));
                 let field = ui.add(egui::TextEdit::singleline(&mut prompt.stem).desired_width(260.0));
                 if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     action = Some(false);
                 }
             });
-            egui::ComboBox::from_label("Format").selected_text(SAVE_FORMATS[prompt.format].0).show_ui(ui, |ui| {
+            egui::ComboBox::from_label(tr("Format")).selected_text(SAVE_FORMATS[prompt.format].0).show_ui(ui, |ui| {
                 for (i, (label, _)) in SAVE_FORMATS.iter().enumerate() {
                     ui.selectable_value(&mut prompt.format, i, *label);
                 }
             });
             if prompt.format != 0 {
-                ui.small("Krita and OpenRaster flatten masks and clipping into the pixels.");
+                ui.small(tr("Krita and OpenRaster flatten masks and clipping into the pixels."));
             }
-            ui.small("Saved in the Painter folder (Files app → On My iPad → Painter).");
+            ui.small(tr("Saved in the Painter folder (Files app → On My iPad → Painter)."));
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button("Save").clicked() {
+                if ui.button(tr("Save")).clicked() {
                     action = Some(false);
                 }
-                if ui.button("Save and copy to...").on_hover_text("Then choose where a copy goes: iCloud Drive, another folder or app").clicked() {
+                if ui.button(tr("Save and copy to...")).on_hover_text(tr("Then choose where a copy goes: iCloud Drive, another folder or app")).clicked() {
                     action = Some(true);
                 }
             });
@@ -1103,7 +1104,7 @@ impl PainterApp {
                     }
                     self.save_to(path);
                 }
-                None => self.status = "No folder to save into".into(),
+                None => self.status = tr("No folder to save into").into(),
             },
             None if open => self.save_as_prompt = Some(prompt),
             None => {}

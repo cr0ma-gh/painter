@@ -4,6 +4,7 @@
 //! selection) with one undo step.
 
 use std::sync::mpsc::{channel, Receiver};
+use crate::i18n::tr;
 use std::time::{Duration, Instant};
 
 use eframe::egui;
@@ -23,7 +24,7 @@ pub(crate) fn adjustment_editor(ui: &mut egui::Ui, a: &mut Adjustment) -> bool {
     let mut slider = |ui: &mut egui::Ui, v: &mut f32, range: std::ops::RangeInclusive<f32>, label: &str| {
         changed |= ui.add(egui::Slider::new(v, range).text(label)).changed();
     };
-    ui.label(egui::RichText::new(a.name()).strong());
+    ui.label(egui::RichText::new(tr(a.name())).strong());
     match a {
         Adjustment::BrightnessContrast { brightness, contrast } => {
             slider(ui, brightness, -1.0..=1.0, "Brightness");
@@ -41,7 +42,7 @@ pub(crate) fn adjustment_editor(ui: &mut egui::Ui, a: &mut Adjustment) -> bool {
         }
         Adjustment::ToneCurve { curve } => {
             changed |= curve_editor(ui, "tone_curve", curve);
-            if ui.small_button("Reset").clicked() {
+            if ui.small_button(tr("Reset")).clicked() {
                 *curve = PressureCurve::linear();
                 changed = true;
             }
@@ -60,26 +61,26 @@ pub(crate) fn adjustment_editor(ui: &mut egui::Ui, a: &mut Adjustment) -> bool {
             }
         }
         Adjustment::Posterize { levels } => {
-            changed |= ui.add(egui::Slider::new(levels, 2..=32).text("Levels")).changed();
+            changed |= ui.add(egui::Slider::new(levels, 2..=32).text(tr("Levels"))).changed();
         }
         Adjustment::Threshold { level } => slider(ui, level, 0.0..=1.0, "Threshold"),
         Adjustment::Invert => {
-            ui.small("Inverts the colours below.");
+            ui.small(tr("Inverts the colours below."));
         }
         Adjustment::GradientMap { from, to } => {
             ui.horizontal(|ui| {
-                ui.label("Shadows");
+                ui.label(tr("Shadows"));
                 changed |= ui.color_edit_button_srgb(from).changed();
-                ui.label("Highlights");
+                ui.label(tr("Highlights"));
                 changed |= ui.color_edit_button_srgb(to).changed();
-                if ui.small_button("Swap").clicked() {
+                if ui.small_button(tr("Swap")).clicked() {
                     std::mem::swap(from, to);
                     changed = true;
                 }
             });
         }
     }
-    ui.small("Changes the colours of the layers below. Clip it to a layer to correct only that one; paint its mask to limit it.");
+    ui.small(tr("Changes the colours of the layers below. Clip it to a layer to correct only that one; paint its mask to limit it."));
     changed
 }
 
@@ -199,24 +200,24 @@ impl PainterApp {
                 }
                 Filter::Noise { amount, monochrome, seed } => {
                     slider(ui, amount, 0.0..=1.0, "Amount");
-                    changed |= ui.checkbox(monochrome, "Monochrome").changed();
-                    if ui.small_button("New pattern").clicked() {
+                    changed |= ui.checkbox(monochrome, tr("Monochrome")).changed();
+                    if ui.small_button(tr("New pattern")).clicked() {
                         *seed = seed.wrapping_add(1);
                         changed = true;
                     }
                 }
             }
             ui.horizontal(|ui| {
-                changed |= ui.checkbox(&mut dialog.preview, "Preview").changed();
+                changed |= ui.checkbox(&mut dialog.preview, tr("Preview")).changed();
                 if dialog.job.is_some() {
                     ui.spinner();
-                    ui.weak("computing...");
+                    ui.weak(tr("computing..."));
                 }
             });
-            ui.small("Applies to the edited layer, inside the selection if there is one.");
+            ui.small(tr("Applies to the edited layer, inside the selection if there is one."));
             ui.horizontal(|ui| {
-                ok = ui.button("OK").clicked();
-                cancel = ui.button("Cancel").clicked();
+                ok = ui.button(tr("OK")).clicked();
+                cancel = ui.button(tr("Cancel")).clicked();
             });
         });
         if changed {

@@ -10,6 +10,7 @@
 //! changes; the main colour follows every drag.
 
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2};
+use crate::i18n::tr;
 use serde::{Deserialize, Serialize};
 
 use crate::app::PainterApp;
@@ -488,7 +489,7 @@ impl PainterApp {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(format!("{} · {}", space.name(), shape.name())).small());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.menu_button("☰", |ui| self.gamut_menu(ui)).response.on_hover_text("Colour model and shape");
+                ui.menu_button(tr("☰"), |ui| self.gamut_menu(ui)).response.on_hover_text(tr("Colour model and shape"));
             });
         });
 
@@ -578,15 +579,15 @@ impl PainterApp {
 
     /// The ☰ menu: colour model, and the shapes as thumbnails.
     fn gamut_menu(&mut self, ui: &mut egui::Ui) {
-        ui.label("Colour model");
+        ui.label(tr("Colour model"));
         ui.horizontal(|ui| {
             for m in ColorModel::ALL {
-                ui.radio_value(&mut self.colors.data.gamut_model, m, m.name());
+                ui.radio_value(&mut self.colors.data.gamut_model, m, tr(m.name()));
             }
         });
-        ui.small("HSI and HSY′ stretch saturation to the whole gamut; the triangle is always HSV.");
+        ui.small(tr("HSI and HSY′ stretch saturation to the whole gamut; the triangle is always HSV."));
         ui.separator();
-        ui.label("Shape");
+        ui.label(tr("Shape"));
         let model = self.colors.data.gamut_model;
         let scale = ui.ctx().pixels_per_point();
         let hsx = [self.gamut.hsx[0], 1.0, 0.5];
@@ -609,7 +610,7 @@ impl PainterApp {
                 };
                 let on = self.colors.data.gamut_shape == shape;
                 let button = egui::Button::image(egui::Image::new((id, size))).selected(on);
-                if ui.add(button).on_hover_text(shape.name()).clicked() {
+                if ui.add(button).on_hover_text(tr(shape.name())).clicked() {
                     self.colors.data.gamut_shape = shape;
                     ui.close_menu();
                 }

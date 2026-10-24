@@ -16,6 +16,7 @@
 //! Ctrl+Shift+V in place.
 
 use std::sync::Arc;
+use crate::i18n::tr;
 
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke, Vec2};
 use painter_core::{Document, Layer, LayerId, LayerKind, SelectionOp, TileStore};
@@ -144,7 +145,7 @@ impl PainterApp {
         // A file object moves whole (it's drawn again from its file on apply).
         let selection = if layer.file_object.is_some() { None } else { self.doc.selection.as_ref() };
         let Some(floating) = copy(&tiles, selection, canvas) else {
-            self.status = "Nothing to transform on this layer".into();
+            self.status = tr("Nothing to transform on this layer").into();
             self.transform_blocked = true;
             return;
         };
@@ -168,7 +169,7 @@ impl PainterApp {
             floating,
             gizmo: TransformGizmo::new(source),
         });
-        self.status = "Transform: drag the handles. Enter applies, Esc cancels".into();
+        self.status = tr("Transform: drag the handles. Enter applies, Esc cancels").into();
     }
 
     pub(crate) fn apply_transform(&mut self) {
@@ -210,7 +211,7 @@ impl PainterApp {
             return;
         };
         self.upload_plane(Plane::Color(session.layer));
-        self.status = "Transform cancelled".into();
+        self.status = tr("Transform cancelled").into();
         if self.tool == Tool::Transform {
             self.transform_blocked = true;
         }
@@ -372,12 +373,12 @@ impl PainterApp {
     /// later Ctrl+V reaches the app as a paste event).
     pub(crate) fn copy_selection(&mut self, cut: bool) -> Option<String> {
         let Some((id, tiles)) = self.active_raster() else {
-            self.status = "Copy works on raster layers".into();
+            self.status = tr("Copy works on raster layers").into();
             return None;
         };
         let selection = self.doc.selection.clone();
         let Some(floating) = copy(&tiles, selection.as_ref(), self.doc.canvas()) else {
-            self.status = "Nothing to copy".into();
+            self.status = tr("Nothing to copy").into();
             return None;
         };
         let label = format!("Painter selection {} × {} px", floating.width, floating.height);
@@ -409,7 +410,7 @@ impl PainterApp {
         } else if let Some(floating) = &self.clipboard {
             (floating.width, floating.height, floating.rgba.clone(), self.clipboard_dpi, "selection")
         } else {
-            self.status = "The clipboard has no picture: copy one (or a selection) first".into();
+            self.status = tr("The clipboard has no picture: copy one (or a selection) first").into();
             return;
         };
         if width > painter_core::MAX_CANVAS_SIZE || height > painter_core::MAX_CANVAS_SIZE {
@@ -436,7 +437,7 @@ impl PainterApp {
     /// Ctrl+V (centred in the view) / Ctrl+Shift+V (in place): a new layer.
     pub(crate) fn paste_selection(&mut self, in_place: bool) {
         let Some(mut floating) = self.clipboard.clone() else {
-            self.status = "Nothing copied yet".into();
+            self.status = tr("Nothing copied yet").into();
             return;
         };
         // From a document at another resolution: keep the size on paper.
@@ -593,9 +594,9 @@ impl PainterApp {
                             if let Some(session) = &mut self.transform {
                                 let mut changed = false;
                                 let mut mode = session.gizmo.mode;
-                                egui::ComboBox::from_id_salt("transform_mode").selected_text(mode.name()).show_ui(ui, |ui| {
+                                egui::ComboBox::from_id_salt("transform_mode").selected_text(tr(mode.name())).show_ui(ui, |ui| {
                                     for m in TransformMode::ALL {
-                                        ui.selectable_value(&mut mode, m, m.name());
+                                        ui.selectable_value(&mut mode, m, tr(m.name()));
                                     }
                                 });
                                 if mode != session.gizmo.mode {
@@ -605,33 +606,33 @@ impl PainterApp {
                                 let mut hud = session.gizmo.hud();
                                 let before = hud;
                                 ui.separator();
-                                ui.label("X");
+                                ui.label(tr("X"));
                                 ui.add(egui::DragValue::new(&mut hud.position[0]).speed(1.0).max_decimals(1));
-                                ui.label("Y");
+                                ui.label(tr("Y"));
                                 ui.add(egui::DragValue::new(&mut hud.position[1]).speed(1.0).max_decimals(1));
                                 let affine = matches!(session.gizmo.mode, TransformMode::ScaleRotate | TransformMode::Skew);
                                 ui.add_enabled_ui(affine, |ui| {
-                                    ui.label("W");
+                                    ui.label(tr("W"));
                                     ui.add(egui::DragValue::new(&mut hud.scale[0]).speed(0.5).suffix("%").max_decimals(1));
-                                    ui.label("H");
+                                    ui.label(tr("H"));
                                     ui.add(egui::DragValue::new(&mut hud.scale[1]).speed(0.5).suffix("%").max_decimals(1));
-                                    ui.label("Rotate");
+                                    ui.label(tr("Rotate"));
                                     ui.add(egui::DragValue::new(&mut hud.rotation).speed(0.5).suffix("°").max_decimals(1));
                                 });
                                 ui.separator();
-                                egui::ComboBox::from_id_salt("transform_filter").selected_text(hud.interpolation.name()).show_ui(
+                                egui::ComboBox::from_id_salt("transform_filter").selected_text(tr(hud.interpolation.name())).show_ui(
                                     ui,
                                     |ui| {
                                         for f in Interpolation::ALL {
-                                            ui.selectable_value(&mut hud.interpolation, f, f.name());
+                                            ui.selectable_value(&mut hud.interpolation, f, tr(f.name()));
                                         }
                                     },
                                 );
                                 // Pixel art: whole multiples, quarter turns, the pixel grid.
                                 let pixel = hud.interpolation == Interpolation::Nearest && session.gizmo.mode == TransformMode::ScaleRotate;
                                 if pixel {
-                                    ui.checkbox(&mut self.whole_pixels, "Whole pixels").on_hover_text(
-                                        "Scale by ×2, ×3… or ½, ⅓…, turn by quarter turns and stay on the pixel grid, so every pixel stays a square block",
+                                    ui.checkbox(&mut self.whole_pixels, tr("Whole pixels")).on_hover_text(
+                                        tr("Scale by ×2, ×3… or ½, ⅓…, turn by quarter turns and stay on the pixel grid, so every pixel stays a square block"),
                                     );
                                     for (label, k) in [("½", 0.5), ("×1", 1.0), ("×2", 2.0), ("×3", 3.0), ("×4", 4.0)] {
                                         if ui.small_button(label).on_hover_text(format!("Scale to {}%", k * 100.0)).clicked() {
@@ -659,7 +660,7 @@ impl PainterApp {
                                     session.revision += 1;
                                 }
                             } else if let Some(session) = &mut self.crop {
-                                ui.label("Aspect");
+                                ui.label(tr("Aspect"));
                                 for (name, aspect) in AspectRatio::presets() {
                                     if ui.selectable_label(session.crop.aspect == aspect, name).clicked() {
                                         session.crop.set_aspect(aspect);
@@ -670,9 +671,9 @@ impl PainterApp {
                                     AspectRatio::Ratio(w, h) => [w, h],
                                     AspectRatio::Free => [session.crop.rect[2].round(), session.crop.rect[3].round()],
                                 };
-                                ui.label("Custom");
+                                ui.label(tr("Custom"));
                                 let a = ui.add(egui::DragValue::new(&mut ratio[0]).range(1.0..=10_000.0).speed(0.2).max_decimals(0));
-                                ui.label(":");
+                                ui.label(tr(":"));
                                 let b = ui.add(egui::DragValue::new(&mut ratio[1]).range(1.0..=10_000.0).speed(0.2).max_decimals(0));
                                 if a.changed() || b.changed() {
                                     session.crop.set_aspect(AspectRatio::Ratio(ratio[0], ratio[1]));
@@ -682,13 +683,13 @@ impl PainterApp {
                                 ui.label(format!("{} × {} px", plan.size.0, plan.size.1));
                             }
                             ui.separator();
-                            if ui.button("Apply").on_hover_text("Enter").clicked() {
+                            if ui.button(tr("Apply")).on_hover_text(tr("Enter")).clicked() {
                                 action = Some("apply");
                             }
-                            if ui.button("Cancel").on_hover_text("Esc").clicked() {
+                            if ui.button(tr("Cancel")).on_hover_text(tr("Esc")).clicked() {
                                 action = Some("cancel");
                             }
-                            if ui.button("Reset").clicked() {
+                            if ui.button(tr("Reset")).clicked() {
                                 action = Some("reset");
                             }
                         });

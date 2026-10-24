@@ -5,6 +5,7 @@
 //! dragged from the Layers panel onto a tab are copied into that document.
 
 use eframe::egui::{self, Align, Align2, Key, Layout, Modifiers};
+use crate::i18n::tr;
 
 use super::layer_transfer::LayerDrag;
 use super::session_store::ClosePrompt;
@@ -128,8 +129,8 @@ impl PainterApp {
                                 }
                             }
                         });
-                        let x = ui.add(egui::Button::new(egui::RichText::new("x").small()).frame(false));
-                        if x.on_hover_text("Close (Ctrl+W)").clicked() {
+                        let x = ui.add(egui::Button::new(egui::RichText::new(tr("x")).small()).frame(false));
+                        if x.on_hover_text(tr("Close (Ctrl+W)")).clicked() {
                             close = Some(id);
                         }
                         ui.add_space(6.0);
@@ -164,7 +165,7 @@ impl PainterApp {
                                     }
                                 }
                                 if self.docs.slots.len() > 1 {
-                                    self.status = "Tabs with unsaved changes were kept open".into();
+                                    self.status = tr("Tabs with unsaved changes were kept open").into();
                                 }
                             }
                             _ => {}
@@ -182,7 +183,7 @@ impl PainterApp {
                                  documents in other tabs keep their pixels in RAM but not on the GPU.",
                             );
                         } else {
-                            ui.weak(text).on_hover_text("Memory used by the pixels of all open documents");
+                            ui.weak(text).on_hover_text(tr("Memory used by the pixels of all open documents"));
                         }
                     });
                 });
@@ -199,7 +200,7 @@ impl PainterApp {
                 self.docs.prompt = Some(ClosePrompt::Quit);
             } else {
                 self.docs.quit_after_saves = true;
-                self.status = "Finishing saves before closing...".into();
+                self.status = tr("Finishing saves before closing...").into();
             }
         }
         let Some(prompt) = self.docs.prompt else { return };
@@ -229,10 +230,10 @@ impl PainterApp {
                 if ui.button(save).clicked() {
                     choice = Some(0);
                 }
-                if ui.button("Don't Save").clicked() {
+                if ui.button(tr("Don't Save")).clicked() {
                     choice = Some(1);
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("Cancel")).clicked() {
                     choice = Some(2);
                 }
             });
@@ -257,7 +258,7 @@ impl PainterApp {
                 self.docs.prompt = None;
                 if self.save_all() {
                     self.docs.quit_after_saves = true;
-                    self.status = "Saving, then closing...".into();
+                    self.status = tr("Saving, then closing...").into();
                 }
             }
             (ClosePrompt::Quit, Some(1)) => {

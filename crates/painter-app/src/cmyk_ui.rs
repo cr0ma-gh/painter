@@ -4,6 +4,7 @@
 //! exports are CMYK files. See `painter_core::cmyk`.
 
 use std::path::PathBuf;
+use crate::i18n::tr;
 use std::sync::Arc;
 
 use eframe::egui::{self, Color32, RichText};
@@ -70,28 +71,28 @@ impl CmykDialog {
     /// The profile picker, intent and black point compensation; returns the setup when there's one.
     pub(crate) fn ui(&mut self, ui: &mut egui::Ui) {
         if self.profiles.is_empty() {
-            ui.label("No CMYK profile found on this computer.");
-            ui.small("Load one (.icc / .icm) from your printer or print shop, or from Adobe's or ECI's free downloads.");
+            ui.label(tr("No CMYK profile found on this computer."));
+            ui.small(tr("Load one (.icc / .icm) from your printer or print shop, or from Adobe's or ECI's free downloads."));
         } else {
             let shown = self.profiles.get(self.chosen).map_or("", |p| p.name.as_str()).to_string();
-            egui::ComboBox::from_label("Profile").selected_text(shown).width(260.0).show_ui(ui, |ui| {
+            egui::ComboBox::from_label(tr("Profile")).selected_text(shown).width(260.0).show_ui(ui, |ui| {
                 for (i, p) in self.profiles.iter().enumerate() {
                     ui.selectable_value(&mut self.chosen, i, &p.name).on_hover_text(p.path.display().to_string());
                 }
             });
         }
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
-        if ui.button("Load Profile...").on_hover_text("Copies a CMYK .icc profile into Painter's settings").clicked() {
+        if ui.button(tr("Load Profile...")).on_hover_text(tr("Copies a CMYK .icc profile into Painter's settings")).clicked() {
             if let Some(path) = rfd::FileDialog::new().add_filter("ICC profile", &["icc", "icm"]).pick_file() {
                 self.import(&path);
             }
         }
-        egui::ComboBox::from_label("Intent").selected_text(self.intent.name()).show_ui(ui, |ui| {
+        egui::ComboBox::from_label(tr("Intent")).selected_text(tr(self.intent.name())).show_ui(ui, |ui| {
             for i in CmykIntent::ALL {
-                ui.selectable_value(&mut self.intent, i, i.name());
+                ui.selectable_value(&mut self.intent, i, tr(i.name()));
             }
         });
-        ui.checkbox(&mut self.black_point, "Black point compensation");
+        ui.checkbox(&mut self.black_point, tr("Black point compensation"));
         if let Some(e) = &self.error {
             ui.colored_label(Color32::from_rgb(240, 120, 100), e);
         }
@@ -201,18 +202,18 @@ impl PainterApp {
     pub(crate) fn cmyk_window(&mut self, ctx: &egui::Context) {
         let Some(mut d) = self.cmyk_dialog.take() else { return };
         let (mut open, mut ok, mut cancel) = (true, false, false);
-        egui::Window::new("Convert to CMYK")
+        egui::Window::new(tr("Convert to CMYK"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
-                ui.label("Colours become what this press profile can print (Little CMS).");
+                ui.label(tr("Colours become what this press profile can print (Little CMS)."));
                 d.ui(ui);
-                ui.small("Layers stay; undo brings the colours back. PSD exports are CMYK files with the profile.");
+                ui.small(tr("Layers stay; undo brings the colours back. PSD exports are CMYK files with the profile."));
                 ui.horizontal(|ui| {
-                    ok = ui.add_enabled(d.setup().is_some(), egui::Button::new("OK")).clicked();
-                    cancel = ui.button("Cancel").clicked();
+                    ok = ui.add_enabled(d.setup().is_some(), egui::Button::new(tr("OK"))).clicked();
+                    cancel = ui.button(tr("Cancel")).clicked();
                 });
             });
         if ok {
@@ -234,8 +235,8 @@ impl PainterApp {
         let text = format!("C{} M{} Y{} K{}", ink[0], ink[1], ink[2], ink[3]);
         ui.label(RichText::new(text).monospace().small().color(theme::text_dim()));
         if off > 12 {
-            let warn = ui.add(egui::Button::new(RichText::new("⚠").color(Color32::from_rgb(240, 190, 90))).frame(false));
-            if warn.on_hover_text("Out of the press's gamut: it prints duller. Click to use the printable colour").clicked() {
+            let warn = ui.add(egui::Button::new(RichText::new(tr("⚠")).color(Color32::from_rgb(240, 190, 90))).frame(false));
+            if warn.on_hover_text(tr("Out of the press's gamut: it prints duller. Click to use the printable colour")).clicked() {
                 self.color = Color32::from_rgb(printable[0], printable[1], printable[2]).into();
             }
         }
