@@ -287,6 +287,16 @@ impl StrokeEngine {
     }
 }
 
+/// How far the tip lies down for a tilt (0 upright ..= 1 at 60° of lean).
+/// A normal grip (up to about 36° of lean) draws a plain line, as in Clip
+/// Studio; past it the side comes in, slowly at first, fully with the pen
+/// laid down.
+pub fn pencil_side(tilt: f32) -> f32 {
+    const GRIP: f32 = 0.6;
+    let t = ((tilt - GRIP) / (1.0 - GRIP)).clamp(0.0, 1.0);
+    t * t
+}
+
 /// The point mirrored from `p` through `centre` (for a curve's missing end neighbour).
 fn reflect(p: StrokePoint, centre: StrokePoint) -> StrokePoint {
     StrokePoint { x: 2.0 * centre.x - p.x, y: 2.0 * centre.y - p.y, ..centre }
@@ -537,14 +547,4 @@ mod tests {
         assert!(dabs.iter().all(|d| (d.thickness - 0.6).abs() < 1e-5), "thickness from 0.2 at no pressure to 1");
         assert!(dabs.iter().all(|d| (d.angle - 45.0).abs() < 1e-3), "half pressure = 1/8 turn");
     }
-}
-
-/// How far the tip lies down for a tilt (0 upright ..= 1 at 60° of lean).
-/// A normal grip (up to about 36° of lean) draws a plain line, as in Clip
-/// Studio; past it the side comes in, slowly at first, fully with the pen
-/// laid down.
-pub fn pencil_side(tilt: f32) -> f32 {
-    const GRIP: f32 = 0.6;
-    let t = ((tilt - GRIP) / (1.0 - GRIP)).clamp(0.0, 1.0);
-    t * t
 }
