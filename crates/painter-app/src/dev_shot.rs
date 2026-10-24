@@ -142,6 +142,18 @@ impl PainterApp {
                     self.open_color_table();
                     continue;
                 }
+                // `dev.scan_file:DPI:PATH`: an image file through the scanner import
+                // (a new document at full resolution), as if scanned at DPI.
+                if let Some((dpi, path)) = c.strip_prefix("dev.scan_file:").and_then(|r| r.split_once(':')) {
+                    if let (Ok(dpi), Ok(img)) = (dpi.parse::<u32>(), image::open(path)) {
+                        let img = img.to_rgba8();
+                        if let Ok(scan) = scanner_io::ScannedImage::new(img.width(), img.height(), dpi, img.into_raw()) {
+                            let oversize = self.new_scan_document(&scan);
+                            self.import_scan(&scan, oversize);
+                        }
+                    }
+                    continue;
+                }
                 // `dev.text_done`: ends the text editing (the balloon tool's settings show).
                 if c == "dev.text_done" {
                     self.finish_text();

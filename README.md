@@ -471,8 +471,10 @@ cargo run --release -p painter-app -- drawing.painter
   any number of pages; photos or scans as image files work everywhere. Pages
   get their resolution from the paper size picked (A4, A5, A3, B5, B4, Letter,
   postcard), share the crop and cleanup, and import one by one or all at once
-  (a layer each). A scan bigger than the canvas is fitted into it (scaled
-  down, centred), or enlarges the canvas, or is cut, as chosen; nothing is
+  (a layer each). Each scan opens as a new document at its own size and
+  resolution (as Photoshop opens scans), or goes on a layer here: fitted into
+  the canvas (scaled down, centred; the dialog says beforehand how much
+  resolution that loses), enlarging the canvas, or cut, as chosen; nothing is
   ever kept past the edge of the canvas. "Extract panels" finds the rectangles drawn as
   frames on the page (closed areas of paper surrounded by a frame line, so
   shapes inside drawings don't count) and imports each panel as its own

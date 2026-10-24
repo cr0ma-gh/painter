@@ -76,8 +76,11 @@ pub struct ScannerDialog {
     paper: usize,
     /// Which page the preview shows.
     previewed: Option<usize>,
-    /// What happens to a scan bigger than the canvas.
+    /// Where a scan goes: a new document, or a layer here (and what happens
+    /// when it's bigger than the canvas).
     oversize: Oversize,
+    /// The canvas a layer would go on, in pixels (for the size warning).
+    canvas: (u32, u32),
     /// A network scanner's address being typed in.
     address: String,
     /// Network scanners were found while a job ran: look again after it.
@@ -108,6 +111,7 @@ impl ScannerDialog {
             paper: 0,
             previewed: None,
             oversize: Oversize::default(),
+            canvas: (0, 0),
             address: String::new(),
             refresh_pending: false,
         };
@@ -316,6 +320,7 @@ impl PainterApp {
             return;
         };
         let mut open = true;
+        dialog.canvas = self.doc.canvas();
         let import = dialog.poll(ctx);
         // Pages from the iPad's document camera.
         let camera_pages = crate::scan_source::take_pages();
@@ -393,10 +398,12 @@ impl PainterApp {
         }
         let imported = !import.is_empty();
         for image in &import {
+            // Each scan (each page) its own document, or a layer in this one.
+            let oversize = if dialog.oversize == Oversize::NewDocument { self.new_scan_document(image) } else { dialog.oversize };
             if dialog.panels {
-                self.import_scan_panels(image, dialog.oversize, dialog.panels_rtl);
+                self.import_scan_panels(image, oversize, dialog.panels_rtl);
             } else {
-                self.import_scan(image, dialog.oversize);
+                self.import_scan(image, oversize);
             }
         }
         if import.len() > 1 {
@@ -438,6 +445,28 @@ impl PainterApp {
         }
         self.resync_gpu();
         self.status = format!("Imported {} panels, a layer each, in reading order", panels.len());
+    }
+
+    /// A new document the size and resolution of `image` (on white paper), for
+    /// the scan to go into; returns how to place it there. A scan past the
+    /// largest canvas is scaled down to it.
+    pub(crate) fn new_scan_document(&mut self, image: &ScannedImage) -> Oversize {
+        let max = painter_core::MAX_CANVAS_SIZE;
+        let (w, h) = (image.width.min(max), image.height.min(max));
+        let mut doc = painter_core::Document::new(w, h);
+        doc.dpi = image.dpi.max(1);
+        // Only the paper: the scan comes in as its own layer.
+        let empty = doc.active;
+        doc.delete_layers(&[empty]);
+        self.set_document(doc, None);
+        if self.doc.canvas() != (w, h) {
+            // No new tab (the current document couldn't be put aside): a layer
+            // here, the canvas grown to keep every pixel.
+            return Oversize::Enlarge;
+        }
+        let active = self.docs.active;
+        self.docs.slots[active].name = Some(format!("Scan {} dpi", image.dpi));
+        if image.width > max || image.height > max { Oversize::Fit } else { Oversize::Cut }
     }
 
     /// A cleaned-up scan as a new raster layer at the top-left of the canvas.
@@ -739,11 +768,24 @@ fn cleanup_controls(ui: &mut egui::Ui, dialog: &mut ScannerDialog) {
         ui.checkbox(&mut dialog.orientation.flip_vertical, "vertical");
     });
     ui.separator();
-    egui::ComboBox::from_label("If bigger than the canvas").selected_text(dialog.oversize.label()).show_ui(ui, |ui| {
+    egui::ComboBox::from_label("Put it in").selected_text(dialog.oversize.label()).show_ui(ui, |ui| {
         for o in Oversize::ALL {
             ui.selectable_value(&mut dialog.oversize, o, o.label());
         }
     });
+    // How big the scan will be, from the device's bed and the crop, or the page in hand.
+    let expected = match (dialog.devices.get(dialog.device), dialog.pages.get(dialog.page)) {
+        (_, Some(page)) => Some((page.width, page.height, page.dpi)),
+        (Some(d), None) if d.capabilities.bed_mm[0] > 0.0 => {
+            let a = dialog.crop.clamped();
+            let px = |mm: f32, k: f32| (mm * k / 25.4 * dialog.settings.dpi as f32).round() as u32;
+            Some((px(d.capabilities.bed_mm[0], a.width), px(d.capabilities.bed_mm[1], a.height), dialog.settings.dpi))
+        }
+        _ => None,
+    };
+    if let Some(text) = expected.and_then(|(w, h, dpi)| size_warning((w, h), dpi, dialog.canvas, dialog.oversize)) {
+        ui.colored_label(theme::warning(), text);
+    }
     ui.checkbox(&mut dialog.auto_contrast, "Auto contrast");
     let mut extract = dialog.line_art.is_some();
     if ui.checkbox(&mut extract, "Extract line art (paper → transparent)").changed() {
@@ -803,28 +845,52 @@ fn preview_area(ui: &mut egui::Ui, dialog: &mut ScannerDialog, hint: &str) {
     ui.painter().rect_stroke(crop, 0.0, Stroke::new(1.5_f32, theme::accent()), egui::StrokeKind::Middle);
 }
 
-/// What happens to a scan bigger than the canvas.
+/// Where a scan goes: its own document, or a layer here (and what happens
+/// when it's bigger than the canvas).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Oversize {
-    /// Scaled down to fit inside the canvas, centred.
+    /// A new document of the scan's size and resolution, as Photoshop opens scans.
     #[default]
+    NewDocument,
+    /// A layer here, scaled down to fit inside the canvas, centred (fewer pixels: a lower resolution).
     Fit,
-    /// The canvas grows to hold it.
+    /// A layer here; the canvas grows to hold it.
     Enlarge,
-    /// Placed at the top left; what is past the canvas is deleted.
+    /// A layer here at the top left; what is past the canvas is deleted.
     Cut,
 }
 
 impl Oversize {
-    const ALL: [Oversize; 3] = [Oversize::Fit, Oversize::Enlarge, Oversize::Cut];
+    const ALL: [Oversize; 4] = [Oversize::NewDocument, Oversize::Fit, Oversize::Enlarge, Oversize::Cut];
 
     fn label(self) -> &'static str {
         match self {
-            Oversize::Fit => "Fit it in the canvas",
-            Oversize::Enlarge => "Enlarge the canvas",
-            Oversize::Cut => "Cut what's outside",
+            Oversize::NewDocument => "New document (full resolution)",
+            Oversize::Fit => "Layer, fit in the canvas",
+            Oversize::Enlarge => "Layer, enlarge the canvas",
+            Oversize::Cut => "Layer, cut what's outside",
         }
     }
+}
+
+/// What a layer scan of `scan` px does to a canvas of `canvas` px with `oversize`,
+/// when it isn't simply placed: the warning the dialog shows.
+fn size_warning(scan: (u32, u32), dpi: u32, canvas: (u32, u32), oversize: Oversize) -> Option<String> {
+    let (w, h) = scan;
+    let (cw, ch) = canvas;
+    if oversize == Oversize::NewDocument || cw == 0 || (w <= cw && h <= ch) {
+        return None;
+    }
+    let size = format!("The scan is about {w} × {h} px; the canvas is {cw} × {ch} px");
+    Some(match oversize {
+        Oversize::Fit => {
+            let k = (cw as f32 / w as f32).min(ch as f32 / h as f32);
+            format!("{size}: it will be scaled to {:.0}%, about {:.0} dpi. Choose New document to keep every pixel.", k * 100.0, dpi as f32 * k)
+        }
+        Oversize::Cut => format!("{size}: what's past the canvas is cut."),
+        Oversize::Enlarge => format!("{size}: the canvas grows to hold it."),
+        Oversize::NewDocument => unreachable!(),
+    })
 }
 
 /// Premultiplied RGBA `w` × `h` scaled down (keeping its proportions) to fit
@@ -1048,6 +1114,19 @@ impl PainterApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scans_open_at_full_resolution_unless_asked() {
+        // The default is a new document: an A4 at 300 dpi keeps every pixel.
+        assert_eq!(Oversize::default(), Oversize::NewDocument);
+        let a4 = (2550, 3507);
+        assert!(size_warning(a4, 300, (1654, 2339), Oversize::NewDocument).is_none());
+        // Fit into a smaller canvas says how much resolution is lost, before scanning.
+        let w = size_warning(a4, 300, (1654, 2339), Oversize::Fit).unwrap();
+        assert!(w.contains("65%") && w.contains("195 dpi"), "{w}");
+        assert!(size_warning(a4, 300, (2550, 3507), Oversize::Fit).is_none(), "it fits: nothing to say");
+        assert!(size_warning(a4, 300, (1000, 1000), Oversize::Cut).unwrap().contains("cut"));
+    }
 
     #[test]
     fn fitting_keeps_proportions() {
