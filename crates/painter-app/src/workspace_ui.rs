@@ -265,6 +265,10 @@ impl PainterApp {
     /// Per-frame bookkeeping: the theme and the workspace shortcuts.
     pub(crate) fn workspace_frame(&mut self, ctx: &egui::Context) {
         self.apply_ui_scale(ctx);
+        // The system's light or dark mode picks the theme, when that's on.
+        if let Some(system) = ctx.input(|i| i.raw.system_theme) {
+            self.ws.themes.follow(system == egui::Theme::Dark);
+        }
         if self.ws.applied_theme != Some(self.ws.themes.revision) {
             theme::apply(ctx, self.ws.themes.current());
             self.ws.applied_theme = Some(self.ws.themes.revision);
@@ -1022,7 +1026,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 88] = [
+        let fixed: [FixedCommand; 89] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -1109,6 +1113,7 @@ impl PainterApp {
             ("view.ui_smaller", "Smaller Interface", C::View, "Ctrl -", &["scale", "zoom", "size", "resolution"], true),
             ("view.ui_reset", "Interface Size 100%", C::View, "Ctrl 0", &["scale", "zoom", "size", "resolution", "reset"], true),
             ("view.theme_editor", "Theme Editor...", C::View, "", &["colors", "colours", "dark", "light"], true),
+            ("view.theme_follow_system", "Theme Follows the System On / Off", C::View, "", &["dark mode", "light mode", "system theme", "appearance"], true),
             ("workspace.reset", "Reset Workspace Layout", C::Workspace, "", &["default layout"], true),
             ("workspace.duplicate", "New Workspace (copy of this one)", C::Workspace, "", &["custom layout"], true),
         ];
@@ -1267,6 +1272,10 @@ impl PainterApp {
                 }
             }
             "view.theme_editor" => self.ws.theme_editor = true,
+            "view.theme_follow_system" => {
+                self.ws.themes.follow_system = !self.ws.themes.follow_system;
+                self.ws.themes.seen_system = None;
+            }
             "workspace.reset" => self.ws.set.current_mut().reset(),
             "workspace.duplicate" => {
                 let name = format!("{} copy", self.ws.set.current().name);
@@ -1418,7 +1427,16 @@ impl PainterApp {
                 }
             });
             if let Some(i) = pick {
-                lib.select(i);
+                lib.choose(i);
+            }
+            // Light or dark with the system (a dark theme picked here is the one for dark mode).
+            let mut follow = lib.follow_system;
+            if ui.checkbox(&mut follow, tr("Follow the system's light or dark mode")).changed() {
+                lib.follow_system = follow;
+                lib.seen_system = None;
+            }
+            if lib.follow_system {
+                ui.small(format!("{} {} · {} {}", tr("Dark mode:"), lib.dark_theme, tr("Light mode:"), lib.light_theme));
             }
             let custom = lib.active >= 3;
             if custom {

@@ -398,6 +398,15 @@ impl PainterApp {
                         ui.close_menu();
                         self.ws.theme_editor = true;
                     }
+                    let mut follow = self.ws.themes.follow_system;
+                    if ui
+                        .checkbox(&mut follow, tr("Theme Follows the System"))
+                        .on_hover_text(tr("Light or dark with the system's mode; off: the theme stays as picked"))
+                        .changed()
+                    {
+                        self.ws.themes.follow_system = follow;
+                        self.ws.themes.seen_system = None;
+                    }
                     ui.menu_button(tr("Interface Size"), |ui| {
                         ui.set_min_width(220.0);
                         self.ui_scale_controls(ui);

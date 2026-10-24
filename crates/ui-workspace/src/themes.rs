@@ -315,11 +315,26 @@ pub struct ThemeLibrary {
     pub active: usize,
     /// Bumped on every change, so the app re-applies styles only when needed.
     pub revision: u64,
+    /// The system's light or dark mode picks the theme (on by default).
+    pub follow_system: bool,
+    /// The themes for the system's dark and light modes, by name.
+    pub dark_theme: String,
+    pub light_theme: String,
+    /// The system's mode last seen (`Some(true)`: dark): the theme follows only its changes.
+    pub seen_system: Option<bool>,
 }
 
 impl Default for ThemeLibrary {
     fn default() -> Self {
-        Self { themes: Theme::presets(), active: 0, revision: 0 }
+        Self {
+            themes: Theme::presets(),
+            active: 0,
+            revision: 0,
+            follow_system: true,
+            dark_theme: "Dark".into(),
+            light_theme: "Light".into(),
+            seen_system: None,
+        }
     }
 }
 
@@ -333,7 +348,14 @@ impl ThemeLibrary {
     pub fn edit(&mut self) -> &mut Theme {
         if self.active < PRESETS && self.themes[self.active] == Theme::preset(self.themes[self.active].base) {
             let mut copy = self.themes[self.active].clone();
-            copy.name = format!("{} (custom)", copy.name);
+            let custom = format!("{} (custom)", copy.name);
+            let original = std::mem::replace(&mut copy.name, custom);
+            // The copy takes the original's place for its mode.
+            for slot in [&mut self.dark_theme, &mut self.light_theme] {
+                if *slot == original {
+                    *slot = copy.name.clone();
+                }
+            }
             self.themes.push(copy);
             self.active = self.themes.len() - 1;
         }
@@ -349,11 +371,52 @@ impl ThemeLibrary {
         }
     }
 
-    /// The user's themes (presets aren't stored) and the active one's name.
+    /// A theme picked by hand: it becomes the one for its kind of mode (a dark
+    /// theme for dark mode, a light one for light mode).
+    pub fn choose(&mut self, index: usize) {
+        let Some(theme) = self.themes.get(index) else { return };
+        if theme.base.is_dark() {
+            self.dark_theme = theme.name.clone();
+        } else {
+            self.light_theme = theme.name.clone();
+        }
+        self.select(index);
+    }
+
+    /// Following the system: its mode's theme, if it isn't the one in use
+    /// already. Returns whether the theme changed.
+    pub fn follow(&mut self, system_dark: bool) -> bool {
+        // Only when the system's mode changes (or is first seen), so a theme
+        // picked or edited in between stays.
+        if !self.follow_system || self.seen_system == Some(system_dark) {
+            return false;
+        }
+        self.seen_system = Some(system_dark);
+        let (name, fallback) = if system_dark { (&self.dark_theme, ThemeBase::Dark) } else { (&self.light_theme, ThemeBase::Light) };
+        let wanted = self
+            .themes
+            .iter()
+            .position(|t| t.name == *name)
+            .or_else(|| self.themes.iter().position(|t| t.base == fallback))
+            .unwrap_or(0);
+        let before = self.revision;
+        self.select(wanted);
+        self.revision != before
+    }
+
+    /// The user's themes (presets aren't stored), the active one's name and
+    /// how the system's mode picks one.
     pub fn to_json(&self) -> String {
         let custom: Vec<serde_json::Value> =
             self.themes.iter().skip(PRESETS).filter_map(|t| serde_json::to_value(t).ok()).collect();
-        serde_json::json!({ "active": self.current().name, "themes": custom }).to_string()
+        serde_json::json!({
+            "active": self.current().name,
+            "themes": custom,
+            "follow_system": self.follow_system,
+            "dark_theme": self.dark_theme,
+            "light_theme": self.light_theme,
+        })
+        .to_string()
     }
 
     /// Restores [`Self::to_json`]; themes that don't read are skipped.
@@ -367,6 +430,18 @@ impl ThemeLibrary {
         }
         if let Some(name) = value.get("active").and_then(|a| a.as_str()) {
             lib.active = lib.themes.iter().position(|t| t.name == name).unwrap_or(0);
+        }
+        match value.get("follow_system").and_then(|v| v.as_bool()) {
+            Some(follow) => {
+                lib.follow_system = follow;
+                for (key, slot) in [("dark_theme", &mut lib.dark_theme), ("light_theme", &mut lib.light_theme)] {
+                    if let Some(name) = value.get(key).and_then(|v| v.as_str()) {
+                        *slot = name.to_string();
+                    }
+                }
+            }
+            // Settings from before this option: the theme in use stays the one for its mode.
+            None => lib.choose(lib.active),
         }
         lib
     }
@@ -402,6 +477,32 @@ mod tests {
         assert_eq!(Rgba::from_hex("#00000080").unwrap().0[3], 128);
         assert_eq!(Rgba([1, 2, 3, 4]).to_hex(), "#01020304");
         assert!((Rgba::gray(0).contrast(Rgba::gray(255)) - 21.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn the_systems_mode_picks_the_theme() {
+        let mut lib = ThemeLibrary::default();
+        assert!(lib.follow_system, "on by default");
+        assert!(lib.follow(false));
+        assert_eq!(lib.current().name, "Light");
+        assert!(!lib.follow(false), "already there");
+        assert!(lib.follow(true));
+        assert_eq!(lib.current().name, "Dark");
+        // Picking High Contrast by hand makes it the dark mode's theme.
+        lib.choose(2);
+        lib.follow(false);
+        lib.follow(true);
+        assert_eq!(lib.current().name, "High Contrast");
+        // Off: the system's mode changes nothing.
+        lib.follow_system = false;
+        assert!(!lib.follow(false));
+        // Saved and read back.
+        let back = ThemeLibrary::from_json(&lib.to_json());
+        assert_eq!((back.follow_system, back.dark_theme.as_str(), back.light_theme.as_str()), (false, "High Contrast", "Light"));
+        // Settings from before: following, with the theme in use kept for its mode.
+        let old = ThemeLibrary::from_json(r#"{"active":"High Contrast","themes":[]}"#);
+        assert!(old.follow_system);
+        assert_eq!(old.dark_theme, "High Contrast");
     }
 
     #[test]

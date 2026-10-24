@@ -303,7 +303,10 @@ cargo run --release -p painter-app -- drawing.painter
   palette (menus, tools, brushes, workspaces, themes); Tab or F11 toggles zen
   mode (canvas only; floating panels stay). Window â Theme Editor edits colours, text size and
   rounding with contrast warnings; dark, light and high-contrast presets,
-  themes import and export as JSON. All of it is saved between sessions.
+  themes import and export as JSON. The theme follows the system's light or
+  dark mode (a dark theme picked is the one for dark mode, a light one for
+  light mode); View → Theme Follows the System turns that off. All of it is
+  saved between sessions.
 - **Reference board** (Reference View, like PureRef): pictures dropped on it,
   pasted (Ctrl+V), added from files, or live pictures of other open
   documents, laid out freely: move, scale from a corner, turn from the handle

@@ -83,6 +83,9 @@ pub fn apply(ctx: &egui::Context, theme: &Theme) {
         *c = theme.colors;
     }
     DARK.store(theme.base.is_dark(), Ordering::Relaxed);
+    // egui keeps a style for each of its light and dark modes and would switch
+    // to its own when the system's changes: Painter's theme decides instead.
+    ctx.set_theme(if theme.base.is_dark() { egui::Theme::Dark } else { egui::Theme::Light });
     ctx.set_visuals(visuals(theme));
     let body = theme.font_size;
     ctx.style_mut(|style| {
