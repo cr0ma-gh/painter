@@ -1,4 +1,5 @@
-//! The document tabs above the areas: name, `*` for unsaved changes, a
+//! The document tabs above the areas: name, zoom, active layer and colour
+//! mode as in Photoshop ("Untitled 1 @ 50% (Layer 1, RGB/8)"), `*` for unsaved changes, a
 //! close button, documents still loading, and how much memory the open
 //! documents take. Ctrl+W closes, Ctrl+Tab / Ctrl+Shift+Tab cycle. Layers
 //! dragged from the Layers panel onto a tab are copied into that document.
@@ -56,6 +57,18 @@ impl PainterApp {
         }
     }
 
+    /// What a tab says, as Photoshop's document tabs: the name, the zoom, the
+    /// active layer and the colour mode ("Untitled 1 @ 50% (Layer 1, RGB/8) *").
+    pub(crate) fn tab_label(&self, i: usize) -> String {
+        let (doc, zoom) = match &self.docs.slots[i].parked {
+            Some(s) => (&s.doc, s.view.zoom),
+            None => (&self.doc, self.view.zoom),
+        };
+        let layer = doc.find(doc.active).map(|l| format!("{}, ", l.name)).unwrap_or_default();
+        let dirty = if self.slot_dirty(i) { " *" } else { "" };
+        format!("{} @ {:.0}% ({layer}{}){dirty}", self.tab_title(i), zoom * 100.0, doc.mode.short())
+    }
+
     pub(crate) fn document_tabs_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("document_tabs")
             .frame(egui::Frame::new().fill(theme::title()).inner_margin(egui::Margin::symmetric(6, 2)))
@@ -69,9 +82,7 @@ impl PainterApp {
                     for i in 0..self.docs.slots.len() {
                         let id = self.docs.slots[i].id;
                         let active = i == self.docs.active;
-                        let dirty = self.slot_dirty(i);
-                        let title = format!("{}{}", self.tab_title(i), if dirty { " *" } else { "" });
-                        let tab = ui.selectable_label(active, title);
+                        let tab = ui.selectable_label(active, self.tab_label(i));
                         let tab = match &self.docs.slots[i].parked {
                             Some(s) => tab.on_hover_text(format!(
                                 "{} × {} px, {} dpi{}",
