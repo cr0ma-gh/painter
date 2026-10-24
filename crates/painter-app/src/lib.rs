@@ -75,6 +75,8 @@ mod widgets;
 #[cfg(windows)]
 mod win_print;
 #[cfg(windows)]
+mod win_alt_space;
+#[cfg(windows)]
 mod wintab;
 mod workspace_ui;
 

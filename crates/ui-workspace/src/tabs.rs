@@ -94,9 +94,9 @@ impl WorkspaceKind {
     pub fn tools(self) -> Option<Vec<String>> {
         let list: &[&str] = match self {
             WorkspaceKind::Painting | WorkspaceKind::Compositing => return None,
-            WorkspaceKind::Inking => &["brush", "eraser", "fill", "shape", "select", "transform", "ruler", "hand"],
-            WorkspaceKind::Scene3D => &["scene3d", "transform", "hand", "select"],
-            WorkspaceKind::Comic => &["frame", "brush", "eraser", "fill", "shape", "select", "transform", "ruler", "hand", "crop"],
+            WorkspaceKind::Inking => &["brush", "eraser", "fill", "shape", "select", "transform", "ruler", "hand", "zoom", "rotate"],
+            WorkspaceKind::Scene3D => &["scene3d", "transform", "hand", "zoom", "rotate", "select"],
+            WorkspaceKind::Comic => &["frame", "brush", "eraser", "fill", "shape", "select", "transform", "ruler", "hand", "zoom", "rotate", "crop"],
         };
         Some(list.iter().map(|s| s.to_string()).collect())
     }

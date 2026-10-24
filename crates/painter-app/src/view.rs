@@ -7,6 +7,24 @@ use painter_render::ViewUniform;
 
 pub const MIN_ZOOM: f32 = 0.01;
 pub const MAX_ZOOM: f32 = 64.0;
+/// Degrees a rotation key turns the view (Clip Studio's default).
+pub const ROTATE_STEP: f32 = 5.0;
+
+/// The zoom levels the Zoom tool and the zoom keys step through.
+const ZOOM_LEVELS: [f32; 27] = [
+    0.01, 0.015, 0.02, 0.03, 0.04, 0.05, 0.0625, 0.083, 0.1, 0.125, 0.167, 0.25, 0.333, 0.5, 0.667, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0,
+    8.0, 12.0, 16.0, 24.0, 32.0, 64.0,
+];
+
+/// The next level above (or below) `zoom`.
+pub fn zoom_step(zoom: f32, up: bool) -> f32 {
+    let next = if up {
+        ZOOM_LEVELS.iter().find(|z| **z > zoom * 1.001)
+    } else {
+        ZOOM_LEVELS.iter().rev().find(|z| **z < zoom / 1.001)
+    };
+    next.copied().unwrap_or(if up { MAX_ZOOM } else { MIN_ZOOM })
+}
 
 /// `screen = rect.center + R(rotation) · F · (doc − doc_size/2) · zoom + pan`,
 /// where F mirrors x when the view is flipped.
@@ -95,6 +113,15 @@ fn rotate(v: Vec2, angle: f32) -> Vec2 {
 mod tests {
     use super::*;
     use eframe::egui::pos2;
+
+    #[test]
+    fn zoom_steps_walk_the_levels() {
+        assert_eq!(zoom_step(1.0, true), 1.5);
+        assert_eq!(zoom_step(1.0, false), 0.667);
+        assert_eq!(zoom_step(1.2, false), 1.0, "from between two levels, the nearer one below");
+        assert_eq!(zoom_step(64.0, true), MAX_ZOOM);
+        assert_eq!(zoom_step(0.01, false), MIN_ZOOM);
+    }
 
     #[test]
     fn round_trips_and_pins_zoom_anchor() {

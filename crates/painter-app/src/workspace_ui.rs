@@ -1,7 +1,7 @@
 //! The window around the canvas, after Blender: workspace tabs along the
 //! top, the rest of the window split into areas (each with an editor-type
 //! menu, tabs and split / close commands, borders dragged to resize), the
-//! command palette (F3 or Ctrl+Space), zen mode (Tab or F11) and the theme
+//! command palette (F3), zen mode (Tab or F11) and the theme
 //! editor. The layout model lives in the `ui_workspace` crate; this module
 //! draws it with egui and maps editor types to the app's panels.
 
@@ -277,7 +277,7 @@ impl PainterApp {
             return;
         }
         let (palette, zen) = ctx.input_mut(|i| {
-            let palette = i.consume_key(Modifiers::NONE, Key::F3) || i.consume_key(Modifiers::COMMAND, Key::Space);
+            let palette = i.consume_key(Modifiers::NONE, Key::F3);
             let zen = i.consume_key(Modifiers::NONE, Key::F11) || i.consume_key(Modifiers::NONE, Key::Tab);
             (palette, zen)
         });
@@ -291,7 +291,7 @@ impl PainterApp {
 
     /// The interface size: everything (text, icons, panels, lines) scales
     /// together, like Blender's Resolution Scale. iPadOS starts a step
-    /// larger for fingers. egui's own Ctrl + / Ctrl − / Ctrl 0 change it too.
+    /// larger for fingers. (Ctrl + / Ctrl − / Ctrl 0 zoom the canvas instead.)
     fn apply_ui_scale(&mut self, ctx: &egui::Context) {
         let base = if crate::MOBILE { 1.25 } else { 1.0 };
         let (lo, hi) = UI_SCALE_RANGE;
@@ -478,7 +478,7 @@ impl PainterApp {
                         if glyph_button(ui, Glyph::FullScreen, size, "Zen mode: only the canvas (Tab or F11)").clicked() {
                             self.toggle_zen();
                         }
-                        if glyph_button(ui, Glyph::Search, size, "Command palette (F3 or Ctrl+Space)").clicked() {
+                        if glyph_button(ui, Glyph::Search, size, "Command palette (F3)").clicked() {
                             self.open_palette();
                         }
                         let scale = glyph_button(ui, Glyph::Scale, size, "Interface size (Ctrl + / Ctrl − / Ctrl 0)");
@@ -1026,7 +1026,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 89] = [
+        let fixed: [FixedCommand; 91] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -1080,10 +1080,12 @@ impl PainterApp {
             ("layer.add_mask", "Add Layer Mask", C::Layer, "", &[], !has_mask),
             ("layer.delete_mask", "Delete Layer Mask", C::Layer, "", &[], has_mask),
             ("layer.delete", "Delete Layer", C::Layer, "", &["remove layer"], true),
-            ("view.fit", "Fit to Window", C::View, "0", &["zoom"], true),
+            ("view.fit", "Fit to Window", C::View, "Ctrl+0", &["zoom"], true),
+            ("view.zoom_in", "Zoom In", C::View, "Ctrl+NumPad+", &["zoom", "scale up", "magnify"], true),
+            ("view.zoom_out", "Zoom Out", C::View, "Ctrl+NumPad-", &["zoom", "scale down"], true),
             ("view.actual", "Actual Pixels (100%)", C::View, "", &["zoom 100"], true),
-            ("view.rotate_left", "Rotate View Left", C::View, ",", &["turn"], true),
-            ("view.rotate_right", "Rotate View Right", C::View, ".", &["turn"], true),
+            ("view.rotate_left", "Rotate View Left", C::View, "-", &["turn"], true),
+            ("view.rotate_right", "Rotate View Right", C::View, "^", &["turn"], true),
             ("view.reset_rotation", "Reset Rotation", C::View, "", &[], true),
             ("view.tool_strip", "Show Tool Strip", C::View, "", &["toolbar", "tools", "hide", "left"], true),
             ("view.command_bar", "Show Command Bar", C::View, "", &["toolbar", "icons", "hide", "top"], true),
@@ -1228,8 +1230,10 @@ impl PainterApp {
             "layer.delete" => self.delete_active_layer(),
             "view.fit" => self.fit_pending = true,
             "view.actual" => self.view.set_zoom(1.0),
-            "view.rotate_left" => self.view.set_rotation(self.view.rotation - 15f32.to_radians()),
-            "view.rotate_right" => self.view.set_rotation(self.view.rotation + 15f32.to_radians()),
+            "view.rotate_left" => self.rotate_view_step(-1.0),
+            "view.zoom_in" => self.zoom_view_step(true),
+            "view.zoom_out" => self.zoom_view_step(false),
+            "view.rotate_right" => self.rotate_view_step(1.0),
             "view.tool_strip" => self.ws.bars.tool_strip = !self.ws.bars.tool_strip,
             "view.command_bar" => self.ws.bars.command_bar = !self.ws.bars.command_bar,
             "file.quit" => self.quit_requested = true,

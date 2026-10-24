@@ -887,7 +887,49 @@ impl PainterApp {
             }
             Tool::Hand => {
                 widgets::group_header(ui, Icon::Move, tr("Hand"));
-                ui.label(tr("Drag to pan. Wheel zooms, , and . rotate, 0 fits."));
+                ui.label(tr("Drag to pan. Wheel zooms, Shift + wheel rotates, Ctrl + 0 fits."));
+                ui.label(tr("Hold Space for the hand with any tool."));
+            }
+            Tool::Zoom => {
+                widgets::group_header(ui, Icon::Zoom, tr("Zoom"));
+                ui.label(tr("Click zooms in, Alt + click zooms out. Drag right to zoom in, left to zoom out."));
+                ui.label(tr("With any tool: Ctrl + Space + click zooms in, Alt + Space + click zooms out."));
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button(tr("Zoom In")).clicked() {
+                        self.zoom_view_step(true);
+                    }
+                    if ui.button(tr("Zoom Out")).clicked() {
+                        self.zoom_view_step(false);
+                    }
+                    if ui.button(tr("Fit to Window")).clicked() {
+                        self.fit_pending = true;
+                    }
+                    if ui.button("100%").clicked() {
+                        self.view.set_zoom(1.0);
+                    }
+                });
+                ui.label(format!("{:.1}%", self.view.zoom * 100.0));
+            }
+            Tool::Rotate => {
+                widgets::group_header(ui, Icon::RotateRight, tr("Rotate View"));
+                ui.label(tr("Drag round the centre to turn the view."));
+                ui.label(tr("With any tool: Shift + Space + drag, or Shift + wheel. - and ^ turn by 5°."));
+                let mut degrees = self.view.rotation.to_degrees();
+                if ui.add(egui::Slider::new(&mut degrees, -180.0..=180.0).suffix("°")).changed() {
+                    self.view.set_rotation(degrees.to_radians());
+                }
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button(tr("Rotate View Left")).clicked() {
+                        self.rotate_view_step(-1.0);
+                    }
+                    if ui.button(tr("Rotate View Right")).clicked() {
+                        self.rotate_view_step(1.0);
+                    }
+                    if ui.button(tr("Reset Rotation")).clicked() {
+                        self.view.set_rotation(0.0);
+                    }
+                });
+                ui.checkbox(&mut self.view.flip, tr("Flip Horizontally"));
             }
         }
     }

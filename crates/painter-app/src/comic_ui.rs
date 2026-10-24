@@ -284,7 +284,7 @@ impl PainterApp {
             (
                 i.key_pressed(egui::Key::Enter),
                 i.key_pressed(egui::Key::Escape),
-                i.key_pressed(egui::Key::U) && !i.modifiers.command && !i.modifiers.alt,
+                i.key_pressed(egui::Key::U) && !i.modifiers.command && !i.modifiers.alt && !i.modifiers.shift,
             )
         });
         if u {

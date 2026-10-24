@@ -218,6 +218,8 @@ pub struct PainterApp {
     pub(crate) chip_picker: Option<crate::chip_picker::ChipPicker>,
     /// Hold-E eraser: the tool and brush to return to, and when E went down.
     pub(crate) spring_eraser: Option<(Tool, usize, std::time::Instant)>,
+    /// H, R or / held: the tool before, the tool held, its key and when.
+    pub(crate) spring_tool: Option<(Tool, Tool, egui::Key, std::time::Instant)>,
     /// The name of the command running this frame, for the undo step it makes (History panel).
     pub(crate) next_label: Option<String>,
     /// A guide being pulled out of the ruler bar.
@@ -313,6 +315,8 @@ pub struct PainterApp {
 impl PainterApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
+        // Ctrl + / Ctrl − / Ctrl 0 zoom the canvas (as in Clip Studio), not the interface.
+        cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         crate::text_tool::load_fonts();
         crate::text_tool::install_symbol_fallback(&cc.egui_ctx);
         let gpu_ready = match &cc.wgpu_render_state {
@@ -416,6 +420,7 @@ impl PainterApp {
             confirm_brush_reset: false,
             chip_picker: None,
             spring_eraser: None,
+            spring_tool: None,
             next_label: None,
             guide_pull: None,
             dev_shot: crate::dev_shot::DevShot::new(),
@@ -1785,6 +1790,9 @@ impl eframe::App for PainterApp {
         {
             use raw_window_handle::{HasWindowHandle, RawWindowHandle};
             if let Ok(RawWindowHandle::Win32(h)) = frame.window_handle().map(|w| w.as_raw()) {
+                if self.hwnd != h.hwnd.get() {
+                    crate::win_alt_space::install(h.hwnd.get());
+                }
                 self.hwnd = h.hwnd.get();
             }
         }

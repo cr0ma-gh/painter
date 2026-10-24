@@ -41,6 +41,10 @@ pub enum Tool {
     /// Text and balloons on vector layers.
     Text(crate::text_tool::TextKind),
     Hand,
+    /// Zoom: a click zooms in, Alt + click out; a drag right or left zooms in or out (Clip Studio's).
+    Zoom,
+    /// Rotates the view: drag round the canvas centre.
+    Rotate,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,7 +61,7 @@ pub enum SelectShape {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 23] = [
+    pub const ALL: [Tool; 25] = [
         Tool::Brush,
         Tool::Stamp(StampKind::Clone),
         Tool::Stamp(StampKind::Pattern),
@@ -81,11 +85,13 @@ impl Tool {
         Tool::Ruler,
         Tool::VectorEdit,
         Tool::Hand,
+        Tool::Zoom,
+        Tool::Rotate,
     ];
 
     /// The tools by command id (`tool.N`): only ever appended to, so saved
     /// toolbar buttons and recent commands keep pointing at the same tool.
-    pub const COMMANDS: [Tool; 23] = [
+    pub const COMMANDS: [Tool; 25] = [
         Tool::Brush,
         Tool::Fill,
         Tool::Gradient,
@@ -109,6 +115,8 @@ impl Tool {
         Tool::Select(SelectShape::Object),
         Tool::Text(TextKind::Text),
         Tool::Text(TextKind::Balloon),
+        Tool::Zoom,
+        Tool::Rotate,
     ];
 
     pub fn icon(self) -> Icon {
@@ -136,6 +144,8 @@ impl Tool {
             Tool::Stamp(StampKind::Pattern) => Icon::PatternStamp,
             Tool::Stamp(StampKind::History) => Icon::HistoryBrush,
             Tool::Hand => Icon::Move,
+            Tool::Zoom => Icon::Zoom,
+            Tool::Rotate => Icon::RotateRight,
         }
     }
 
@@ -160,6 +170,8 @@ impl Tool {
             Tool::Stamp(StampKind::Pattern) => "pattern_stamp",
             Tool::Stamp(StampKind::History) => "history_brush",
             Tool::Hand => "hand",
+            Tool::Zoom => "zoom",
+            Tool::Rotate => "rotate",
         }
     }
 
@@ -188,6 +200,8 @@ impl Tool {
             Tool::Stamp(StampKind::Pattern) => "Pattern Stamp",
             Tool::Stamp(StampKind::History) => "History Brush",
             Tool::Hand => "Hand (pan)",
+            Tool::Zoom => "Zoom",
+            Tool::Rotate => "Rotate View",
         }
     }
 
@@ -208,13 +222,15 @@ impl Tool {
             Tool::Scene3D | Tool::Ruler => return None,
             Tool::Eyedropper => "I",
             Tool::VectorEdit => "O",
-            Tool::Shape => "R",
+            Tool::Shape => "Shift+U",
             Tool::Text(TextKind::Text) => "T",
             Tool::Text(TextKind::Balloon) => "Shift+T",
             Tool::Stamp(StampKind::Clone) => "S",
             Tool::Stamp(StampKind::Pattern) => "Shift+S",
             Tool::Stamp(StampKind::History) => "Y",
             Tool::Hand => "H",
+            Tool::Zoom => "/",
+            Tool::Rotate => "R",
         })
     }
 
@@ -236,13 +252,15 @@ impl Tool {
             Tool::Ruler => "Rulers: perspective, symmetry, special rulers and guides. Drag their handles; Ctrl+1 toggles snapping",
             Tool::Eyedropper => "Eyedropper (I): pick a colour from the canvas or the current layer. Alt with a brush, or hold a finger still on an iPad",
             Tool::VectorEdit => "Vector points (O): pick a vector line, drag its control points to reshape it, drag the line to move it",
-            Tool::Shape => "Shapes (R): rectangles, ellipses, lines and polygons. Shift constrains, Alt draws from the centre",
+            Tool::Shape => "Shapes (Shift+U): rectangles, ellipses, lines and polygons. Shift constrains, Alt draws from the centre",
             Tool::Stamp(StampKind::Clone) => "Clone stamp (S): Alt-click where to copy from, then paint with the current brush's tip",
             Tool::Stamp(StampKind::Pattern) => "Pattern stamp (Shift+S): paint a pattern with the current brush's tip",
             Tool::Stamp(StampKind::History) => "History brush (Y): paint back an earlier state (pick it in the History panel)",
             Tool::Text(TextKind::Text) => "Text (T): click to write, click a text to edit it, drag it to move it",
             Tool::Text(TextKind::Balloon) => "Balloon (Shift+T): balloons, the balloon pen and tails, as Clip Studio's; drag one, then write in it",
             Tool::Hand => "Pan the canvas (H, or hold Space)",
+            Tool::Zoom => "Zoom (/): click zooms in, Alt + click zooms out, drag right or left. Hold Ctrl + Space or Alt + Space for a moment",
+            Tool::Rotate => "Rotate the view (R): drag round the centre. Shift + Space + drag or Shift + wheel for a moment; - and ^ turn it",
         }
     }
 }
@@ -405,7 +423,7 @@ impl PainterApp {
                 self.eyedrop_at(at);
                 self.drag = Some(ToolDrag { start: at, current: at, points: vec![at], op: SelectionOp::Replace });
             }
-            Tool::Brush | Tool::Stamp(_) | Tool::Hand => {}
+            Tool::Brush | Tool::Stamp(_) | Tool::Hand | Tool::Zoom | Tool::Rotate => {}
         }
     }
 
@@ -671,10 +689,24 @@ impl PainterApp {
         if key(Key::O, false) {
             self.tool = Tool::VectorEdit;
         }
-        if key(Key::H, false) {
-            self.tool = Tool::Hand;
+        // H hand, R rotate, / zoom (Clip Studio's keys). Held, the tool is
+        // only on until the key is released, as with E.
+        let slash = ctx.input(|i| i.key_pressed(Key::Slash) && !i.modifiers.command && !i.modifiers.alt);
+        for (pressed, held, tool) in [(key(Key::H, false), Key::H, Tool::Hand), (key(Key::R, false), Key::R, Tool::Rotate), (slash, Key::Slash, Tool::Zoom)] {
+            if pressed && self.tool != tool {
+                self.spring_tool = Some((self.tool, tool, held, std::time::Instant::now()));
+                self.tool = tool;
+            }
         }
-        if key(Key::R, false) {
+        if let Some((before, tool, held, since)) = self.spring_tool {
+            if ctx.input(|i| i.key_released(held)) {
+                self.spring_tool = None;
+                if since.elapsed() >= SPRING_HOLD && self.tool == tool {
+                    self.tool = before;
+                }
+            }
+        }
+        if key(Key::U, true) {
             self.tool = Tool::Shape;
         }
         if key(Key::T, false) {
@@ -723,15 +755,37 @@ impl PainterApp {
             let brush = self.current_brush_mut();
             brush.size = (brush.size * 1.15).min(5000.0);
         }
-        if key(Key::Comma, false) {
-            self.view.set_rotation(self.view.rotation - 15f32.to_radians());
+        // Clip Studio's view keys: - and ^ rotate, Ctrl + NumPad + / − zoom, Ctrl + 0 fits.
+        let caret = ctx.input(|i| !i.modifiers.command && i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t == "^")));
+        if key(Key::Minus, false) {
+            self.rotate_view_step(-1.0);
         }
-        if key(Key::Period, false) {
-            self.view.set_rotation(self.view.rotation + 15f32.to_radians());
+        if caret {
+            self.rotate_view_step(1.0);
         }
-        if key(Key::Num0, false) {
+        let (zoom_in, zoom_out, fit) = ctx.input_mut(|i| {
+            let zoom_in = i.consume_key(Modifiers::COMMAND, Key::Plus) || i.consume_key(Modifiers::COMMAND, Key::Equals);
+            (zoom_in, i.consume_key(Modifiers::COMMAND, Key::Minus), i.consume_key(Modifiers::COMMAND, Key::Num0))
+        });
+        if zoom_in {
+            self.zoom_view_step(true);
+        }
+        if zoom_out {
+            self.zoom_view_step(false);
+        }
+        if fit {
             self.fit_pending = true;
         }
+    }
+
+    /// One step of Clip Studio's rotation keys (5°), `dir` −1 left, 1 right.
+    pub(crate) fn rotate_view_step(&mut self, dir: f32) {
+        self.view.set_rotation(self.view.rotation + dir * crate::view::ROTATE_STEP.to_radians());
+    }
+
+    /// The next zoom level up or down, round the view centre.
+    pub(crate) fn zoom_view_step(&mut self, up: bool) {
+        self.view.set_zoom(crate::view::zoom_step(self.view.zoom, up));
     }
 }
 

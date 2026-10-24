@@ -1,4 +1,4 @@
-//! The Shape tool (R; Clip Studio's Figure, Photoshop's shapes): rectangles,
+//! The Shape tool (Shift+U; Clip Studio's Figure, Photoshop's shapes): rectangles,
 //! ellipses, lines and polygons, drawn as an outline with the current brush
 //! (its dynamics, size, blend mode…), filled with the main colour, or both.
 //!

@@ -176,13 +176,64 @@ impl PainterApp {
         // wheel steer the scene's camera instead (Space + drag still pans the canvas).
         // With "Pencil only", a finger pans instead of painting.
         let finger = self.tools.pencil_only && self.tablet.finger_down() && !long_press;
-        let hand = self.tool == Tool::Hand || space || finger || multi.is_some();
+        // Clip Studio's keys: Space pans, Shift + Space rotates, Ctrl + Space
+        // zooms in and Alt + Space out; H, R and / pick the same as tools.
+        let mods = self.pointer_mods;
+        let nav = if finger || multi.is_some() {
+            Some(Nav::Pan)
+        } else if space {
+            Some(if mods.shift {
+                Nav::Rotate
+            } else if mods.command {
+                Nav::Zoom { out: false }
+            } else if mods.alt {
+                Nav::Zoom { out: true }
+            } else {
+                Nav::Pan
+            })
+        } else {
+            match self.tool {
+                Tool::Hand => Some(Nav::Pan),
+                Tool::Zoom => Some(Nav::Zoom { out: mods.alt }),
+                Tool::Rotate => Some(Nav::Rotate),
+                _ => None,
+            }
+        };
+        let hand = nav.is_some();
         let scene_nav = self.scene_navigation_active();
         if scene_nav {
             self.scene_navigate(ui, rect, response);
         }
-        if (!scene_nav && response.dragged_by(PointerButton::Middle)) || (hand && response.dragged_by(PointerButton::Primary)) {
+        let primary_drag = response.dragged_by(PointerButton::Primary);
+        if (!scene_nav && response.dragged_by(PointerButton::Middle)) || (nav == Some(Nav::Pan) && primary_drag) {
             self.view.pan += response.drag_delta();
+        }
+        match nav {
+            Some(Nav::Rotate) if primary_drag => {
+                if let Some(now) = response.interact_pointer_pos() {
+                    let (a, b) = (now - response.drag_delta() - rect.center(), now - rect.center());
+                    if a.length() > 4.0 && b.length() > 4.0 {
+                        self.view.set_rotation(self.view.rotation + b.angle() - a.angle());
+                    }
+                }
+            }
+            // A drag right zooms in, left out, round where it started; a click steps.
+            Some(Nav::Zoom { .. }) if primary_drag => {
+                let anchor = ui.input(|i| i.pointer.press_origin()).unwrap_or(rect.center());
+                self.view.zoom_about(rect, doc_size, anchor, (response.drag_delta().x * 0.01).exp());
+            }
+            Some(Nav::Zoom { out }) if response.clicked_by(PointerButton::Primary) => {
+                if let Some(at) = response.interact_pointer_pos() {
+                    let factor = crate::view::zoom_step(self.view.zoom, !out) / self.view.zoom;
+                    self.view.zoom_about(rect, doc_size, at, factor);
+                }
+            }
+            _ => {}
+        }
+        // Shift + wheel rotates (egui turns it into sideways scrolling): a notch is about 5°.
+        if hovering && mods.shift && !mods.command && scroll.x != 0.0 {
+            let notches = scroll.x / 40.0;
+            self.view.set_rotation(self.view.rotation - notches * crate::view::ROTATE_STEP.to_radians());
         }
         if let Some(anchor) = response.hover_pos().filter(|_| !scene_nav || zoom_delta != 1.0) {
             let factor = zoom_delta * (scroll.y * 0.002).exp();
@@ -314,6 +365,8 @@ impl PainterApp {
 
         if hovering {
             let icon = match (hand, response.dragged(), self.tool) {
+                _ if nav == Some(Nav::Zoom { out: false }) => CursorIcon::ZoomIn,
+                _ if nav == Some(Nav::Zoom { out: true }) => CursorIcon::ZoomOut,
                 (true, true, _) => CursorIcon::Grabbing,
                 (true, false, _) => CursorIcon::Grab,
                 (_, _, Tool::Fill) => CursorIcon::Cell,
@@ -397,4 +450,12 @@ impl PainterApp {
             }
         }
     }
+}
+
+/// How a primary drag moves the view instead of using the tool.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Nav {
+    Pan,
+    Rotate,
+    Zoom { out: bool },
 }

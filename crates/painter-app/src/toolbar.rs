@@ -133,6 +133,7 @@ fn command_icon(id: &str) -> Option<Icon> {
         "layer.file_object" => Icon::Layer,
         "layer.add_mask" | "layer.delete_mask" => Icon::LayerMask,
         "view.fit" => Icon::ZoomFit,
+        "view.zoom_in" | "view.zoom_out" => Icon::Zoom,
         "view.actual" => Icon::ZoomOriginal,
         "view.reset_rotation" => Icon::Reset,
         "view.tool_strip" | "view.command_bar" => Icon::Menu,
@@ -674,9 +675,17 @@ mod tests {
         assert_eq!(from_keys(&keys), items);
         let saved = vec!["cmd:file.save".to_string(), "tool:hand".into(), "sep".into(), "tool:teleport".into(), "group:pen".into()];
         let loaded = from_keys(&saved);
+        // Zoom and Rotate, missing from the old list, join the hand.
         assert_eq!(
-            loaded[..4],
-            [Item::Command("file.save".into()), Item::Tool(Tool::Hand), Item::Separator, Item::Group(BrushGroup::Pen)]
+            loaded[..6],
+            [
+                Item::Command("file.save".into()),
+                Item::Tool(Tool::Hand),
+                Item::Tool(Tool::Zoom),
+                Item::Tool(Tool::Rotate),
+                Item::Separator,
+                Item::Group(BrushGroup::Pen)
+            ]
         );
         // Tools missing from an old list come back next to the one before them by default.
         assert!(loaded.contains(&Item::Tool(Tool::Ruler)) && loaded.contains(&Item::Group(BrushGroup::Eraser)));
