@@ -258,14 +258,14 @@ impl StrokeEngine {
         if s.rotation.follow_tilt && leaning {
             angle += lean_angle;
         }
-        let side = (s.tilt_side.clamp(0.0, 1.0) * tilt).clamp(0.0, 1.0);
+        let side = (s.tilt_side.clamp(0.0, 1.0) * pencil_side(tilt)).clamp(0.0, 1.0);
         if side > 0.0 {
             // The tip lies down along the lean, as Clip Studio's pencils do: a
             // broad band across the lean (up to 4× at full tilt), flatter
-            // along it, a little lighter (the lead presses less).
+            // along it, barely lighter.
             size *= 1.0 + 3.0 * side;
             thickness *= 1.0 - 0.6 * side;
-            density *= 1.0 - 0.2 * side;
+            density *= 1.0 - 0.1 * side;
             if !s.rotation.follow_tilt {
                 angle += lean_angle;
             }
@@ -467,13 +467,19 @@ mod tests {
         // Upright pens don't turn the tip.
         let still: Vec<StrokePoint> = horizontal(100.0, 1.0).into_iter().map(|p| p.with_azimuth(90.0)).collect();
         assert!(line_dabs(&follow, 1, &still).iter().all(|d| d.angle == 0.0));
-        // Pencil side: wider, flatter across, lighter, along the lean; more with more tilt.
+        // Pencil side: a normal grip draws a plain line; laid down, the tip
+        // goes wider, flatter across, lighter, along the lean; more with more tilt.
         let side = BrushSettings { tilt_side: 1.0, ..plain() };
-        let dabs = line_dabs(&side, 1, &leaning);
-        let (d, u) = (dabs[3], upright[3]);
+        let grip = line_dabs(&side, 1, &leaning)[3];
+        assert_eq!((grip.radius, grip.thickness), (upright[3].radius, upright[3].thickness), "half tilt: no side yet");
+        let laid: Vec<StrokePoint> = horizontal(100.0, 1.0).into_iter().map(|p| p.with_tilt(0.9).with_azimuth(90.0)).collect();
+        let (d, u) = (line_dabs(&side, 1, &laid)[3], upright[3]);
         assert!(d.radius > u.radius * 2.0 && d.thickness < 0.75 && d.alpha < u.alpha && d.angle.abs() < 1e-3);
-        let flatter: Vec<StrokePoint> = horizontal(100.0, 1.0).into_iter().map(|p| p.with_tilt(0.9).with_azimuth(90.0)).collect();
+        let flatter: Vec<StrokePoint> = horizontal(100.0, 1.0).into_iter().map(|p| p.with_tilt(1.0).with_azimuth(90.0)).collect();
         assert!(line_dabs(&side, 1, &flatter)[3].thickness < d.thickness);
+        assert_eq!(pencil_side(0.6), 0.0);
+        assert_eq!(pencil_side(1.0), 1.0);
+        assert!(pencil_side(0.8) < 0.5, "comes in slowly");
         // The smoother keeps the lean direction.
         let smoothed = BrushSettings { stabilization: 30, ..follow };
         assert!(line_dabs(&smoothed, 1, &leaning).iter().all(|d| d.angle.abs() < 1e-3));
@@ -531,4 +537,14 @@ mod tests {
         assert!(dabs.iter().all(|d| (d.thickness - 0.6).abs() < 1e-5), "thickness from 0.2 at no pressure to 1");
         assert!(dabs.iter().all(|d| (d.angle - 45.0).abs() < 1e-3), "half pressure = 1/8 turn");
     }
+}
+
+/// How far the tip lies down for a tilt (0 upright ..= 1 at 60° of lean).
+/// A normal grip (up to about 36° of lean) draws a plain line, as in Clip
+/// Studio; past it the side comes in, slowly at first, fully with the pen
+/// laid down.
+pub fn pencil_side(tilt: f32) -> f32 {
+    const GRIP: f32 = 0.6;
+    let t = ((tilt - GRIP) / (1.0 - GRIP)).clamp(0.0, 1.0);
+    t * t
 }

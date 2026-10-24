@@ -356,9 +356,10 @@ cargo run --release -p painter-app -- drawing.painter
   fallback to Windows Ink; Apple Pencil on iPad, stylus pressure on Android.
   Tilt shapes the brush: "Follows the pen's lean" turns the tip towards where
   the pen leans, and "Pencil side" lays it down like Clip Studio's pencils (a
-  broad band, up to 4× wider, flatter along the lean and a little lighter; on
+  broad band, up to 4× wider, flatter along the lean and barely lighter; on
   by default for the Pencil, a slider for any brush). Tilt spans 0 (upright)
-  to 60° of lean, the range tablet pens report. The cursor and Tool
+  to 60° of lean, the range tablet pens report; a normal grip (up to about
+  36°) draws a plain line, the side comes in past it. The cursor and Tool
   Settings' tip preview show the tip as the pen would stamp it now (shape,
   image tip, pressure, tilt, lean). Ctrl + Alt and a sideways move of the pen
   or mouse resizes the brush.
