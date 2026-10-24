@@ -11,7 +11,8 @@ pub struct StrokePoint {
     pub x: f32,
     pub y: f32,
     pub pressure: f32,
-    /// Pen tilt away from vertical, 0 (upright) ..= 1 (flat); 0 for a mouse.
+    /// Pen tilt away from vertical, 0 (upright) ..= 1 (leaning 60° or more,
+    /// about as far as tablet pens go; see [`tilt_from_altitude`]); 0 for a mouse.
     #[serde(default)]
     pub tilt: f32,
     /// Which way the pen leans, degrees clockwise from the top of the screen
@@ -154,5 +155,27 @@ mod tests {
         assert!(s.push(StrokePoint::new(5.0, 0.0, 1.0)).is_none());
         let p = s.push(StrokePoint::new(20.0, 0.0, 1.0)).unwrap();
         assert!((p.x - 14.0).abs() < 1e-4);
+    }
+}
+
+/// How far a pen may lean from vertical before its tilt counts as full.
+/// Pens report up to about 60°, so the whole range is used, as Clip Studio does.
+pub const FULL_TILT_DEGREES: f32 = 60.0;
+
+/// Tilt 0..=1 from the pen's altitude in degrees (90 = upright).
+pub fn tilt_from_altitude(altitude_degrees: f32) -> f32 {
+    ((90.0 - altitude_degrees.abs()) / FULL_TILT_DEGREES).clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod tilt_tests {
+    use super::*;
+
+    #[test]
+    fn tilt_spans_the_pens_range() {
+        assert_eq!(tilt_from_altitude(90.0), 0.0);
+        assert!((tilt_from_altitude(60.0) - 0.5).abs() < 1e-6, "30° from vertical is half way");
+        assert_eq!(tilt_from_altitude(30.0), 1.0, "60° lean is full tilt");
+        assert_eq!(tilt_from_altitude(5.0), 1.0);
     }
 }

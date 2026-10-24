@@ -159,8 +159,8 @@ impl XInputPen {
         let lean = (tx * tx + ty * ty).sqrt().min(1.0);
         Some(PenSample {
             pressure,
-            // ±1 ≈ 60° from upright; 1 here means flat (90°).
-            tilt: (lean * 60.0 / 90.0).clamp(0.0, 1.0),
+            // ±1 ≈ 60° from upright, full tilt (see `painter_core::smoothing::FULL_TILT_DEGREES`).
+            tilt: lean,
             azimuth: if lean > 0.0 { tx.atan2(-ty).to_degrees().rem_euclid(360.0) } else { 0.0 },
             eraser: axes.eraser,
             touching: down && pressure > 0.0,

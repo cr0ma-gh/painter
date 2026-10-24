@@ -260,10 +260,12 @@ impl StrokeEngine {
         }
         let side = (s.tilt_side.clamp(0.0, 1.0) * tilt).clamp(0.0, 1.0);
         if side > 0.0 {
-            // The tip lies down along the lean: longer that way, thinner across, lighter.
-            size *= 1.0 + 1.2 * side;
-            thickness *= 1.0 - 0.7 * side;
-            density *= 1.0 - 0.45 * side;
+            // The tip lies down along the lean, as Clip Studio's pencils do: a
+            // broad band across the lean (up to 4× at full tilt), flatter
+            // along it, a little lighter (the lead presses less).
+            size *= 1.0 + 3.0 * side;
+            thickness *= 1.0 - 0.6 * side;
+            density *= 1.0 - 0.2 * side;
             if !s.rotation.follow_tilt {
                 angle += lean_angle;
             }
@@ -469,7 +471,7 @@ mod tests {
         let side = BrushSettings { tilt_side: 1.0, ..plain() };
         let dabs = line_dabs(&side, 1, &leaning);
         let (d, u) = (dabs[3], upright[3]);
-        assert!(d.radius > u.radius * 1.5 && d.thickness < 0.7 && d.alpha < u.alpha && d.angle.abs() < 1e-3);
+        assert!(d.radius > u.radius * 2.0 && d.thickness < 0.75 && d.alpha < u.alpha && d.angle.abs() < 1e-3);
         let flatter: Vec<StrokePoint> = horizontal(100.0, 1.0).into_iter().map(|p| p.with_tilt(0.9).with_azimuth(90.0)).collect();
         assert!(line_dabs(&side, 1, &flatter)[3].thickness < d.thickness);
         // The smoother keeps the lean direction.

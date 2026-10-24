@@ -185,8 +185,9 @@ impl WinTab {
     fn sample(&self, p: Packet) -> PenSample {
         PenSample {
             pressure: (p.pressure as f32 / self.pressure_max).clamp(0.0, 1.0),
-            // Altitude is in tenths of a degree: 900 = upright.
-            tilt: (1.0 - (p.altitude.unsigned_abs() as f32 / 900.0)).clamp(0.0, 1.0),
+            // Altitude is in tenths of a degree: 900 = upright. Tablets without
+            // tilt send 0, which no real pen reaches (they stop near 60° of lean).
+            tilt: if p.altitude == 0 { 0.0 } else { painter_core::smoothing::tilt_from_altitude(p.altitude as f32 / 10.0) },
             azimuth: p.azimuth as f32 / 10.0,
             // Common driver convention: cursor 1 = pen tip, 2 = eraser (per tablet).
             eraser: p.cursor % 3 == 2,

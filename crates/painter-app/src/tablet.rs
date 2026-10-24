@@ -334,7 +334,7 @@ mod ios_pencil {
             return None;
         }
         // Altitude: π/2 upright, 0 flat. UIKit's azimuth: radians clockwise from +x (y down).
-        let tilt = (1.0 - altitude / std::f64::consts::FRAC_PI_2).clamp(0.0, 1.0) as f32;
+        let tilt = painter_core::smoothing::tilt_from_altitude(altitude.to_degrees() as f32);
         let azimuth = (azimuth.to_degrees() + 90.0).rem_euclid(360.0) as f32;
         Some((tilt, azimuth))
     }
