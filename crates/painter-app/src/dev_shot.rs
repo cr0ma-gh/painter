@@ -105,6 +105,34 @@ impl PainterApp {
                     self.text_demo();
                     continue;
                 }
+                // `dev.drag:X1,Y1,X2,Y2`: the current tool dragged across the canvas
+                // (fractions of its width and height), in 8 steps.
+                if let Some(v) = c.strip_prefix("dev.drag:") {
+                    let n: Vec<f32> = v.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+                    if let [x1, y1, x2, y2] = n[..] {
+                        let (w, h) = self.doc.canvas();
+                        let at = |x: f32, y: f32| eframe::egui::Pos2::new(x * w as f32, y * h as f32);
+                        self.tool_press(at(x1, y1), eframe::egui::Modifiers::NONE);
+                        for k in 1..=8 {
+                            let t = k as f32 / 8.0;
+                            self.tool_move(at(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t));
+                        }
+                        self.tool_release();
+                    }
+                    continue;
+                }
+                // `dev.balloon:N`: the balloon tool's sub tool N.
+                if let Some(i) = c.strip_prefix("dev.balloon:").and_then(|n| n.parse::<usize>().ok()) {
+                    if let Some(t) = crate::text_tool::BalloonTool::ALL.get(i) {
+                        self.text.balloon_tool = *t;
+                    }
+                    continue;
+                }
+                // `dev.text_done`: ends the text editing (the balloon tool's settings show).
+                if c == "dev.text_done" {
+                    self.finish_text();
+                    continue;
+                }
                 // `dev.bitmap`: Mode → Bitmap with an 8 px halftone screen.
                 if c == "dev.bitmap" {
                     self.convert_to_bitmap(painter_core::color_mode::BitmapMethod::Halftone { cell: 24.0, angle: 45.0 });

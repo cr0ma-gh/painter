@@ -126,6 +126,8 @@ pub struct PainterApp {
     /// Plane changes waiting to reach the GPU on the next frame.
     pub(crate) uploads: Vec<Upload>,
     pub(crate) recomposite: bool,
+    /// What this pass handed the canvas, sent again if egui throws the pass away.
+    pub(crate) sent_uploads: (Vec<Upload>, bool),
     pub(crate) tablet: TabletState,
     pub(crate) gpu_ready: bool,
     pub(crate) gpu_stats: Option<(u32, u64)>,
@@ -342,6 +344,7 @@ impl PainterApp {
             edit_mask: false,
             uploads: Vec::new(),
             recomposite: true,
+            sent_uploads: (Vec::new(), false),
             tablet: TabletState::default(),
             gpu_ready,
             gpu_stats: None,
@@ -474,8 +477,13 @@ impl PainterApp {
     }
 
     pub(crate) fn main_rgb(&self) -> [f32; 3] {
+        self.ink_rgb(self.color)
+    }
+
+    /// `color` as the document can hold it.
+    pub(crate) fn ink_rgb(&self, color: Hsva) -> [f32; 3] {
         // Grey, or black or white, in those colour modes.
-        let rgb = painter_core::color_mode::mode_color(self.doc.mode, hsva_rgb(self.color));
+        let rgb = painter_core::color_mode::mode_color(self.doc.mode, hsva_rgb(color));
         // CMYK: the colour the press would print.
         match &self.proofer.proofer {
             Some(p) if self.doc.mode == painter_core::color_mode::ColorMode::Cmyk => {
@@ -1709,6 +1717,7 @@ impl eframe::App for PainterApp {
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.next_label = None;
+        self.sent_uploads.0.clear();
         self.dev_shot_tick(ctx);
         self.session_tick(ctx);
         self.update_proofer();
@@ -1818,6 +1827,14 @@ impl eframe::App for PainterApp {
                     }
                 }
             }
+        }
+        // egui lays a new window or grid out twice and throws the first pass
+        // away, canvas callback and all: its tile uploads go with the next pass.
+        if ctx.will_discard() {
+            let (mut again, recomposite) = std::mem::take(&mut self.sent_uploads);
+            again.append(&mut self.uploads);
+            self.uploads = again;
+            self.recomposite |= recomposite;
         }
     }
 

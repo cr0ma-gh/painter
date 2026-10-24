@@ -82,10 +82,15 @@ cargo run --release -p painter-app -- drawing.painter
   it. Any font on the computer (searchable list), size, colour, left / centre
   / right, vertical columns for manga, line and letter spacing, an outline
   round the letters; characters a font lacks (Japanese, Chinese, Korean,
-  symbols) come from a system font that has them. Balloons: ellipse, rounded,
-  rectangle, cloud (thought) or burst (shout), fill, border, a tail you aim by
-  dragging its tip, Fit to Text. Texts stay editable (click one; drag to move
-  it), live on vector layers, are saved in the project and export as pixels;
+  symbols) come from a system font that has them. Balloons have Clip Studio's
+  sub tools and settings: rounded, rough rounded, ellipse, rectangle, polygon,
+  thought and flash balloons, the balloon pen (draw the outline by hand), and
+  the balloon tail and thought balloon tail tools (drag out of a balloon; a
+  balloon can have several, bent with their middle handle). Line and fill in
+  the main, sub or an own colour, add to a new or the selected layer,
+  roundness of corner, brush size, anti-aliasing, smooth or rough brush
+  shape; handles size and turn a selected balloon; Fit to Text. Texts stay
+  editable (click one; drag to move it), live on vector layers, are saved in the project and export as pixels;
   a font missing on another computer falls back to the built-in one.
 - **Clone stamp, pattern stamp, history brush** (S, Shift+S, Y, as in
   Photoshop), painting with the current brush's tip and dynamics: the clone

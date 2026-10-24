@@ -95,14 +95,17 @@ impl PainterApp {
         let stroke = self.take_stroke_preview();
         if self.gpu_ready {
             let time = self.started.elapsed().as_secs_f32();
+            let uploads = std::mem::take(&mut self.uploads);
+            let recomposite = std::mem::take(&mut self.recomposite);
+            self.sent_uploads = (uploads.clone(), recomposite);
             let frame = CanvasFrame {
                 epoch: self.epoch,
                 doc_size: self.doc.canvas(),
                 plan: build_plan(&self.doc),
-                uploads: std::mem::take(&mut self.uploads),
+                uploads,
                 live_planes: live_planes(&self.doc),
                 selection: self.doc.selection.is_some(),
-                recomposite: std::mem::take(&mut self.recomposite),
+                recomposite,
                 stroke,
                 transform: self.transform_preview(),
                 scenes: self.scene_previews(),

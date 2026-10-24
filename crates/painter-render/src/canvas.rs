@@ -35,6 +35,7 @@ use crate::stroke::{DabRenderer, MergeOptions, StrokeMerger, StrokePreview};
 use crate::scene::{ScenePreview, SceneRenderer, SceneTarget};
 use crate::transform::{TransformPreview, TransformRenderer};
 
+#[derive(Clone)]
 pub enum Upload {
     /// `None` clears the tile.
     Tile { plane: Plane, coord: TileCoord, tile: Option<Arc<Tile>> },

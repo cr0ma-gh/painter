@@ -241,7 +241,7 @@ impl Tool {
             Tool::Stamp(StampKind::Pattern) => "Pattern stamp (Shift+S): paint a pattern with the current brush's tip",
             Tool::Stamp(StampKind::History) => "History brush (Y): paint back an earlier state (pick it in the History panel)",
             Tool::Text(TextKind::Text) => "Text (T): click to write, click a text to edit it, drag it to move it",
-            Tool::Text(TextKind::Balloon) => "Balloon (Shift+T): drag a speech balloon, then write in it; drag the tail tip to aim it",
+            Tool::Text(TextKind::Balloon) => "Balloon (Shift+T): balloons, the balloon pen and tails, as Clip Studio's; drag one, then write in it",
             Tool::Hand => "Pan the canvas (H, or hold Space)",
         }
     }
