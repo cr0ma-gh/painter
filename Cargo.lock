@@ -2560,6 +2560,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "painter-installer"
+version = "0.7.2"
+dependencies = [
+ "eframe",
+ "flate2",
+ "image",
+ "rfd",
+ "windows",
+]
+
+[[package]]
 name = "painter-render"
 version = "0.7.2"
 dependencies = [

@@ -1,0 +1,29 @@
+[package]
+name = "painter-installer"
+description = "Painter's Windows installer: a tour of the app, then it installs (or removes) Painter for the user, no administrator needed."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "PainterSetup"
+path = "src/main.rs"
+
+# Windows only; elsewhere the binary just says so.
+[target.'cfg(windows)'.dependencies]
+eframe.workspace = true
+image.workspace = true
+rfd.workspace = true
+flate2 = "1.1"
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_System_Com",
+    "Win32_System_Registry",
+    "Win32_Security",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+] }
+
+[build-dependencies]
+flate2 = "1.1"

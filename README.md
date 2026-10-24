@@ -547,6 +547,22 @@ GitHub Actions builds an unsigned iPad app on every push (no Mac needed); see
 [docs/IPAD.md](docs/IPAD.md) for installing it with a free Apple ID. On the iPad the
 Apple Pencil draws and fingers navigate (pan, pinch, rotate, two-finger tap to undo).
 
+## Windows installer
+
+`Painter-Setup-windows-x86_64.exe` (crate `painter-installer`, in Rust with
+egui) installs Painter for the user alone, without administrator rights: a
+welcome page and a tour of the app in slides, what Painter is and its
+licence, then the folder (`%LOCALAPPDATA%\Programs\Painter` by default),
+Start menu and desktop shortcuts and the file types, and it starts Painter
+when it's done. It speaks English or Italian, as Windows does. Painter then
+shows in Settings → Apps, whose Uninstall removes it (the settings too, if
+asked). `Painter-windows-x86_64.exe` is still there for running without
+installing.
+
+Building it: build `painter-app` in release first, then
+`PAINTER_EXE=target\release\painter.exe cargo build --release -p
+painter-installer` (without `PAINTER_EXE` it builds with no app inside).
+
 ## Linux, macOS and Android
 
 GitHub Actions also builds, on every push (download them from the run's

@@ -202,6 +202,25 @@ pub fn thumbnail_command(args: &[String]) -> Option<i32> {
     file_types::thumbnail_command(args)
 }
 
+/// `painter --register-file-types` / `--unregister-file-types` (the Windows
+/// installer runs them): sets up or removes the file types, no window.
+pub fn file_types_command(args: &[String]) -> Option<i32> {
+    let result = if args.iter().any(|a| a == "--register-file-types") {
+        file_types::register()
+    } else if args.iter().any(|a| a == "--unregister-file-types") {
+        file_types::unregister()
+    } else {
+        return None;
+    };
+    Some(match result {
+        Ok(_) => 0,
+        Err(e) => {
+            eprintln!("{e}");
+            1
+        }
+    })
+}
+
 /// `reset`: the interface and tool options back to how they come (`--reset-settings`).
 pub fn run(options: eframe::NativeOptions, file: Option<std::path::PathBuf>, reset: bool) -> eframe::Result {
     install_crash_log();
