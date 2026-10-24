@@ -579,6 +579,10 @@ impl PainterApp {
         if duplicate {
             self.duplicate_selected_layers();
         }
+        // Ctrl+P: File → Print.
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::P))) {
+            self.open_print();
+        }
         // Ctrl+R: the ruler bar (as in Clip Studio).
         if ctx.input_mut(|i| i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::R))) {
             self.ws.chrome.ruler_bar = !self.ws.chrome.ruler_bar;

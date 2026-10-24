@@ -355,6 +355,12 @@ cargo run --release -p painter-app -- drawing.painter
   Clip Studio (chosen once, kept as the template): layers, folders, opacity,
   blend modes, visibility, lock and clipping; masks are applied to the pixels.
   The app asks before closing with unsaved changes.
+- **Print** (File → Print, Ctrl+P): paper size and orientation, margins,
+  fit to page, actual size at the document's resolution or a percentage, with
+  a preview of the sheet and the resolution it prints at. Windows prints
+  through its Print dialog (printer, copies, preferences); macOS and Linux
+  send a PDF of the page to a CUPS printer; every platform can save the page
+  as a PDF (on iPad and Android it then goes to the share sheet, which prints).
 - **Transform and crop** (Transform tool / Ctrl+T, Crop tool / C; crate
   `transform-tools`): the layer or selection floats under a gizmo while the
   document stays untouched, with a live GPU preview and a HUD (mode, X/Y,

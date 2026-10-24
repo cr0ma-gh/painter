@@ -191,6 +191,12 @@ pub struct PainterApp {
     pub(crate) bitmap_dialog: Option<crate::color_mode_ui::BitmapDialog>,
     /// Edit → Mode → CMYK Color is asking for the press profile.
     pub(crate) cmyk_dialog: Option<crate::cmyk_ui::CmykDialog>,
+    /// File → Print, and its last choices.
+    pub(crate) print: Option<crate::print_dialog::PrintDialog>,
+    pub(crate) print_settings: crate::print_dialog::PrintSettings,
+    /// The main window (Windows: the Print dialog's owner).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) hwnd: isize,
     /// Little CMS conversions for a CMYK document.
     pub(crate) proofer: crate::cmyk_ui::ProoferCache,
     /// "Reset whole brush list" waits for a yes.
@@ -379,6 +385,9 @@ impl PainterApp {
             reset_dialog: None,
             bitmap_dialog: None,
             cmyk_dialog: None,
+            print: None,
+            print_settings: Default::default(),
+            hwnd: 0,
             proofer: Default::default(),
             confirm_brush_reset: false,
             chip_picker: None,
@@ -1718,6 +1727,13 @@ impl eframe::App for PainterApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.next_label = None;
         self.sent_uploads.0.clear();
+        #[cfg(windows)]
+        {
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            if let Ok(RawWindowHandle::Win32(h)) = frame.window_handle().map(|w| w.as_raw()) {
+                self.hwnd = h.hwnd.get();
+            }
+        }
         self.dev_shot_tick(ctx);
         self.session_tick(ctx);
         self.update_proofer();
@@ -1789,6 +1805,7 @@ impl eframe::App for PainterApp {
         self.reset_settings_window(ctx);
         self.bitmap_window(ctx);
         self.cmyk_window(ctx);
+        self.print_window(ctx);
         self.text_editor_window(ctx);
         self.save_as_window(ctx);
         self.svg_export_window(ctx);

@@ -1011,7 +1011,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 81] = [
+        let fixed: [FixedCommand; 82] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -1024,6 +1024,7 @@ impl PainterApp {
             ("file.scan", "Import from Scanner or Camera...", C::File, "", &["scan", "wia", "camera", "photo", "document"], true),
             ("file.import_brushes", "Import Brushes...", C::Brush, "", &["sut", "abr", "clip studio", "photoshop", "krita", "kpp", "bundle", "mypaint", "myb", "gimp", "gbr"], true),
             ("file.export_png", "Export PNG...", C::File, "", &["save image"], true),
+            ("file.print", "Print...", C::File, "Ctrl+P", &["printer", "paper", "pdf"], true),
             ("file.export_psd", "Export PSD...", C::File, "", &["photoshop"], true),
             ("file.export_kra", "Export Krita (.kra)...", C::File, "", &["krita", "kra"], true),
             ("file.export_ora", "Export OpenRaster (.ora)...", C::File, "", &["openraster", "mypaint", "gimp", "ora"], true),
@@ -1164,6 +1165,7 @@ impl PainterApp {
             "file.scan" => self.scanner = Some(crate::dialogs::ScannerDialog::open()),
             "file.import_brushes" => self.import_brushes_dialog(),
             "file.export_png" => self.export_png(),
+            "file.print" => self.open_print(),
             "file.export_psd" => self.export_psd(),
             "file.export_kra" => self.export_layered("kra"),
             "file.export_ora" => self.export_layered("ora"),

@@ -48,6 +48,7 @@ mod previews;
 mod ruler_bar;
 mod recent;
 mod rulers_ui;
+mod print_dialog;
 mod print_ui;
 mod scan_source;
 mod scene_ui;
@@ -66,6 +67,8 @@ mod vector_edit;
 mod view;
 mod welcome;
 mod widgets;
+#[cfg(windows)]
+mod win_print;
 #[cfg(windows)]
 mod wintab;
 mod workspace_ui;

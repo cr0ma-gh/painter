@@ -24,6 +24,7 @@ pub mod kra;
 pub mod layer;
 pub mod layer_ops;
 pub mod ora;
+pub mod print;
 pub mod procedural;
 pub mod project;
 pub mod psd;

@@ -51,7 +51,7 @@ ndk-context = "0.1"
 
 [target.'cfg(windows)'.dependencies]
 libloading.workspace = true
-# Videos on the reference board (Media Foundation).
+# Videos on the reference board (Media Foundation), and printing.
 windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_Media_MediaFoundation",
@@ -61,6 +61,11 @@ windows = { version = "0.58", features = [
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Variant",
+    # Printing: the Print dialog and drawing the page through GDI.
+    "Win32_UI_Controls_Dialogs",
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_Xps",
+    "Win32_System_Memory",
 ] }
 
 [target.'cfg(unix)'.dependencies]

@@ -164,6 +164,11 @@ impl PainterApp {
                             self.export_brushes(None);
                         }
                     });
+                    ui.separator();
+                    if ui.add(egui::Button::new("Print...").shortcut_text("Ctrl+P")).clicked() {
+                        ui.close_menu();
+                        self.open_print();
+                    }
                     if cfg!(any(windows, target_os = "linux")) {
                         ui.separator();
                         if ui.button("Set Up File Types...").on_hover_text("Thumbnails and Open with in the file manager").clicked() {
