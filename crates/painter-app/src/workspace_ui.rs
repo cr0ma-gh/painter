@@ -902,6 +902,7 @@ impl PainterApp {
             EditorType::History => self.history_panel(ui),
             EditorType::Channels => self.channels_panel(ui),
             EditorType::Actions => self.actions_panel(ui),
+            EditorType::LayerProperties => self.layer_properties_panel(ui),
             EditorType::Session => self.session_panel(ui),
             EditorType::Timeline | EditorType::NodeGraph => {
                 ui.label(format!("{}: not available yet.", editor.title()));

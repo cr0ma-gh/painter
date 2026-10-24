@@ -87,6 +87,9 @@ pub struct Layer {
     /// (light ones stay white), on screen only; files and exports keep the
     /// real colours.
     pub layer_color: Option<[u8; 3]>,
+    /// Clip Studio's Layer Property: expression colour, border, tone, extract
+    /// line. Drawn from the pixels, which stay as painted (see [`crate::effects`]).
+    pub effects: crate::effects::LayerEffects,
     /// A file object (Clip Studio) / linked smart object (Photoshop): the
     /// pixels are an outside file drawn where it's placed, redrawn from the
     /// file when it moves or the file changes.
@@ -123,6 +126,7 @@ impl Layer {
             reference: false,
             draft: false,
             layer_color: None,
+            effects: Default::default(),
             file_object: None,
             mask: None,
         }

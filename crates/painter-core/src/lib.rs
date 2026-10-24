@@ -15,6 +15,7 @@ pub mod color_mode;
 pub mod color_profile;
 pub mod document;
 pub mod duotone;
+pub mod effects;
 pub mod fill_tool;
 pub mod gif;
 pub mod filters;

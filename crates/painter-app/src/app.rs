@@ -191,6 +191,8 @@ pub struct PainterApp {
     pub(crate) bitmap_dialog: Option<crate::color_mode_ui::BitmapDialog>,
     /// Edit → Mode → Duotone, Indexed Color and Color Table, and the last choices.
     pub(crate) duotone_dialog: Option<crate::color_mode_ui::DuotoneDialog>,
+    /// A Layer Properties slider is being dragged (one undo step for the drag).
+    pub(crate) layer_props_drag: bool,
     pub(crate) indexed_dialog: Option<crate::color_mode_ui::IndexedDialog>,
     pub(crate) color_table: Option<crate::color_mode_ui::ColorTableDialog>,
     pub(crate) last_duotone: painter_core::duotone::Duotone,
@@ -391,6 +393,7 @@ impl PainterApp {
             reset_dialog: None,
             bitmap_dialog: None,
             duotone_dialog: None,
+            layer_props_drag: false,
             indexed_dialog: None,
             color_table: None,
             last_duotone: Default::default(),
@@ -502,8 +505,8 @@ impl PainterApp {
 
     /// `color` as the document can hold it.
     pub(crate) fn ink_rgb(&self, color: Hsva) -> [f32; 3] {
-        // Grey, or black or white, in those colour modes.
-        let rgb = painter_core::color_mode::mode_color(self.doc.mode, hsva_rgb(color));
+        // Grey, or black or white, in those colour modes and on Gray or Monochrome layers.
+        let rgb = self.layer_expression_color(painter_core::color_mode::mode_color(self.doc.mode, hsva_rgb(color)));
         let bytes = rgb.map(|v| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8);
         match &self.proofer.proofer {
             // CMYK: the colour the press would print.

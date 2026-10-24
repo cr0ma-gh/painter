@@ -36,6 +36,7 @@ mod files;
 mod gamut_selector;
 mod history_ui;
 mod icons;
+mod layer_props;
 mod layers_ui;
 mod lines;
 mod magnetic;

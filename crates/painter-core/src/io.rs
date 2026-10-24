@@ -118,6 +118,11 @@ pub(crate) fn composite_layers(layers: &[Layer], buf: &mut [u8], area: Area) {
                 composite_layers(&folder.children, &mut group, area);
                 blend_source(buf, area, &Source::Dense(&group), &shape);
             }
+            // Layer property effects show in exports, as on the canvas.
+            LayerKind::Raster(_) | LayerKind::Vector(_) if layer.effects.is_active() => {
+                let shown = crate::effects::render(layer.tiles().expect("pixel layer"), &layer.effects, area.canvas);
+                blend_source(buf, area, &Source::Tiles(&shown), &shape);
+            }
             LayerKind::Raster(tiles) => blend_source(buf, area, &Source::Tiles(tiles), &shape),
             LayerKind::Vector(vector) => blend_source(buf, area, &Source::Tiles(&vector.cache), &shape),
             LayerKind::Adjustment(adjustment) => apply_adjustment(buf, area, &adjustment.op(), &shape),

@@ -52,6 +52,21 @@ cargo run --release -p painter-app -- drawing.painter
   Krita and OpenRaster exports. Layer colour (as in Clip Studio; layer
   properties or right-click) shows a layer's lines in one colour, light blue
   by default, on screen only.
+- **Layer Properties** (Window → Panels → Layer Properties, as Clip Studio's
+  Layer Property palette), for the active raster or vector layer:
+  - Effect buttons: Border effect (an edge of any thickness and colour round
+    the shapes, or a watercolour edge with range, transparency, darkness and
+    blur), Extract line (the picture's edges and darkest areas as black
+    lines), Tone (the layer as halftone dots: frequency in lpi, circle,
+    square, diamond, line, cross or noise dots, angle, density from
+    brightness or opacity, a set colour or the image's, white paper or
+    see-through between dots) and Layer color.
+  - Expression color: Color, Gray or Monochrome (painting keeps to greys or
+    black and white; Monochrome can hide its black or its white, with a
+    threshold).
+
+  Effects are drawn from the pixels, which stay as painted: they show on
+  the canvas and in exports, are saved in the project and turn off again.
 - **File object layers** (Layer → New File Object Layer, as Clip Studio's
   file objects and Photoshop's linked smart objects): a picture or document
   (PNG, JPEG, GIF, PSD, Krita, OpenRaster, Clip Studio, Painter) linked, not

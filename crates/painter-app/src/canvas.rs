@@ -95,7 +95,9 @@ impl PainterApp {
         let stroke = self.take_stroke_preview();
         if self.gpu_ready {
             let time = self.started.elapsed().as_secs_f32();
-            let uploads = std::mem::take(&mut self.uploads);
+            // Layers with Layer Property effects show what the effects draw.
+            let pending = std::mem::take(&mut self.uploads);
+            let uploads = self.effect_uploads(pending);
             let recomposite = std::mem::take(&mut self.recomposite);
             self.sent_uploads = (uploads.clone(), recomposite);
             let frame = CanvasFrame {

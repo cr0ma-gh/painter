@@ -154,6 +154,28 @@ impl PainterApp {
                     }
                     continue;
                 }
+                // `dev.layer_fx:border|watercolor|tone|extract|mono`: that Layer Property effect on the active layer.
+                if let Some(which) = c.strip_prefix("dev.layer_fx:") {
+                    use painter_core::effects::*;
+                    let dpi = self.doc.dpi as f32;
+                    if let Some(layer) = self.doc.find_mut(self.doc.active) {
+                        let fx = &mut layer.effects;
+                        match which {
+                            "border" => fx.border = Some(Border { width: 8.0, color: [255, 255, 255], ..Default::default() }),
+                            "watercolor" => fx.border = Some(Border { kind: BorderKind::Watercolor, width: 30.0, ..Default::default() }),
+                            "tone" => fx.tone = Some(ToneEffect { cell: (dpi / 30.0).max(3.0), ..Default::default() }),
+                            "extract" => fx.extract = Some(ExtractLine::default()),
+                            "mono" => {
+                                fx.expression = Expression::Monochrome;
+                                fx.show_white = false;
+                            }
+                            _ => {}
+                        }
+                    }
+                    let id = self.doc.active;
+                    self.upload_plane(painter_render::Plane::Color(id));
+                    continue;
+                }
                 // `dev.text_done`: ends the text editing (the balloon tool's settings show).
                 if c == "dev.text_done" {
                     self.finish_text();

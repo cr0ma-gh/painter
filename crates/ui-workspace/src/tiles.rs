@@ -44,10 +44,12 @@ pub enum EditorType {
     Actions,
     /// Krita's extended gamut selector: shapes and colour models.
     GamutSelector,
+    /// Clip Studio's Layer Property: the active layer's effects and expression colour.
+    LayerProperties,
 }
 
 impl EditorType {
-    pub const ALL: [EditorType; 24] = [
+    pub const ALL: [EditorType; 25] = [
         EditorType::Canvas,
         EditorType::Reference,
         EditorType::Viewport3D,
@@ -72,6 +74,7 @@ impl EditorType {
         EditorType::Channels,
         EditorType::Actions,
         EditorType::Session,
+        EditorType::LayerProperties,
     ];
 
     pub fn title(self) -> &'static str {
@@ -100,6 +103,7 @@ impl EditorType {
             EditorType::Channels => "Channels",
             EditorType::Actions => "Actions",
             EditorType::Session => "Session",
+            EditorType::LayerProperties => "Layer Properties",
         }
     }
 

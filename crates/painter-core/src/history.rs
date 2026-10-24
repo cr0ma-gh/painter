@@ -101,6 +101,7 @@ fn properties_changed(a: &Layer, b: &Layer) -> bool {
         || a.reference != b.reference
         || a.draft != b.draft
         || a.layer_color != b.layer_color
+        || a.effects != b.effects
         || a.mask.as_ref().map(|m| m.enabled) != b.mask.as_ref().map(|m| m.enabled)
 }
 

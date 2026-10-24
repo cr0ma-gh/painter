@@ -229,6 +229,8 @@ impl PainterApp {
         }
         self.doc.palette = palette;
         self.proofer.proofer = proofer;
+        // Gray and Monochrome layers keep to their colours too.
+        self.keep_layer_expression(plane, &coords);
     }
 
     pub(crate) fn bitmap_window(&mut self, ctx: &egui::Context) {

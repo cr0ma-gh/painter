@@ -47,7 +47,7 @@ impl WorkspaceKind {
                 }
                 t.set_editor(right, ColorWheel);
                 let layers = t.split(right, Stacked, 0.36, Layers, false).unwrap();
-                for tab in [Channels, History] {
+                for tab in [LayerProperties, Channels, History] {
                     t.add_tab(layers, tab);
                 }
                 t.set_editor(layers, Layers);
@@ -61,7 +61,7 @@ impl WorkspaceKind {
                 let right = t.split(canvas, SideBySide, 0.82, ToolSettings, false).unwrap();
                 let layers = t.split(right, Stacked, 0.45, Layers, false).unwrap();
                 t.split(layers, Stacked, 0.6, Navigator, false);
-                for tab in [Channels, History] {
+                for tab in [LayerProperties, Channels, History] {
                     t.add_tab(layers, tab);
                 }
                 t.set_editor(layers, Layers);

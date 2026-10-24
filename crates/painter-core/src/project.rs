@@ -146,6 +146,11 @@ struct CmykFile {
 
 const CMYK_PROFILE_ENTRY: &str = "profiles/cmyk.icc";
 
+/// Layers without effects leave them out of the file.
+fn is_plain(fx: &crate::effects::LayerEffects) -> bool {
+    *fx == crate::effects::LayerEffects::default()
+}
+
 fn default_dpi() -> u32 {
     crate::document::DEFAULT_DPI
 }
@@ -166,6 +171,9 @@ struct LayerFile {
     draft: bool,
     #[serde(default)]
     layer_color: Option<[u8; 3]>,
+    /// Clip Studio's layer property effects; none in older files.
+    #[serde(default, skip_serializing_if = "is_plain")]
+    effects: crate::effects::LayerEffects,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     file_object: Option<crate::layer::FileObject>,
     mask: Option<MaskFile>,
@@ -339,6 +347,7 @@ fn layer_file<'a>(layer: &'a Layer, planes: &mut Vec<(String, &'a TileStore)>) -
         reference: layer.reference,
         draft: layer.draft,
         layer_color: layer.layer_color,
+        effects: layer.effects,
         file_object: layer.file_object.clone(),
         mask,
         content,
@@ -505,6 +514,7 @@ fn read_layer(file: LayerFile, plane: &mut dyn FnMut(&str) -> Result<TileStore, 
         reference: file.reference,
         draft: file.draft,
         layer_color: file.layer_color,
+        effects: file.effects,
         file_object: file.file_object,
         mask,
     })
