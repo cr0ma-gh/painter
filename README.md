@@ -90,7 +90,8 @@ cargo run --release -p painter-app -- drawing.painter
   the main, sub or an own colour, add to a new or the selected layer,
   roundness of corner, brush size, anti-aliasing, smooth or rough brush
   shape; handles size and turn a selected balloon; Fit to Text. Texts stay
-  editable (click one; drag to move it), live on vector layers, are saved in the project and export as pixels;
+  editable (click one; drag to move it), live on vector layers, are saved in
+  the project and export as pixels;
   a font missing on another computer falls back to the built-in one.
 - **Clone stamp, pattern stamp, history brush** (S, Shift+S, Y, as in
   Photoshop), painting with the current brush's tip and dynamics: the clone
