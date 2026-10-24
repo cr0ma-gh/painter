@@ -79,6 +79,12 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     } else if (count < 2.5) {
         rgb = rgb * shown;
     }
+    // A table from these colours to the ones shown (Duotone, Lab and Multichannel views).
+    if (view.ink_view.y > 0.5) {
+        let n = f32(textureDimensions(ink_lut).x);
+        let at = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)) * ((n - 1.0) / n) + vec3<f32>(0.5 / n);
+        rgb = textureSampleLevel(ink_lut, ink_sampler, at, 0.0).rgb;
+    }
     // CMYK: the shown inks, from the profile's table (texel centres at i / (n - 1)).
     if (view.ink_view.x > 0.5) {
         let n = f32(textureDimensions(ink_lut).x);

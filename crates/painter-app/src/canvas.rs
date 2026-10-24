@@ -111,13 +111,15 @@ impl PainterApp {
                 scenes: self.scene_previews(),
                 view: {
                     let v = self.view.uniform(rect.size(), self.doc_size()).with_selection_outline(time).with_channels(self.channels.rgb_view());
-                    // A CMYK document showing some of its inks.
-                    match (self.channels.ink_view(), &self.proofer.lut) {
-                        (Some(inks), Some(_)) => v.with_inks(inks),
+                    // A CMYK document showing some of its inks; Duotone, Lab and
+                    // Multichannel documents through their display table.
+                    match (self.channels.ink_view(), &self.proofer.lut, &self.proofer.display) {
+                        (Some(inks), Some(_), _) => v.with_inks(inks),
+                        (_, _, Some(_)) => v.with_display_lut(),
                         _ => v,
                     }
                 },
-                ink_lut: self.proofer.lut.clone(),
+                ink_lut: if self.proofer.display.is_some() { self.proofer.display.clone() } else { self.proofer.lut.clone() },
             };
             ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, CanvasCallback(frame)));
         } else {
@@ -371,7 +373,11 @@ impl PainterApp {
         ui.painter().rect_filled(rect, 2.0, crate::theme::canvas_backdrop());
         let thumb = ViewTransform { pan: Vec2::ZERO, zoom: (rect.width() / doc.x).min(rect.height() / doc.y), rotation: 0.0, flip: false };
         if self.gpu_ready {
-            let uniform = thumb.uniform(rect.size(), doc);
+            let mut uniform = thumb.uniform(rect.size(), doc);
+            // Duotone shows its inks here too (its display table is in place for the canvas).
+            if self.doc.mode == painter_core::color_mode::ColorMode::Duotone && self.proofer.display.is_some() {
+                uniform = uniform.with_display_lut();
+            }
             ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, ThumbnailCallback(uniform)));
         }
         // Visible canvas area.

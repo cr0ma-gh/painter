@@ -2,7 +2,8 @@
 //! channels are the document's colour mode's:
 //! - RGB: Red, Green, Blue; CMYK: Cyan, Magenta, Yellow, Black (shown from the
 //!   press profile's inks: one alone as grey, white where there's no ink);
-//!   Grayscale: Gray; Bitmap: Bitmap.
+//!   Lab: Lightness, a, b; Multichannel: Cyan, Magenta, Yellow spot channels;
+//!   Grayscale: Gray; Bitmap: Bitmap; Duotone: Duotone; Indexed Color: Index.
 //! - The eye shows or hides a channel on the canvas; clicking a channel makes
 //!   painting, fills and stamps change only that one (Shift-click adds or
 //!   removes channels; Ctrl-click loads it as a selection); the composite row
@@ -49,11 +50,22 @@ fn channels_of(mode: ColorMode) -> (Option<&'static str>, &'static [(&'static st
     ];
     const GRAY: [(&str, Color32); 1] = [("Gray", Color32::from_rgb(150, 150, 150))];
     const BITMAP: [(&str, Color32); 1] = [("Bitmap", Color32::from_rgb(0, 0, 0))];
+    const DUOTONE: [(&str, Color32); 1] = [("Duotone", Color32::from_rgb(150, 120, 90))];
+    const INDEX: [(&str, Color32); 1] = [("Index", Color32::from_rgb(150, 150, 150))];
+    const LAB: [(&str, Color32); 3] =
+        [("Lightness", Color32::from_rgb(200, 200, 200)), ("a", Color32::from_rgb(200, 70, 120)), ("b", Color32::from_rgb(220, 190, 40))];
+    // Spot channels, as Photoshop names them (no composite there).
+    const MULTI: [(&str, Color32); 3] =
+        [("Cyan", Color32::from_rgb(0, 174, 239)), ("Magenta", Color32::from_rgb(236, 0, 140)), ("Yellow", Color32::from_rgb(255, 230, 0))];
     match mode {
         ColorMode::Rgb => (Some("RGB"), &RGB),
         ColorMode::Cmyk => (Some("CMYK"), &CMYK),
+        ColorMode::Lab => (Some("Lab"), &LAB),
+        ColorMode::Multichannel => (None, &MULTI),
         ColorMode::Grayscale => (None, &GRAY),
         ColorMode::Bitmap => (None, &BITMAP),
+        ColorMode::Duotone => (None, &DUOTONE),
+        ColorMode::Indexed => (None, &INDEX),
     }
 }
 
@@ -89,6 +101,11 @@ impl ChannelState {
     pub(crate) fn ink_view(&self) -> Option<[bool; 4]> {
         (self.mode == ColorMode::Cmyk && self.visible != [true; 4]).then_some(self.visible)
     }
+
+    /// The channels shown, for the display table of Lab and Multichannel documents.
+    pub(crate) fn shown(&self) -> [bool; 4] {
+        if matches!(self.mode, ColorMode::Lab | ColorMode::Multichannel) { self.visible } else { [true; 4] }
+    }
 }
 
 impl PainterApp {
@@ -122,7 +139,18 @@ impl PainterApp {
                 }
                 self.proofer.proofer = proofer;
             }
-            ColorMode::Grayscale | ColorMode::Bitmap => {}
+            ColorMode::Lab => {
+                if let Some(tiles) = self.plane_tiles_mut(plane) {
+                    painter_core::lab::keep_channels(tiles, before, &coords, [edit[0], edit[1], edit[2]]);
+                }
+            }
+            // Spot inks are the inverted red, green and blue.
+            ColorMode::Multichannel => {
+                if let Some(tiles) = self.plane_tiles_mut(plane) {
+                    painter_core::channels::keep_channels(tiles, before, coords, [edit[0], edit[1], edit[2]]);
+                }
+            }
+            ColorMode::Grayscale | ColorMode::Bitmap | ColorMode::Duotone | ColorMode::Indexed => {}
         }
     }
 
@@ -162,7 +190,8 @@ impl PainterApp {
             .collect();
         let grey: Vec<u8> = match (self.doc.mode, &self.proofer.proofer) {
             (ColorMode::Cmyk, Some(p)) => p.cmyk_many(&rgb).iter().map(|k| 255 - k[c.min(3)]).collect(),
-            (ColorMode::Rgb, _) => rgb.iter().map(|p| p[c.min(2)]).collect(),
+            (ColorMode::Rgb | ColorMode::Multichannel, _) => rgb.iter().map(|p| p[c.min(2)]).collect(),
+            (ColorMode::Lab, _) => rgb.iter().map(|p| painter_core::lab::channel_byte(painter_core::lab::from_rgb(*p), c)).collect(),
             _ => rgb.iter().map(|p| painter_core::color_mode::luma(*p)).collect(),
         };
         let mask = selection::mask_from_fn((w, h), [0, 0, w as i32 - 1, h as i32 - 1], |x, y| grey[(y as u32 * w + x as u32) as usize] as f32 / 255.0);

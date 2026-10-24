@@ -104,12 +104,28 @@ cargo run --release -p painter-app -- drawing.painter
 - **Shortcuts:** hold E for the eraser until you let go (a tap switches);
   double-click the main or sub colour chip for a picker (wheel, RGB, hex).
 - **Colour modes** (Edit → Mode, as Photoshop's Image → Mode; shown in the
-  status bar): RGB Color, Grayscale (every layer's colours, vector lines,
-  fills, gradients and tones turn grey, and painting stays grey) and Bitmap
-  (the image flattens into one black-and-white layer by 50 % threshold,
-  diffusion dither or a halftone screen of any cell size and angle, and
-  painting stays black and white). Undo brings the colours back; 8 bits per
-  channel only.
+  status bar), in Photoshop's order:
+  - Bitmap: the image flattens into one black-and-white layer by 50 %
+    threshold, diffusion dither or a halftone screen of any cell size and
+    angle, and painting stays black and white.
+  - Grayscale: every layer's colours, vector lines, fills, gradients and
+    tones turn grey, and painting stays grey.
+  - Duotone: the grey printed with one to four inks (monotone, duotone,
+    tritone, quadtone), each with its colour, name and curve, from presets
+    (sepia, warm red, cyanotype…) or your own; the canvas shows the inks
+    and exports carry them, while the layers stay grey and editable.
+  - Indexed Color: the image flattens into at most 256 colours, from its own
+    colours (adaptive), exact, web, uniform or grey tables, with forced
+    black and white or primaries, transparency, and diffusion, pattern or
+    noise dither; painting snaps to the table. Color Table shows it: change
+    a colour and it changes wherever it's used, switch to grey, spectrum or
+    black body tables, load and save Photoshop `.act` tables.
+  - RGB Color, CMYK Color (below), Lab Color (Lightness, a and b channels,
+    the colour panel shows L a b), Multichannel (cyan, magenta and yellow
+    spot channels, layers merged).
+
+  Undo brings the colours back. 8 bits per channel only: 16 and 32 bits are
+  in the menu, not yet available.
 - **Colour profiles:** New Canvas picks the colour mode (RGB, Grayscale,
   black and white) and the profile (sRGB, Display P3, Adobe RGB (1998), Gray
   Gamma 2.2); Edit → Mode → Assign Profile changes it. The profile is saved
@@ -132,7 +148,8 @@ cargo run --release -p painter-app -- drawing.painter
 - **Channels** (Window → Panels → Channels, as in Photoshop): the colour
   mode's own channels — red, green and blue; cyan, magenta, yellow and
   black in CMYK (the press profile's inks, one alone in grey, several
-  printed over each other); Gray; Bitmap. Show one alone or a few; click a
+  printed over each other); Lightness, a and b in Lab; the spot channels of
+  Multichannel; Gray, Duotone, Index, Bitmap. Show one alone or a few; click a
   channel to paint, fill and stamp only in it (Shift-click for several, Ctrl+2…5 from the keyboard);
   Ctrl-click loads a channel as a selection. Save selections as named
   channels (Select → Save Selection as Channel), kept in the project, and

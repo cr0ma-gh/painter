@@ -128,6 +128,20 @@ impl PainterApp {
                     }
                     continue;
                 }
+                // `dev.duotone`: Mode → Duotone with the default inks; `dev.indexed:N`:
+                // Mode → Indexed Color with N colours; `dev.color_table`: its Color Table.
+                if c == "dev.duotone" {
+                    self.convert_to_duotone(painter_core::duotone::Duotone::default());
+                    continue;
+                }
+                if let Some(n) = c.strip_prefix("dev.indexed:").and_then(|n| n.parse::<usize>().ok()) {
+                    self.convert_to_indexed(painter_core::indexed::IndexedOptions { colors: n, ..Default::default() });
+                    continue;
+                }
+                if c == "dev.color_table" {
+                    self.open_color_table();
+                    continue;
+                }
                 // `dev.text_done`: ends the text editing (the balloon tool's settings show).
                 if c == "dev.text_done" {
                     self.finish_text();

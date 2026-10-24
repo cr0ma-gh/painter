@@ -19,6 +19,8 @@ struct Snapshot {
     mode: crate::color_mode::ColorMode,
     profile: crate::color_profile::ColorProfile,
     cmyk: Option<crate::cmyk::CmykSetup>,
+    duotone: Option<crate::duotone::Duotone>,
+    palette: Vec<[u8; 3]>,
     /// The action between this state and the next one.
     label: String,
     /// `label` is only what was in hand: name the step from what it changed.
@@ -27,7 +29,20 @@ struct Snapshot {
 
 impl Snapshot {
     fn of(doc: &Document, label: String, hint: bool) -> Self {
-        Self { size: doc.canvas(), layers: doc.layers.clone(), active: doc.active, selection: doc.selection.clone(), channels: doc.channels.clone(), mode: doc.mode, profile: doc.profile, cmyk: doc.cmyk.clone(), label, hint }
+        Self {
+            size: doc.canvas(),
+            layers: doc.layers.clone(),
+            active: doc.active,
+            selection: doc.selection.clone(),
+            channels: doc.channels.clone(),
+            mode: doc.mode,
+            profile: doc.profile,
+            cmyk: doc.cmyk.clone(),
+            duotone: doc.duotone.clone(),
+            palette: doc.palette.clone(),
+            label,
+            hint,
+        }
     }
 
     fn restore(self, doc: &mut Document) {
@@ -39,6 +54,8 @@ impl Snapshot {
         doc.mode = self.mode;
         doc.profile = self.profile;
         doc.cmyk = self.cmyk;
+        doc.duotone = self.duotone;
+        doc.palette = self.palette;
     }
 }
 

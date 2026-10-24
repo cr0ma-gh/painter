@@ -455,8 +455,8 @@ impl PainterApp {
                 if ui.color_edit_button_srgba(&mut main).on_hover_text("Edit numerically").changed() {
                     self.color = Hsva::from(main);
                 }
-                // CMYK documents: the inks, and a warning for colours the press can't print.
-                if !self.cmyk_readout(ui) {
+                // The mode's own numbers: CMYK inks (and the press's warning), Lab, the table's index.
+                if !self.mode_readout(ui) {
                     let [r, g, b, _] = self.color.to_srgba_unmultiplied();
                     ui.label(egui::RichText::new(format!("#{r:02X}{g:02X}{b:02X}")).monospace().color(theme::text_dim()));
                 }

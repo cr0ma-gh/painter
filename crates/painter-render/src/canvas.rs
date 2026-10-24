@@ -88,6 +88,12 @@ impl ViewUniform {
         Self { inks: shown.map(f), ink_view: [1.0, 0.0, 0.0, 0.0], ..self }
     }
 
+    /// Shows the canvas through [`CanvasFrame::ink_lut`] as an RGB → RGB table
+    /// (Duotone's inks, Lab and Multichannel channel views).
+    pub fn with_display_lut(self) -> Self {
+        Self { ink_view: [0.0, 1.0, 0.0, 0.0], ..self }
+    }
+
     /// Draws animated marching ants along the selection edge.
     pub fn with_selection_outline(self, time: f32) -> Self {
         Self { time, show_selection: 1.0, ..self }

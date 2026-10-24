@@ -163,6 +163,8 @@ impl Document {
         }
         let mut doc = self.clone();
         strip(&mut doc.layers);
+        // Files show Duotone's inks, not the grey underneath.
+        crate::color_mode::ink_duotone(&mut doc);
         doc
     }
 }

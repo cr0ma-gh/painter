@@ -189,6 +189,12 @@ pub struct PainterApp {
     pub(crate) reset_dialog: Option<crate::settings_reset::ResetChoice>,
     /// Edit → Mode → Bitmap is asking how.
     pub(crate) bitmap_dialog: Option<crate::color_mode_ui::BitmapDialog>,
+    /// Edit → Mode → Duotone, Indexed Color and Color Table, and the last choices.
+    pub(crate) duotone_dialog: Option<crate::color_mode_ui::DuotoneDialog>,
+    pub(crate) indexed_dialog: Option<crate::color_mode_ui::IndexedDialog>,
+    pub(crate) color_table: Option<crate::color_mode_ui::ColorTableDialog>,
+    pub(crate) last_duotone: painter_core::duotone::Duotone,
+    pub(crate) last_indexed: painter_core::indexed::IndexedOptions,
     /// Edit → Mode → CMYK Color is asking for the press profile.
     pub(crate) cmyk_dialog: Option<crate::cmyk_ui::CmykDialog>,
     /// File → Print, and its last choices.
@@ -384,6 +390,11 @@ impl PainterApp {
             about_open: false,
             reset_dialog: None,
             bitmap_dialog: None,
+            duotone_dialog: None,
+            indexed_dialog: None,
+            color_table: None,
+            last_duotone: Default::default(),
+            last_indexed: Default::default(),
             cmyk_dialog: None,
             print: None,
             print_settings: Default::default(),
@@ -493,10 +504,14 @@ impl PainterApp {
     pub(crate) fn ink_rgb(&self, color: Hsva) -> [f32; 3] {
         // Grey, or black or white, in those colour modes.
         let rgb = painter_core::color_mode::mode_color(self.doc.mode, hsva_rgb(color));
-        // CMYK: the colour the press would print.
+        let bytes = rgb.map(|v| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8);
         match &self.proofer.proofer {
-            Some(p) if self.doc.mode == painter_core::color_mode::ColorMode::Cmyk => {
-                p.proof(rgb.map(|v| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8)).map(|v| v as f32 / 255.0)
+            // CMYK: the colour the press would print.
+            Some(p) if self.doc.mode == painter_core::color_mode::ColorMode::Cmyk => p.proof(bytes).map(|v| v as f32 / 255.0),
+            // Indexed: the nearest colour of the table.
+            _ if self.doc.mode == painter_core::color_mode::ColorMode::Indexed && !self.doc.palette.is_empty() => {
+                let c = self.doc.palette[painter_core::indexed::nearest(&self.doc.palette, bytes)];
+                c.map(|v| v as f32 / 255.0)
             }
             _ => rgb,
         }
@@ -1804,6 +1819,9 @@ impl eframe::App for PainterApp {
         self.image_size_window(ctx);
         self.reset_settings_window(ctx);
         self.bitmap_window(ctx);
+        self.duotone_window(ctx);
+        self.indexed_window(ctx);
+        self.color_table_window(ctx);
         self.cmyk_window(ctx);
         self.print_window(ctx);
         self.text_editor_window(ctx);

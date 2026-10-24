@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use eframe::egui::{self, Color32, RichText};
 use painter_core::cmyk::{self, CmykIntent, CmykSetup, ProfileFile, Proofer};
-use painter_core::color_mode::ColorMode;
+use painter_core::color_mode::{self, ColorMode};
 
 use crate::app::PainterApp;
 use crate::theme;
@@ -31,6 +31,10 @@ pub(crate) struct ProoferCache {
     /// Its RGB → CMYK table for showing ink channels, with a key that changes with it.
     pub lut: Option<(u64, Arc<Vec<u8>>)>,
     built: u64,
+    /// What the display table was made for: mode, channels shown, inks.
+    display_key: Option<(ColorMode, [bool; 4], Option<painter_core::duotone::Duotone>)>,
+    /// How Duotone, Lab and Multichannel documents show (see `color_mode::display_lut`).
+    pub display: Option<(u64, Arc<Vec<u8>>)>,
 }
 
 /// Profiles copied in with Load Profile, kept with Painter's settings.
@@ -129,6 +133,7 @@ impl PainterApp {
     /// Keeps the proofer in step with the document's CMYK setup. Every frame.
     pub(crate) fn update_proofer(&mut self) {
         self.sync_channels();
+        self.update_display_lut();
         let key = match (&self.doc.cmyk, self.doc.mode) {
             (Some(c), ColorMode::Cmyk) => Some((Arc::as_ptr(&c.icc) as usize, c.intent, c.black_point, self.doc.profile)),
             _ => None,
@@ -153,6 +158,20 @@ impl PainterApp {
         self.proofer.lut = self.proofer.proofer.as_ref().map(|p| (built, Arc::new(p.lut())));
     }
 
+    /// The display table, rebuilt when the mode, the channels shown or the inks change.
+    fn update_display_lut(&mut self) {
+        let shown = self.channels.shown();
+        let duotone = if self.doc.mode == ColorMode::Duotone { self.doc.duotone.clone() } else { None };
+        let key = Some((self.doc.mode, shown, duotone));
+        if key == self.proofer.display_key {
+            return;
+        }
+        self.proofer.display_key = key;
+        self.proofer.built += 1;
+        let built = self.proofer.built;
+        self.proofer.display = color_mode::display_lut(&self.doc, shown).map(|lut| (built, Arc::new(lut)));
+    }
+
     /// Edit → Mode → CMYK Color: converts the document with the dialog's setup.
     pub(crate) fn convert_to_cmyk(&mut self, setup: CmykSetup) {
         let proofer = match Proofer::new(&self.rgb_icc(), &setup) {
@@ -165,6 +184,9 @@ impl PainterApp {
         let started = std::time::Instant::now();
         self.next_label = Some("Mode: CMYK Color".into());
         self.checkpoint();
+        // A Duotone's inks are its colours.
+        color_mode::ink_duotone(&mut self.doc);
+        self.doc.palette.clear();
         let canvas = self.doc.canvas();
         proofer.proof_layers(&mut self.doc.layers, canvas);
         if self.doc.profile.is_gray() {

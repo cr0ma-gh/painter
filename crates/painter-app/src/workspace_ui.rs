@@ -1011,7 +1011,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 82] = [
+        let fixed: [FixedCommand; 87] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -1045,6 +1045,11 @@ impl PainterApp {
             ("image.mode.1", "Mode: Grayscale", C::Edit, "", &["colour mode", "greyscale", "black and white", "desaturate"], true),
             ("image.mode.2", "Mode: Bitmap...", C::Edit, "", &["colour mode", "1 bit", "dither", "halftone", "monochrome"], true),
             ("image.mode.3", "Mode: CMYK Color...", C::Edit, "", &["colour mode", "color mode", "cmyk", "print", "press", "fogra", "swop", "icc"], true),
+            ("image.mode.4", "Mode: Duotone...", C::Edit, "", &["colour mode", "monotone", "tritone", "quadtone", "inks", "sepia"], true),
+            ("image.mode.5", "Mode: Indexed Color...", C::Edit, "", &["colour mode", "palette", "256 colours", "gif", "posterize", "dither"], true),
+            ("image.mode.6", "Mode: Lab Color", C::Edit, "", &["colour mode", "color mode", "lab", "lightness"], true),
+            ("image.mode.7", "Mode: Multichannel", C::Edit, "", &["colour mode", "spot channels", "spot colours"], true),
+            ("image.color_table", "Color Table...", C::Edit, "", &["indexed", "palette", "act"], self.doc.mode == painter_core::color_mode::ColorMode::Indexed),
             ("select.all", "Select All", C::Select, "Ctrl+A", &[], true),
             ("select.none", "Deselect", C::Select, "Ctrl+D", &["clear selection"], has_sel),
             ("select.invert", "Invert Selection", C::Select, "Ctrl+Shift+I", &[], true),
@@ -1181,6 +1186,11 @@ impl PainterApp {
             "image.mode.1" => self.set_color_mode(painter_core::color_mode::ColorMode::Grayscale),
             "image.mode.2" => self.set_color_mode(painter_core::color_mode::ColorMode::Bitmap),
             "image.mode.3" => self.set_color_mode(painter_core::color_mode::ColorMode::Cmyk),
+            "image.mode.4" => self.set_color_mode(painter_core::color_mode::ColorMode::Duotone),
+            "image.mode.5" => self.set_color_mode(painter_core::color_mode::ColorMode::Indexed),
+            "image.mode.6" => self.set_color_mode(painter_core::color_mode::ColorMode::Lab),
+            "image.mode.7" => self.set_color_mode(painter_core::color_mode::ColorMode::Multichannel),
+            "image.color_table" => self.open_color_table(),
             "select.all" => self.select_all(),
             "select.none" => self.deselect(),
             "select.invert" => self.invert_selection(),

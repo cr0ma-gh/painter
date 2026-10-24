@@ -210,13 +210,14 @@ impl PainterApp {
                                     for (mode, label) in [
                                         (ColorMode::Rgb, "RGB Color"),
                                         (ColorMode::Cmyk, "CMYK Color"),
+                                        (ColorMode::Lab, "Lab Color"),
                                         (ColorMode::Grayscale, "Grayscale"),
                                         (ColorMode::Bitmap, "Black and White (Bitmap)"),
                                     ] {
                                         if ui.selectable_label(s.mode == mode, label).clicked() {
                                             s.mode = mode;
                                             // A profile of the mode's kind.
-                                            let rgb = matches!(mode, ColorMode::Rgb | ColorMode::Cmyk);
+                                            let rgb = !mode.is_gray();
                                             if rgb == s.profile.is_gray() {
                                                 s.profile = if rgb { ColorProfile::Srgb } else { ColorProfile::GrayGamma22 };
                                             }
@@ -231,10 +232,9 @@ impl PainterApp {
                             ui.end_row();
                             ui.label("Profile");
                             {
-                                use painter_core::color_mode::ColorMode;
                                 use painter_core::color_profile::ColorProfile;
                                 let choices: &[ColorProfile] =
-                                    if matches!(s.mode, ColorMode::Rgb | ColorMode::Cmyk) { &ColorProfile::RGB } else { &ColorProfile::GRAY };
+                                    if !s.mode.is_gray() { &ColorProfile::RGB } else { &ColorProfile::GRAY };
                                 egui::ComboBox::from_id_salt("new_canvas_profile").selected_text(s.profile.name()).width(180.0).show_ui(ui, |ui| {
                                     for p in choices {
                                         ui.selectable_value(&mut s.profile, *p, p.name());

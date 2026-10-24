@@ -28,12 +28,16 @@ pub struct Document {
     /// Root layers, bottom to top.
     pub layers: Vec<Layer>,
     pub active: LayerId,
-    /// RGB, Grayscale or Bitmap (Image → Mode).
+    /// RGB, CMYK, Grayscale, Bitmap, Duotone, Indexed, Lab or Multichannel (Image → Mode).
     pub mode: crate::color_mode::ColorMode,
     /// The colour profile it.s tagged with (written into exports).
     pub profile: crate::color_profile::ColorProfile,
     /// The press profile of a CMYK document (and how colours map to it).
     pub cmyk: Option<crate::cmyk::CmykSetup>,
+    /// The inks of a Duotone document (one to four).
+    pub duotone: Option<crate::duotone::Duotone>,
+    /// The colour table of an Indexed Color document (up to 256 colours).
+    pub palette: Vec<[u8; 3]>,
     /// Saved selections (Photoshop's alpha channels), oldest first.
     pub channels: Vec<SavedChannel>,
     /// `None`: no selection, everything is editable (see `selection`).
@@ -56,6 +60,8 @@ impl Document {
             mode: Default::default(),
             profile: Default::default(),
             cmyk: None,
+            duotone: None,
+            palette: Vec::new(),
             next_id: 1,
         };
         let paper = doc.alloc_id();
@@ -109,6 +115,8 @@ impl Document {
             mode: Default::default(),
             profile: Default::default(),
             cmyk: None,
+            duotone: None,
+            palette: Vec::new(),
             next_id: next_id.max(max_id + 1),
         }
     }
