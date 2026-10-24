@@ -8,7 +8,7 @@
 //! Files app), and [`offer_export`] lets the user put a copy anywhere.
 
 use std::path::{Path, PathBuf};
-#[cfg_attr(desktop, allow(unused_imports))]
+#[allow(unused_imports)]
 use crate::i18n::tr;
 use std::sync::Mutex;
 
@@ -378,6 +378,7 @@ pub(crate) fn picker_window(ctx: &eframe::egui::Context) {
 #[cfg(target_os = "android")]
 mod android {
     use super::{documents_dir, Purpose};
+    use crate::i18n::tr;
     use eframe::egui;
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
