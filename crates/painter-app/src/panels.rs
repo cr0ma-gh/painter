@@ -294,6 +294,21 @@ impl PainterApp {
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.ws.bars.tool_strip, "Tool Strip").on_hover_text("The tools on the left");
                     ui.checkbox(&mut self.ws.bars.command_bar, "Command Bar").on_hover_text("The icon buttons under the menu");
+                    ui.checkbox(&mut self.ws.chrome.workspace_tabs, "Workspace Bar")
+                        .on_hover_text("The workspace tabs (Painting, Inking…); hidden, switch workspaces from View > Workspace");
+                    // Switching workspaces without the bar.
+                    ui.menu_button("Workspace", |ui| {
+                        let mut pick = None;
+                        for (i, w) in self.ws.set.workspaces.iter().enumerate() {
+                            if ui.radio(i == self.ws.set.active, &w.name).clicked() {
+                                pick = Some(i);
+                            }
+                        }
+                        if let Some(i) = pick {
+                            self.ws.set.activate(i);
+                            ui.close_menu();
+                        }
+                    });
                     ui.checkbox(&mut self.ws.chrome.clock, "Clock and Battery").on_hover_text("The time and the battery's charge in the canvas's corner");
                     ui.menu_button("Screen Mode", |ui| {
                         let ctx = ui.ctx().clone();

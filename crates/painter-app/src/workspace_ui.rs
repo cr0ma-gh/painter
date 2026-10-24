@@ -437,6 +437,11 @@ impl PainterApp {
                             menu = Some((i, "rename"));
                         }
                         tab.context_menu(|ui| {
+                            if ui.button("Hide Workspace Bar").on_hover_text("View > Workspace Bar shows it again").clicked() {
+                                menu = Some((i, "hide_bar"));
+                                ui.close_menu();
+                            }
+                            ui.separator();
                             for (label, what) in [
                                 ("Rename", "rename"),
                                 ("Duplicate", "duplicate"),
@@ -489,6 +494,10 @@ impl PainterApp {
         let set = &mut self.ws.set;
         match what {
             "rename" => self.ws.renaming = Some((i, set.workspaces[i].name.clone())),
+            "hide_bar" => {
+                self.ws.chrome.workspace_tabs = false;
+                self.status = "Workspace bar hidden: View > Workspace Bar shows it again".into();
+            }
             "rename_done" => {
                 if let Some((k, name)) = self.ws.renaming.take() {
                     set.rename(k, &name);
@@ -1012,7 +1021,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 87] = [
+        let fixed: [FixedCommand; 88] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -1083,6 +1092,7 @@ impl PainterApp {
             ("view.ruler_bar", "Ruler Bar", C::View, "Ctrl+R", &["rulers", "measure", "guides", "units"], true),
             ("view.brush_crosshair", "Brush Crosshair On / Off", C::View, "", &["cursor", "pointer", "cross"], true),
             ("view.clock", "Clock and Battery On / Off", C::View, "", &["time", "hour", "battery", "charge", "widget"], true),
+            ("view.workspace_bar", "Workspace Bar On / Off", C::View, "", &["workspaces", "tabs", "painting", "inking", "hide", "space"], true),
             ("view.modifier_keys", "On-Screen Modifier Keys", C::View, "", &["ctrl", "shift", "alt", "touch", "keyboard"], true),
             ("layer.duplicate", "Duplicate Layers", C::Layer, "Ctrl+J", &["copy", "clone"], true),
             ("layer.group", "Group Layers into Folder", C::Layer, "Ctrl+G", &["folder", "group"], true),
@@ -1229,6 +1239,7 @@ impl PainterApp {
             "view.ruler_bar" => self.ws.chrome.ruler_bar = !self.ws.chrome.ruler_bar,
             "view.brush_crosshair" => self.ws.chrome.brush_crosshair = !self.ws.chrome.brush_crosshair,
             "view.clock" => self.ws.chrome.clock = !self.ws.chrome.clock,
+            "view.workspace_bar" => self.ws.chrome.workspace_tabs = !self.ws.chrome.workspace_tabs,
             "view.ui_bigger" => self.step_ui_scale(1),
             "color.transparent" => self.toggle_transparent(),
             "layer.duplicate" => self.duplicate_selected_layers(),
