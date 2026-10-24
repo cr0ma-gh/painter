@@ -244,6 +244,10 @@ pub(crate) fn documents_dir() -> Option<PathBuf> {
 /// Documents/Materials, created so it shows in the Files app). Brushes from
 /// `.sut` files find their textures and tips there.
 pub(crate) fn materials_dir() -> Option<PathBuf> {
+    // Desktop: the copy the Windows installer makes (`painter --copy-csp-materials`), if any.
+    if documents_dir().is_none() {
+        return app_data_dir().map(|d| d.join("Materials")).filter(|d| d.is_dir());
+    }
     let dir = documents_dir()?.join("Materials");
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir)

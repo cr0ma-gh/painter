@@ -561,7 +561,12 @@ egui) installs Painter for the user alone, without administrator rights: a
 welcome page and a tour of the app in slides, what Painter is and its
 licence, then the folder (`%LOCALAPPDATA%\Programs\Painter` by default),
 Start menu and desktop shortcuts and the file types, and it starts Painter
-when it's done. It speaks English or Italian, as Windows does. Painter then
+when it's done. When the computer has them, it also brings in Photoshop's
+brushes (`.abr` in Photoshop's presets) and Clip Studio's sub tools (its tool
+database and `.sut` files), and can copy Clip Studio's materials folder into
+Painter's settings so brushes keep their tips and textures without Clip
+Studio (`painter --import-brushes FILE…`, `painter --copy-csp-materials`).
+It speaks English or Italian, as Windows does. Painter then
 shows in Settings → Apps, whose Uninstall removes it (the settings too, if
 asked). `Painter-windows-x86_64.exe` is still there for running without
 installing.

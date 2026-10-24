@@ -19,6 +19,7 @@ mod color_mode_ui;
 mod color_panels;
 mod search_layer;
 mod settings_reset;
+mod setup_import;
 mod shape_tool;
 mod smart_shape;
 mod stamp_tool;
@@ -203,15 +204,21 @@ pub fn thumbnail_command(args: &[String]) -> Option<i32> {
     file_types::thumbnail_command(args)
 }
 
-/// `painter --register-file-types` / `--unregister-file-types` (the Windows
-/// installer runs them): sets up or removes the file types, no window.
+/// `painter --register-file-types` / `--unregister-file-types`, `--import-brushes FILE…`,
+/// `--copy-csp-materials` (the Windows installer runs them): file types,
+/// brushes and materials, no window. `None` when none of them was asked.
 pub fn file_types_command(args: &[String]) -> Option<i32> {
     let result = if args.iter().any(|a| a == "--register-file-types") {
         file_types::register()
     } else if args.iter().any(|a| a == "--unregister-file-types") {
         file_types::unregister()
+    } else if args.iter().any(|a| a == "--copy-csp-materials") {
+        setup_import::copy_csp_materials()
     } else {
-        return None;
+        // `--import-brushes FILE…`: every argument after it.
+        let i = args.iter().position(|a| a == "--import-brushes")?;
+        let files: Vec<std::path::PathBuf> = args[i + 1..].iter().map(std::path::PathBuf::from).collect();
+        setup_import::import_brushes(&files)
     };
     Some(match result {
         Ok(_) => 0,

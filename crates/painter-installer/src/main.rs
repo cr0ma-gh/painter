@@ -118,6 +118,11 @@ mod ui {
         progress: Arc<Mutex<Progress>>,
         error: String,
         screenshot: Option<(PathBuf, u32)>,
+        /// Other apps' brushes and materials, looked for in the background.
+        found: Arc<Mutex<Option<setup::Found>>>,
+        bring_photoshop: bool,
+        bring_clip: bool,
+        bring_materials: bool,
     }
 
     fn texture(ctx: &egui::Context, name: &str, png: &[u8]) -> Option<egui::TextureHandle> {
@@ -139,6 +144,17 @@ mod ui {
             self.page = Page::Working;
             *self.progress.lock().unwrap() = Progress::default();
             let progress = self.progress.clone();
+            // The brushes and materials chosen.
+            if let Some(found) = self.found.lock().unwrap().as_ref() {
+                self.opts.brushes.clear();
+                if self.bring_photoshop {
+                    self.opts.brushes.extend(found.photoshop.iter().cloned());
+                }
+                if self.bring_clip {
+                    self.opts.brushes.extend(found.clip.iter().cloned());
+                }
+                self.opts.materials = self.bring_materials && found.materials.is_some();
+            }
             let (opts, dir, settings) = (self.opts.clone(), self.uninstall.clone(), self.remove_settings);
             let ctx = ctx.clone();
             std::thread::spawn(move || {
@@ -162,6 +178,8 @@ mod ui {
                 "files" => self.t("Copying Painter…", "Copio Painter…"),
                 "shortcuts" => self.t("Making shortcuts…", "Creo i collegamenti…"),
                 "file types" => self.t("Setting up file types…", "Configuro i tipi di file…"),
+                "materials" => self.t("Copying Clip Studio's materials…", "Copio i materiali di Clip Studio…"),
+                "brushes" => self.t("Bringing in your brushes…", "Importo i tuoi pennelli…"),
                 "settings" => self.t("Removing settings…", "Rimuovo le impostazioni…"),
                 "apps" => self.t("Updating Settings → Apps…", "Aggiorno Impostazioni → App…"),
                 "done" => self.t("Done", "Fatto"),
@@ -366,6 +384,7 @@ mod ui {
             check(ui, &mut self.opts.desktop, b, hb);
             check(ui, &mut self.opts.file_types, c, hc);
             ui.checkbox(&mut self.launch, RichText::new(d).size(15.0).color(TEXT));
+            self.brushes_section(ui);
             if !setup::has_payload() {
                 ui.add_space(10.0);
                 ui.colored_label(
@@ -376,6 +395,76 @@ mod ui {
                     ),
                 );
             }
+        }
+
+        /// Photoshop's and Clip Studio's brushes and Clip Studio's materials,
+        /// when this computer has them: brought into Painter as it installs.
+        fn brushes_section(&mut self, ui: &mut egui::Ui) {
+            let found = self.found.lock().unwrap().clone();
+            let Some(found) = found else {
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(
+                        RichText::new(
+                            self.t("Looking for Photoshop and Clip Studio brushes…", "Cerco pennelli di Photoshop e Clip Studio…"),
+                        )
+                        .color(DIM),
+                    );
+                });
+                ui.ctx().request_repaint_after(Duration::from_millis(200));
+                return;
+            };
+            if found.photoshop.is_empty() && found.clip.is_empty() && found.materials.is_none() {
+                return;
+            }
+            ui.add_space(12.0);
+            ui.label(RichText::new(self.t("Your brushes", "I tuoi pennelli")).size(17.0).color(TEXT).strong());
+            let plural = |n: usize, en: &str, it: &str| format!("{n} {}", if self.it { it } else { en });
+            if !found.photoshop.is_empty() {
+                let label = format!(
+                    "{} ({})",
+                    self.t("Bring in Photoshop's brushes", "Importa i pennelli di Photoshop"),
+                    plural(found.photoshop.len(), "brush sets", "set di pennelli")
+                );
+                ui.checkbox(&mut self.bring_photoshop, RichText::new(label).size(15.0).color(TEXT));
+            }
+            if !found.clip.is_empty() {
+                let label = format!(
+                    "{} ({})",
+                    self.t("Bring in Clip Studio's sub tools", "Importa gli strumenti secondari di Clip Studio"),
+                    plural(found.clip.len(), "files", "file")
+                );
+                ui.checkbox(&mut self.bring_clip, RichText::new(label).size(15.0).color(TEXT));
+            }
+            if let Some((_, bytes)) = &found.materials {
+                let size = if *bytes >= 1 << 30 {
+                    format!("{:.1} GB", *bytes as f64 / (1u64 << 30) as f64)
+                } else {
+                    format!("{:.0} MB", (*bytes as f64 / (1u64 << 20) as f64).max(1.0))
+                };
+                let label = format!(
+                    "{} ({size})",
+                    self.t("Include Clip Studio's materials folder", "Includi la cartella materiali di Clip Studio")
+                );
+                ui.checkbox(&mut self.bring_materials, RichText::new(label).size(15.0).color(TEXT));
+                ui.label(
+                    RichText::new(self.t(
+                        "A copy in Painter's settings: brushes keep their tips and textures even without Clip Studio.",
+                        "Una copia nelle impostazioni di Painter: i pennelli mantengono punte e texture anche senza Clip Studio.",
+                    ))
+                    .size(12.5)
+                    .color(DIM),
+                );
+            }
+            ui.label(
+                RichText::new(self.t(
+                    "They're added to Painter's brush list; your files stay as they are.",
+                    "Vengono aggiunti all'elenco pennelli di Painter; i tuoi file restano come sono.",
+                ))
+                .size(12.5)
+                .color(DIM),
+            );
         }
 
         fn working(&mut self, ui: &mut egui::Ui) {
@@ -608,11 +697,25 @@ mod ui {
             None => setup::italian(),
         };
         let dir = setup::installed_dir().unwrap_or_else(setup::default_dir);
+        // Photoshop's and Clip Studio's brushes, looked for while the tour runs.
+        let found = Arc::new(Mutex::new(None));
+        if uninstall.is_none() {
+            let slot = found.clone();
+            std::thread::spawn(move || *slot.lock().unwrap() = Some(setup::find_brushes()));
+        }
         let app = App {
             it,
             page: if uninstall.is_some() { Page::RemoveConfirm } else { page },
             uninstall,
-            opts: Options { dir, start_menu: true, desktop: true, file_types: true, register: true },
+            opts: Options {
+                dir,
+                start_menu: true,
+                desktop: true,
+                file_types: true,
+                register: true,
+                brushes: Vec::new(),
+                materials: false,
+            },
             launch: true,
             remove_settings: false,
             slides: Vec::new(),
@@ -621,6 +724,10 @@ mod ui {
             progress: Arc::new(Mutex::new(Progress::default())),
             error: String::new(),
             screenshot,
+            found,
+            bring_photoshop: true,
+            bring_clip: true,
+            bring_materials: true,
         };
         let icon = image::load_from_memory(include_bytes!("../../../packaging/icons/painter-256.png")).ok().map(|i| {
             let i = i.to_rgba8();

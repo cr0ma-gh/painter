@@ -41,6 +41,98 @@ pub struct Options {
     pub file_types: bool,
     /// Settings → Apps entry (off only for tests).
     pub register: bool,
+    /// Brush files to bring into Painter's brush list (Photoshop, Clip Studio).
+    pub brushes: Vec<PathBuf>,
+    /// Copy Clip Studio's materials into Painter's settings folder.
+    pub materials: bool,
+}
+
+/// Brushes and materials from other apps on this computer.
+#[derive(Clone, Debug, Default)]
+pub struct Found {
+    /// Photoshop brush sets (`.abr`).
+    pub photoshop: Vec<PathBuf>,
+    /// Clip Studio's sub tools: its tool database (`.todb`) and exported `.sut` files.
+    pub clip: Vec<PathBuf>,
+    /// Clip Studio's installed materials folder and its size in bytes.
+    pub materials: Option<(PathBuf, u64)>,
+}
+
+/// Files under `dir` (up to `depth` folders down) whose extension is one of `exts`.
+fn files_with(dir: &Path, exts: &[&str], depth: u32, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if depth > 0 {
+                files_with(&path, exts, depth - 1, out);
+            }
+        } else if path.extension().and_then(|e| e.to_str()).is_some_and(|e| exts.iter().any(|x| x.eq_ignore_ascii_case(e))) {
+            out.push(path);
+        }
+    }
+}
+
+/// Subfolders of `dir` whose name contains `part` (any case).
+fn folders_named(dir: &Path, part: &str) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let part = part.to_ascii_lowercase();
+    entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir() && p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.to_ascii_lowercase().contains(&part)))
+        .collect()
+}
+
+/// The total size of the files under `dir`.
+pub fn dir_size(dir: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    entries
+        .flatten()
+        .map(|e| match e.metadata() {
+            Ok(m) if m.is_dir() => dir_size(&e.path()),
+            Ok(m) => m.len(),
+            Err(_) => 0,
+        })
+        .sum()
+}
+
+/// Looks for Photoshop's and Clip Studio's brushes and Clip Studio's
+/// materials under `appdata` (`%APPDATA%`) and the program folders.
+pub fn find_in(appdata: Option<&Path>, program_files: &[PathBuf]) -> Found {
+    let mut found = Found::default();
+    if let Some(appdata) = appdata {
+        // Photoshop: presets and brushes saved by the user, per version.
+        for ps in folders_named(&appdata.join("Adobe"), "photoshop") {
+            files_with(&ps, &["abr"], 5, &mut found.photoshop);
+        }
+        // Clip Studio: the tool database and exported sub tools.
+        files_with(&appdata.join("CELSYSUserData").join("CELSYS"), &["todb", "sut"], 6, &mut found.clip);
+        let materials = appdata.join(r"CELSYSUserData\CELSYS\CLIPStudioCommon\Material\Install");
+        if materials.is_dir() {
+            found.materials = Some((materials.clone(), dir_size(&materials)));
+        }
+    }
+    // Photoshop's own brush sets, where it's installed.
+    for pf in program_files {
+        for ps in folders_named(&pf.join("Adobe"), "photoshop") {
+            files_with(&ps.join("Presets").join("Brushes"), &["abr"], 2, &mut found.photoshop);
+        }
+    }
+    found.photoshop.sort();
+    found.photoshop.dedup();
+    found.clip.sort();
+    found
+}
+
+/// [`find_in`] for this user.
+pub fn find_brushes() -> Found {
+    let appdata = std::env::var_os("APPDATA").map(PathBuf::from);
+    let program_files: Vec<PathBuf> =
+        ["ProgramW6432", "ProgramFiles"].iter().filter_map(|v| std::env::var_os(v).map(PathBuf::from)).collect();
+    let mut pf = program_files;
+    pf.dedup();
+    find_in(appdata.as_deref(), &pf)
 }
 
 /// Where Painter goes when nothing else is chosen.
@@ -203,6 +295,18 @@ pub fn install(opts: &Options, progress: &dyn Fn(f32, &'static str)) -> Result<(
             return Err("Painter couldn't set up its file types".into());
         }
     }
+    // Other apps' brushes, through Painter's own importers.
+    if opts.materials {
+        progress(0.8, "materials");
+        let _ = std::process::Command::new(&exe).arg("--copy-csp-materials").status();
+    }
+    if !opts.brushes.is_empty() {
+        progress(0.85, "brushes");
+        // A few files a run, so the command line stays short.
+        for chunk in opts.brushes.chunks(40) {
+            let _ = std::process::Command::new(&exe).arg("--import-brushes").args(chunk).status();
+        }
+    }
     progress(0.9, "apps");
     if opts.register {
         register(&opts.dir, (bytes.len() / 1024) as u32)?;
@@ -294,7 +398,15 @@ mod tests {
     fn installs_and_removes_in_a_folder() {
         // Built without Painter inside: it says so and touches nothing.
         let dir = std::env::temp_dir().join(format!("painter-setup-test-{}", std::process::id()));
-        let opts = Options { dir: dir.clone(), start_menu: false, desktop: false, file_types: false, register: false };
+        let opts = Options {
+            dir: dir.clone(),
+            start_menu: false,
+            desktop: false,
+            file_types: false,
+            register: false,
+            brushes: Vec::new(),
+            materials: false,
+        };
         if !has_payload() {
             assert!(install(&opts, &|_, _| {}).is_err());
             assert!(!dir.exists());
@@ -305,6 +417,32 @@ mod tests {
         assert!(dir.join("uninstall.exe").is_file());
         uninstall(&dir, false, &|_, _| {}).unwrap();
         assert!(!dir.exists());
+    }
+
+    #[test]
+    fn finds_photoshop_and_clip_studio_brushes() {
+        let root = std::env::temp_dir().join(format!("painter-find-test-{}", std::process::id()));
+        let appdata = root.join("AppData");
+        let pf = root.join("Program Files");
+        let mk = |p: PathBuf, bytes: usize| {
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, vec![0u8; bytes]).unwrap();
+        };
+        mk(appdata.join(r"Adobe\Adobe Photoshop 2025\Presets\Brushes\Mine.abr"), 10);
+        mk(appdata.join(r"Adobe\Acrobat\Other.abr"), 10);
+        mk(pf.join(r"Adobe\Adobe Photoshop 2025\Presets\Brushes\Default.ABR"), 10);
+        mk(appdata.join(r"CELSYSUserData\CELSYS\CLIPStudioPaintData\Tool\EditImageTool.todb"), 10);
+        mk(appdata.join(r"CELSYSUserData\CELSYS\Exported\Pencil.sut"), 10);
+        mk(appdata.join(r"CELSYSUserData\CELSYS\CLIPStudioCommon\Material\Install\Paint001\uuid\thumbnail\thumbnail.png"), 300);
+        let found = find_in(Some(&appdata), &[pf]);
+        let names = |v: &[PathBuf]| v.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>();
+        let mut ps = names(&found.photoshop);
+        ps.sort();
+        assert_eq!(ps, ["Default.ABR", "Mine.abr"], "Photoshop's folders only, any case");
+        assert_eq!(found.clip.len(), 2);
+        assert_eq!(found.materials.as_ref().map(|m| m.1), Some(300));
+        assert!(find_in(None, &[]).photoshop.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
