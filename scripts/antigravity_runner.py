@@ -481,9 +481,9 @@ class ClaudeCodeEngine(BaseAIEngine):
         self.executable = shutil.which(executable) or executable
 
     def execute_headless(self, prompt: str, issue_number: int, log_file: Path, dry_run: bool) -> Tuple[bool, str]:
-        cmd = [self.executable, "-p", prompt, "--dangerously-skip-permissions"]
+        cmd = [self.executable, "--dangerously-skip-permissions"]
         if dry_run:
-            logger.info(f"[DRY-RUN] [{self.name}] Would execute: {' '.join(cmd[:2])} ... (prompt len {len(prompt)})")
+            logger.info(f"[DRY-RUN] [{self.name}] Would execute: {' '.join(cmd)} ... (prompt len {len(prompt)})")
             return True, "Dry-run execution simulated successfully."
 
         try:
@@ -491,7 +491,7 @@ class ClaudeCodeEngine(BaseAIEngine):
                 proc = subprocess.Popen(
                     cmd,
                     cwd=REPO_ROOT,
-                    stdin=subprocess.DEVNULL,
+                    stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
@@ -499,18 +499,16 @@ class ClaudeCodeEngine(BaseAIEngine):
                     errors="replace",
                     shell=(platform.system() == "Windows"),
                 )
-                captured = []
-                for line in proc.stdout:
+                stdout_data, _ = proc.communicate(input=prompt)
+                for line in stdout_data.splitlines(keepends=True):
                     try:
                         sys.stdout.write(line)
                         sys.stdout.flush()
                     except Exception:
                         pass
                     lf.write(line)
-                    captured.append(line)
-                proc.wait()
 
-            return (proc.returncode == 0), "".join(captured)
+            return (proc.returncode == 0), stdout_data
         except FileNotFoundError:
             err = (
                 f"Executable '{self.executable}' not found on PATH.\n"
