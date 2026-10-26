@@ -492,14 +492,8 @@ impl PainterApp {
         let mut touched = false;
         for event in events {
             let Event::Touch { id, phase, pos, force, .. } = event else { continue };
-            let phase = match phase {
-                egui::TouchPhase::Start => ContactPhase::Start,
-                egui::TouchPhase::Move => ContactPhase::Move,
-                // The system lifted it as a palm: roll its stroke back.
-                egui::TouchPhase::End if crate::tablet::touch_revoked(id.0) => ContactPhase::Cancel,
-                egui::TouchPhase::End => ContactPhase::End,
-                egui::TouchPhase::Cancel => ContactPhase::Cancel,
-            };
+            // The system lifted it as a palm: roll its stroke back.
+            let phase = crate::tablet::contact_phase(*phase, || crate::tablet::touch_revoked(id.0));
             // Only touches that land on the canvas (not on a panel, a menu
             // or the navigation gizmo over it) are the canvas's.
             let on_canvas = rect.contains(*pos)

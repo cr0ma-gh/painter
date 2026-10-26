@@ -289,29 +289,41 @@ pub(crate) fn pencil_hover(ctx: &eframe::egui::Context) -> Option<eframe::egui::
 /// millimetres when known, for palm rejection (`crate::palm`). `force` is the
 /// touch's force as egui reports it.
 ///
-/// - iPadOS: `UITouch.type` and `majorRadius`, from the native observer.
+/// - iPadOS: `UITouch.type` and `majorRadius`, from the native observer; a
+///   touch it hasn't seen falls back to [`force_contact`] (winit gives only
+///   the Pencil a force on iPad), its size unknown.
 /// - Android: the `MotionEvent` tool type and `AXIS_TOUCH_MAJOR`, noted as
 ///   winit reads the input queue (`crate::android_touch`);
 ///   [`ContactKind::Unknown`] for a touch it hasn't seen.
-/// - Elsewhere (Windows Ink, X11 touch): a touch with a force is a pen.
+/// - Elsewhere (Windows Ink, X11 touch): [`force_contact`].
 pub(crate) fn touch_contact(id: u64, force: Option<f32>) -> (crate::palm::ContactKind, Option<f32>) {
-    use crate::palm::ContactKind;
     #[cfg(target_os = "ios")]
-    if let Some((kind, major_points)) = ios_pencil::touch_info(id) {
-        // iPads lay out about 132 points to the inch.
-        return (kind, Some(major_points * 25.4 / 132.0).filter(|mm| *mm > 0.0));
+    {
+        match ios_pencil::touch_info(id) {
+            // iPads lay out about 132 points to the inch.
+            Some((kind, major_points)) => (kind, Some(major_points * 25.4 / 132.0).filter(|mm| *mm > 0.0)),
+            None => force_contact(force),
+        }
     }
     #[cfg(target_os = "android")]
     {
         let _ = force;
         match crate::android_touch::pointer(id) {
             Some(info) => crate::android_touch::contact(info, crate::android::screen_dpi()),
-            None => (ContactKind::Unknown, None),
+            None => (crate::palm::ContactKind::Unknown, None),
         }
     }
-    #[cfg(not(target_os = "android"))]
-    let _ = id;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
+        let _ = id;
+        force_contact(force)
+    }
+}
+
+/// What a touch is from its force alone, when the system says nothing more:
+/// a touch with a force is a pen; its size is unknown.
+fn force_contact(force: Option<f32>) -> (crate::palm::ContactKind, Option<f32>) {
+    use crate::palm::ContactKind;
     if force.is_some() {
         (ContactKind::Stylus, None)
     } else {
@@ -319,16 +331,39 @@ pub(crate) fn touch_contact(id: u64, force: Option<f32>) -> (crate::palm::Contac
     }
 }
 
-/// Whether the system revoked touch `id` as it lifted (Android's
-/// `FLAG_CANCELED`: it decided the touch was a palm), so its end is a cancel;
-/// true once per revoked touch.
+/// Whether the system revoked touch `id` (iPadOS's `touchesCancelled`, as the
+/// native observer saw it; Android's `FLAG_CANCELED` as it lifted: it decided
+/// the touch was a palm), so its end is a cancel; true once per revoked touch.
 pub(crate) fn touch_revoked(id: u64) -> bool {
+    #[cfg(target_os = "ios")]
+    return ios_pencil::take_revoked(id);
     #[cfg(target_os = "android")]
     return crate::android_touch::take_revoked(id);
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     {
         let _ = id;
         false
+    }
+}
+
+/// The palm arbiter's phase for an egui touch phase. `revoked` says whether
+/// the system revoked the touch ([`touch_revoked`]): an end it revoked is a
+/// cancel, which rolls its stroke back. It's asked on a cancel too, so the
+/// revocation is read and not left for a later touch with the same id.
+pub(crate) fn contact_phase(phase: eframe::egui::TouchPhase, revoked: impl FnOnce() -> bool) -> crate::palm::ContactPhase {
+    use crate::palm::ContactPhase;
+    use eframe::egui::TouchPhase;
+    match phase {
+        TouchPhase::Start => ContactPhase::Start,
+        TouchPhase::Move => ContactPhase::Move,
+        TouchPhase::End => match revoked() {
+            true => ContactPhase::Cancel,
+            false => ContactPhase::End,
+        },
+        TouchPhase::Cancel => {
+            revoked();
+            ContactPhase::Cancel
+        }
     }
 }
 
@@ -355,7 +390,9 @@ pub(crate) fn pen_hover(ctx: &eframe::egui::Context) -> Option<eframe::egui::Pos
 
 #[cfg(test)]
 mod tests {
-    use super::sample_index;
+    use super::{contact_phase, force_contact, sample_index};
+    use crate::palm::{ContactKind, ContactPhase};
+    use eframe::egui::TouchPhase;
 
     #[test]
     fn samples_spread_over_events() {
@@ -365,6 +402,38 @@ mod tests {
         assert_eq!((0..4).map(|e| sample_index(e, 4, 2)).collect::<Vec<_>>(), [0, 0, 1, 1]);
         assert_eq!(sample_index(0, 1, 5), 4, "a single event gets the newest packet");
         assert_eq!(sample_index(9, 3, 3), 2, "out-of-range events clamp");
+    }
+
+    #[test]
+    fn a_revoked_end_is_a_cancel() {
+        assert_eq!(contact_phase(TouchPhase::End, || true), ContactPhase::Cancel);
+        assert_eq!(contact_phase(TouchPhase::End, || false), ContactPhase::End);
+        assert_eq!(contact_phase(TouchPhase::Cancel, || false), ContactPhase::Cancel);
+    }
+
+    #[test]
+    fn revocations_are_read_only_as_a_touch_ends() {
+        let mut asked = 0;
+        for phase in [TouchPhase::Start, TouchPhase::Move] {
+            contact_phase(phase, || {
+                asked += 1;
+                true
+            });
+        }
+        assert_eq!(asked, 0, "a touch still down isn't revoked yet");
+        for phase in [TouchPhase::End, TouchPhase::Cancel] {
+            contact_phase(phase, || {
+                asked += 1;
+                true
+            });
+        }
+        assert_eq!(asked, 2, "a cancel reads its revocation too");
+    }
+
+    #[test]
+    fn force_tells_a_pen_from_a_finger() {
+        assert_eq!(force_contact(Some(0.4)), (ContactKind::Stylus, None));
+        assert_eq!(force_contact(None), (ContactKind::Finger, None));
     }
 }
 
@@ -380,6 +449,13 @@ mod ios_pencil {
         fn painter_hover_state(x: *mut f64, y: *mut f64) -> c_int;
         fn painter_hover_pencil() -> c_int;
         fn painter_touch_info(id: u64, kind: *mut c_int, major: *mut f64) -> c_int;
+        fn painter_touch_revoked(id: u64) -> c_int;
+    }
+
+    /// Whether UIKit cancelled touch `id` (`touchesCancelled`); true once.
+    pub(crate) fn take_revoked(id: u64) -> bool {
+        // SAFETY: reads and clears a slot.
+        unsafe { painter_touch_revoked(id) != 0 }
     }
 
     /// The Pencil itself hovers (not a trackpad or mouse pointer).
