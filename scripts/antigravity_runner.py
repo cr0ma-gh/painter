@@ -34,6 +34,12 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+# Ensure stdout/stderr on Windows handles UTF-8 without charmap encoding crashes
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # ------------------------------------------------------------------------------
 # Configuration & Defaults
 # ------------------------------------------------------------------------------
@@ -495,8 +501,11 @@ class ClaudeCodeEngine(BaseAIEngine):
                 )
                 captured = []
                 for line in proc.stdout:
-                    sys.stdout.write(line)
-                    sys.stdout.flush()
+                    try:
+                        sys.stdout.write(line)
+                        sys.stdout.flush()
+                    except Exception:
+                        pass
                     lf.write(line)
                     captured.append(line)
                 proc.wait()
@@ -673,8 +682,11 @@ class GoogleAntigravityEngine(BaseAIEngine):
                 )
                 captured = []
                 for line in proc.stdout:
-                    sys.stdout.write(line)
-                    sys.stdout.flush()
+                    try:
+                        sys.stdout.write(line)
+                        sys.stdout.flush()
+                    except Exception:
+                        pass
                     lf.write(line)
                     captured.append(line)
                 proc.wait()
