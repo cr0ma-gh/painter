@@ -65,6 +65,9 @@ max_sdk_version = 29
 [package.metadata.android.application]
 label = "Painter"
 icon = "@mipmap/ic_launcher"
+# Fullscreen, no action bar: the system status bar would otherwise be drawn
+# over the app's top menu bar.
+theme = "@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
 
 [package.metadata.android.application.activity]
 config_changes = "orientation|screenSize|screenLayout|keyboardHidden|keyboard|density|uiMode"
