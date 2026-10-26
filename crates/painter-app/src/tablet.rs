@@ -285,6 +285,47 @@ pub(crate) fn pencil_hover(ctx: &eframe::egui::Context) -> Option<eframe::egui::
     }
 }
 
+/// What the system says touch `id` is, and its contact's major axis in
+/// millimetres when known, for palm rejection (`crate::palm`). `force` is the
+/// touch's force as egui reports it.
+///
+/// - iPadOS: `UITouch.type` and `majorRadius`, from the native observer.
+/// - Android: winit gives every touch a force and passes on neither the
+///   tool type nor the contact's size: [`ContactKind::Unknown`] (see
+///   [`CONTACT_KINDS_KNOWN`]).
+/// - Elsewhere (Windows Ink, X11 touch): a touch with a force is a pen.
+pub(crate) fn touch_contact(id: u64, force: Option<f32>) -> (crate::palm::ContactKind, Option<f32>) {
+    use crate::palm::ContactKind;
+    #[cfg(target_os = "ios")]
+    if let Some((kind, major_points)) = ios_pencil::touch_info(id) {
+        // iPads lay out about 132 points to the inch.
+        return (kind, Some(major_points * 25.4 / 132.0).filter(|mm| *mm > 0.0));
+    }
+    let _ = id;
+    if cfg!(target_os = "android") {
+        (ContactKind::Unknown, None)
+    } else if force.is_some() {
+        (ContactKind::Stylus, None)
+    } else {
+        (ContactKind::Finger, None)
+    }
+}
+
+/// Whether [`touch_contact`] can tell a pen from a finger here: not on
+/// Android, where "Stylus Only" then falls back to the standard rejection.
+pub(crate) const CONTACT_KINDS_KNOWN: bool = !cfg!(target_os = "android");
+
+/// Where the pen hovers above the screen, in egui points, for palm
+/// rejection: the Apple Pencil on iPad (not a trackpad or mouse pointer).
+pub(crate) fn pen_hover(ctx: &eframe::egui::Context) -> Option<eframe::egui::Pos2> {
+    #[cfg(target_os = "ios")]
+    if ios_pencil::hover_is_pencil() {
+        return pencil_hover(ctx);
+    }
+    let _ = ctx;
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::sample_index;
@@ -310,6 +351,29 @@ mod ios_pencil {
         fn painter_pencil_install() -> c_int;
         fn painter_pencil_state(altitude: *mut f64, azimuth: *mut f64, age: *mut f64) -> c_int;
         fn painter_hover_state(x: *mut f64, y: *mut f64) -> c_int;
+        fn painter_hover_pencil() -> c_int;
+        fn painter_touch_info(id: u64, kind: *mut c_int, major: *mut f64) -> c_int;
+    }
+
+    /// The Pencil itself hovers (not a trackpad or mouse pointer).
+    pub(crate) fn hover_is_pencil() -> bool {
+        // SAFETY: reads a flag.
+        unsafe { painter_hover_pencil() != 0 }
+    }
+
+    /// What touch `id` is, and its contact's major axis in points (0 for the Pencil).
+    pub(crate) fn touch_info(id: u64) -> Option<(crate::palm::ContactKind, f32)> {
+        let (mut kind, mut major) = (0, 0.0);
+        // SAFETY: writes an int and a double.
+        if unsafe { painter_touch_info(id, &mut kind, &mut major) } == 0 {
+            return None;
+        }
+        let kind = match kind {
+            1 => crate::palm::ContactKind::Stylus,
+            0 => crate::palm::ContactKind::Finger,
+            _ => crate::palm::ContactKind::Unknown,
+        };
+        Some((kind, major as f32))
     }
 
     /// Where the Pencil hovers (or a trackpad / mouse pointer is), in physical pixels.

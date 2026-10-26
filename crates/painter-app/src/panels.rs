@@ -359,8 +359,19 @@ impl PainterApp {
                     if ui.checkbox(&mut self.view.flip, tr("Flip Horizontally")).clicked() {
                         ui.close_menu();
                     }
-                    ui.checkbox(&mut self.tools.pencil_only, tr("Draw With the Pen Only"))
-                        .on_hover_text(tr("Fingers move the view instead of painting (iPad: Apple Pencil draws, fingers navigate)"));
+                    if ui
+                        .checkbox(&mut self.tools.pencil_only, tr("Draw With the Pen Only"))
+                        .on_hover_text(tr("Fingers move the view instead of painting (iPad: Apple Pencil draws, fingers navigate)"))
+                        .changed()
+                        && self.ws.palm.mode != crate::palm::PalmMode::Off
+                    {
+                        // With palm rejection on, this is its "Stylus Only" mode.
+                        self.ws.palm.mode = if self.tools.pencil_only { crate::palm::PalmMode::StylusOnly } else { crate::palm::PalmMode::Standard };
+                    }
+                    if ui.button(tr("Input & Tablet...")).on_hover_text(tr("Palm rejection, drawing hand and touch sensitivity")).clicked() {
+                        self.palm_open = true;
+                        ui.close_menu();
+                    }
                     ui.checkbox(&mut self.modifier_keys.shown, tr("On-Screen Modifier Keys"))
                         .on_hover_text(tr("Ctrl, Shift and Alt buttons for touch screens: tap to hold a key, tap again to release it"));
                     ui.separator();
