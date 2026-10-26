@@ -1,7 +1,8 @@
 //! Live stroke preview on the GPU.
 //!
 //! While a stroke is in progress, new dabs are drawn as instanced quads into a
-//! canvas-sized stroke texture, and the edited plane (layer colour or mask) is
+//! stroke texture (canvas-sized, or in low-VRAM mode sized to the stroke's
+//! bounding box and grown as it spreads), and the edited plane (layer colour or mask) is
 //! shown as `merge(plane, stroke × opacity × selection)`. The CPU rasterises the same dabs in the
 //! background and becomes authoritative when the stroke ends; both paths use
 //! the same formulas (`dab.wgsl` ↔ `raster::stamp_dab`,
@@ -14,7 +15,7 @@ use wgpu::util::DeviceExt;
 use crate::assets::TextureAssets;
 use crate::atlas::Plane;
 
-use crate::gpu::{self, PipelineDesc, CANVAS_FORMAT, STROKE_FORMAT};
+use crate::gpu::{self, PipelineDesc, Region, CANVAS_FORMAT, STROKE_FORMAT, STROKE_FORMAT_8BIT};
 
 /// Brush appearance shared by every dab of a stroke.
 #[derive(Clone, Debug)]
@@ -84,7 +85,8 @@ struct DabParams {
     hardness: f32,
     aa: f32,
     color: [f32; 4],
-    _reserved: f32,
+    /// 1: dither each dab's coverage (8-bit stroke targets).
+    dither: f32,
     /// 2 for a sampled tip, 0 for round (disc or ellipse is decided per dab).
     kind: u32,
     tip_aspect: [f32; 2],
@@ -95,7 +97,9 @@ struct DabParams {
     has_texture: u32,
     dual_scale: f32,
     has_dual: u32,
-    _pad: [f32; 4],
+    /// Canvas position of the target's top-left pixel.
+    origin: [f32; 2],
+    _pad: [f32; 2],
 }
 
 #[repr(C)]
@@ -106,16 +110,21 @@ struct MergeParams {
     alpha_locked: u32,
     has_selection: u32,
     blend: u32,
-    _pad: [u32; 3],
+    _pad: u32,
+    /// Canvas position of the target's (and the stroke texture's) top-left pixel.
+    origin: [i32; 2],
 }
 
 const DAB_ATTRIBUTES: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
     0 => Float32x2, 1 => Float32, 2 => Float32, 3 => Float32, 4 => Uint32, 5 => Uint32, 6 => Float32x2, 7 => Float32
 ];
 
-/// Draws dabs with premultiplied source-over into an `Rgba16Float` stroke target.
+/// Draws dabs with premultiplied source-over into an `Rgba16Float` stroke target
+/// (or, for low-VRAM profiles, a dithered `Rgba8Unorm` one).
 pub struct DabRenderer {
     pipeline: wgpu::RenderPipeline,
+    /// The same pipeline for `Rgba8Unorm` stroke targets.
+    pipeline_8bit: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     /// Tips, dual tips and paper textures, uploaded once and reused.
     assets: TextureAssets,
@@ -133,22 +142,56 @@ impl DabRenderer {
             ],
         });
         let shader = gpu::shader(device, "dab", include_str!("shaders/dab.wgsl"));
-        let pipeline = gpu::pipeline(
-            device,
-            PipelineDesc {
-                label: "dab",
-                shader: &shader,
-                layout: &layout,
-                format: STROKE_FORMAT,
-                vertex_buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<DabInstance>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &DAB_ATTRIBUTES,
-                }],
-                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-            },
-        );
-        Self { pipeline, layout, assets: TextureAssets::new(device) }
+        let pipeline = |format| {
+            gpu::pipeline(
+                device,
+                PipelineDesc {
+                    label: "dab",
+                    shader: &shader,
+                    layout: &layout,
+                    format,
+                    vertex_buffers: &[wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<DabInstance>() as u64,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &DAB_ATTRIBUTES,
+                    }],
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                },
+            )
+        };
+        Self {
+            pipeline: pipeline(STROKE_FORMAT),
+            pipeline_8bit: pipeline(STROKE_FORMAT_8BIT),
+            layout,
+            assets: TextureAssets::new(device),
+        }
+    }
+
+    /// Canvas area `[min_x, min_y, max_x, max_y]` the quads of `dabs` cover
+    /// (`None` when no dab is visible).
+    pub(crate) fn bounds(dabs: &[Dab], style: &DabStyle) -> Option<[f32; 4]> {
+        Self::instances(dabs, style).iter().fold(None, |acc, d| {
+            // The vertex shader pads each quad by one pixel.
+            let r = d.reach + 1.0;
+            let b = [d.center[0] - r, d.center[1] - r, d.center[0] + r, d.center[1] + r];
+            Some(acc.map_or(b, |a: [f32; 4]| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]))
+        })
+    }
+
+    fn instances(dabs: &[Dab], style: &DabStyle) -> Vec<DabInstance> {
+        let tip = &style.tip;
+        dabs.iter()
+            .map(|d| d.normalized())
+            .filter(|d| d.alpha > 0.0)
+            .map(|d| {
+                let level = tip.mip_level(d.radius);
+                let reach = tip.reach(d.radius, style.antialias, level);
+                let dual_level = style.dual.as_ref().map_or(0, |dual| dual.mip_level(d.radius));
+                let rotation = tip.rotation(d.angle);
+                let flatness = tip.flatness_for(d.thickness) * if d.mirror { -1.0 } else { 1.0 };
+                DabInstance { center: [d.x, d.y], radius: d.radius, alpha: d.alpha, reach, level, dual_level, rotation, flatness }
+            })
+            .collect()
     }
 
     /// (resident textures, resident bytes, uploads so far) of the brush texture cache.
@@ -168,20 +211,25 @@ impl DabRenderer {
         dabs: &[Dab],
         style: &DabStyle,
     ) {
+        self.draw_region(device, queue, encoder, target, Region::full(canvas), false, dabs, style);
+    }
+
+    /// Appends `dabs` to `target`, a texture covering canvas rectangle `at`, in
+    /// order. `low_precision`: `target` is `Rgba8Unorm` and dabs are dithered.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn draw_region(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        at: Region,
+        low_precision: bool,
+        dabs: &[Dab],
+        style: &DabStyle,
+    ) {
         let tip = &style.tip;
-        let instances: Vec<DabInstance> = dabs
-            .iter()
-            .map(|d| d.normalized())
-            .filter(|d| d.alpha > 0.0)
-            .map(|d| {
-                let level = tip.mip_level(d.radius);
-                let reach = tip.reach(d.radius, style.antialias, level);
-                let dual_level = style.dual.as_ref().map_or(0, |dual| dual.mip_level(d.radius));
-                let rotation = tip.rotation(d.angle);
-                let flatness = tip.flatness_for(d.thickness) * if d.mirror { -1.0 } else { 1.0 };
-                DabInstance { center: [d.x, d.y], radius: d.radius, alpha: d.alpha, reach, level, dual_level, rotation, flatness }
-            })
-            .collect();
+        let instances = Self::instances(dabs, style);
         if instances.is_empty() {
             return;
         }
@@ -194,11 +242,11 @@ impl DabRenderer {
         let texture_view = self.assets.view(texture.map(|t| &t.bitmap));
         let dual_view = self.assets.view(dual.map(|d| &d.bitmap));
         let params = DabParams {
-            canvas_size: [canvas.0 as f32, canvas.1 as f32],
+            canvas_size: [at.width as f32, at.height as f32],
             hardness: style.hardness,
             aa: style.antialias,
             color: [style.color[0], style.color[1], style.color[2], 1.0],
-            _reserved: 0.0,
+            dither: if low_precision { 1.0 } else { 0.0 },
             kind: if tip.bitmap().is_some() { 2 } else { 0 },
             tip_aspect: tip.bitmap().map_or([1.0; 2], |b| b.aspect()),
             dual_aspect: dual.map_or([1.0; 2], |d| d.bitmap.aspect()),
@@ -208,7 +256,8 @@ impl DabRenderer {
             has_texture: u32::from(texture.is_some()),
             dual_scale: dual.map_or(1.0, DualTip::scale),
             has_dual: u32::from(dual.is_some()),
-            _pad: [0.0; 4],
+            origin: [at.x as f32, at.y as f32],
+            _pad: [0.0; 2],
         };
         let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("dab params"),
@@ -232,7 +281,7 @@ impl DabRenderer {
         });
         // Instances rasterise in submission order, so blending matches sequential stamping.
         let mut pass = gpu::begin_pass(encoder, target, wgpu::LoadOp::Load, "dabs");
-        pass.set_pipeline(&self.pipeline);
+        pass.set_pipeline(if low_precision { &self.pipeline_8bit } else { &self.pipeline });
         pass.set_bind_group(0, &bind_group, &[]);
         pass.set_vertex_buffer(0, instance_buffer.slice(..));
         pass.draw(0..6, 0..instances.len() as u32);
@@ -292,6 +341,7 @@ impl StrokeMerger {
         Self { pipeline, layout }
     }
 
+    /// `stroke` and `target` cover the same canvas rectangle, with its top-left at `origin`.
     #[allow(clippy::too_many_arguments)]
     pub fn merge(
         &self,
@@ -303,6 +353,7 @@ impl StrokeMerger {
         selection_index: Option<&wgpu::TextureView>,
         no_index: &wgpu::TextureView,
         target: &wgpu::TextureView,
+        origin: [i32; 2],
         how: MergeOptions,
     ) {
         let params = MergeParams {
@@ -311,7 +362,8 @@ impl StrokeMerger {
             alpha_locked: u32::from(how.alpha_locked),
             has_selection: u32::from(selection_index.is_some()),
             blend: how.blend,
-            _pad: [0; 3],
+            _pad: 0,
+            origin,
         };
         let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("stroke merge params"),

@@ -15,7 +15,7 @@ mod transform;
 
 pub use atlas::Plane;
 pub use sync::{full_upload, live_planes, plane_uploads};
-pub use canvas::{CanvasFrame, GpuCanvas, Upload, ViewUniform};
+pub use canvas::{CanvasFrame, GpuCanvas, RenderProfile, Upload, ViewUniform};
 pub use plan::{build_plan, isolation_depth, split_at_layer, LayerPath, NodeKind, PathLevel, PlanNode};
 pub use stroke::{DabRenderer, DabStyle, StrokePreview};
 pub use scene::{SceneDraw, SceneLight, ScenePreview, SceneRenderer, MAX_LIGHTS};

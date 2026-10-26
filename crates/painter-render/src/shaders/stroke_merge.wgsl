@@ -10,8 +10,8 @@ struct MergeParams {
     // 0 Normal, 1..=12 the layer blend modes' ids, 100 Behind.
     blend: u32,
     _pad0: u32,
-    _pad1: u32,
-    _pad2: u32,
+    // Canvas position of the target's (and the stroke texture's) top-left pixel.
+    origin: vec2<i32>,
 };
 
 @group(0) @binding(0) var atlas: texture_2d_array<f32>;
@@ -77,13 +77,14 @@ fn channel(mode: u32, cb: f32, cs: f32) -> f32 {
 
 @fragment
 fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-    let texel = vec2<i32>(position.xy);
+    let local = vec2<i32>(position.xy);
+    let texel = local + params.origin;
     let b = atlas_load(layer_index, texel);
     var selected = 1.0;
     if (params.has_selection != 0u) {
         selected = atlas_load(selection_index, texel).a;
     }
-    var s = textureLoad(stroke, texel, 0) * (params.opacity * selected);
+    var s = textureLoad(stroke, local, 0) * (params.opacity * selected);
     if (s.a <= 0.0) {
         return b;
     }

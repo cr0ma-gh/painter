@@ -19,6 +19,13 @@
 //! *below* it is cached, as is the composite *above* it when every layer there
 //! is Normal and none clips to the painted layer. A frame with new dabs then
 //! costs `below ⊕ preview ⊕ above` per level instead of the whole stack.
+//!
+//! A [`RenderProfile`] for low-VRAM GPUs shrinks those targets: the composite
+//! chain and level caches cover only the visible part of the canvas (plus a
+//! margin; panning past it recomposites), and the stroke targets only the
+//! stroke's bounding box, grown as the stroke spreads. Every pass reads and
+//! writes in canvas coordinates through each texture's origin, so the pixels
+//! are the same as with full-canvas targets.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -29,7 +36,9 @@ use painter_core::{AdjustOp, BlendMode, Gradient, Tile, TileCoord, Tone};
 use wgpu::util::DeviceExt;
 
 use crate::atlas::{index_texture, Plane, Residency};
-use crate::gpu::{self, PipelineDesc, Target, CACHE_USAGE, CANVAS_FORMAT, STROKE_FORMAT, TARGET_USAGE};
+use crate::gpu::{
+    self, PipelineDesc, Region, Target, CACHE_USAGE, CANVAS_FORMAT, STROKE_FORMAT, STROKE_FORMAT_8BIT, TARGET_USAGE,
+};
 use crate::plan::{isolation_depth, split_at_layer, LayerPath, NodeKind, PlanNode};
 use crate::stroke::{DabRenderer, MergeOptions, StrokeMerger, StrokePreview};
 use crate::scene::{ScenePreview, SceneRenderer, SceneTarget};
@@ -61,6 +70,8 @@ pub struct ViewUniform {
     /// CMYK documents' ink channels shown (C, M, Y, K), when `ink_view.x` is 1.
     inks: [f32; 4],
     ink_view: [f32; 4],
+    /// The canvas rectangle the composite covers (x, y, width, height); set by `GpuCanvas`.
+    region: [f32; 4],
 }
 
 impl ViewUniform {
@@ -98,7 +109,69 @@ impl ViewUniform {
     pub fn with_selection_outline(self, time: f32) -> Self {
         Self { time, show_selection: 1.0, ..self }
     }
+
+    fn with_region(self, r: Region) -> Self {
+        Self { region: [r.x as f32, r.y as f32, r.width as f32, r.height as f32], ..self }
+    }
+
+    /// The canvas pixels shown in the widget, grown by `margin`, snapped to
+    /// tiles and clipped to the canvas (`doc` pixels). `None` when the view is
+    /// degenerate or shows nothing of the canvas.
+    fn visible_region(&self, doc: (u32, u32), margin: f32) -> Option<Region> {
+        if self.zoom.is_nan() || self.zoom <= 0.0 || self.rect_size[0] <= 0.0 || self.rect_size[1] <= 0.0 {
+            return None;
+        }
+        // The inverse of present.wgsl's vertex transform, at the widget's corners.
+        let (s, c) = self.rotation.sin_cos();
+        let [hw, hh] = [self.rect_size[0] * 0.5, self.rect_size[1] * 0.5];
+        let mut bounds = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+        for [x, y] in [[-hw, -hh], [hw, -hh], [-hw, hh], [hw, hh]] {
+            let (qx, qy) = (x - self.pan[0], y - self.pan[1]);
+            let mut dx = qx * c + qy * s;
+            let dy = -qx * s + qy * c;
+            if self.flip > 0.5 {
+                dx = -dx;
+            }
+            let (px, py) = (dx / self.zoom + doc.0 as f32 * 0.5, dy / self.zoom + doc.1 as f32 * 0.5);
+            bounds = [bounds[0].min(px), bounds[1].min(py), bounds[2].max(px), bounds[3].max(py)];
+        }
+        Region::covering(bounds, margin, TILE, doc)
+    }
 }
+
+/// How [`GpuCanvas`] sizes its intermediate render targets.
+///
+/// The default renders everything at full canvas size, which costs a few
+/// hundred MiB of VRAM on large canvases while painting. [`RenderProfile::low_vram`]
+/// keeps that to a few tens of MiB for integrated or old GPUs with little
+/// (shared) video memory, at the cost of recompositing when the view moves
+/// past the composited area.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RenderProfile {
+    /// Composite only the visible part of the canvas (plus a margin) instead of all of it.
+    /// The navigator thumbnail then shows only that part.
+    pub viewport_compositing: bool,
+    /// Size the stroke targets to the stroke's bounding box, growing it as the stroke spreads.
+    pub clipped_strokes: bool,
+    /// Accumulate strokes in a dithered `Rgba8Unorm` target instead of `Rgba16Float`,
+    /// for hardware that blends float targets slowly. Faint, heavily overlapping
+    /// dabs are slightly noisier than the committed stroke.
+    pub low_precision_strokes: bool,
+}
+
+impl RenderProfile {
+    /// Viewport-constrained compositing and bounding-box stroke targets.
+    pub fn low_vram() -> Self {
+        Self { viewport_compositing: true, clipped_strokes: true, low_precision_strokes: false }
+    }
+}
+
+/// Canvas pixels composited beyond the visible area, so small pans don't recomposite.
+const VIEW_MARGIN: f32 = 128.0;
+/// Canvas pixels a stroke target extends past the stroke, so it rarely needs to grow.
+const STROKE_MARGIN: f32 = 128.0;
+/// Targets are sized in whole tiles, so small changes reuse them.
+const TILE: u32 = painter_core::TILE_SIZE;
 
 pub struct CanvasFrame {
     /// Bumped by the app whenever the document is replaced; drops all GPU state.
@@ -137,6 +210,12 @@ struct CompositeParams {
     color0: [f32; 4],
     color1: [f32; 4],
     geom: [f32; 4],
+    /// Canvas position of the target's (and the backdrop's) top-left pixel.
+    origin: [i32; 2],
+    /// Canvas positions of the direct source, mask and clip textures.
+    source_origin: [i32; 2],
+    mask_origin: [i32; 2],
+    clip_origin: [i32; 2],
 }
 
 impl CompositeParams {
@@ -153,14 +232,29 @@ impl CompositeParams {
             color0: [0.0; 4],
             color1: [0.0; 4],
             geom: [0.0; 4],
+            origin: [0; 2],
+            source_origin: [0; 2],
+            mask_origin: [0; 2],
+            clip_origin: [0; 2],
         }
     }
+}
+
+/// A texture a pass reads directly, placed on the canvas.
+#[derive(Clone, Copy)]
+struct Direct<'a> {
+    view: &'a wgpu::TextureView,
+    /// Canvas position of its top-left pixel.
+    origin: [i32; 2],
+    /// Plane index read outside the texture: a bounding-box stroke preview
+    /// only covers part of the plane it previews.
+    fallback: Option<&'a wgpu::TextureView>,
 }
 
 /// Where a pass reads colour from.
 enum Source<'a> {
     Atlas(&'a wgpu::TextureView),
-    Direct(&'a wgpu::TextureView),
+    Direct(Direct<'a>),
     Solid([f32; 4]),
     Gradient(&'a Gradient),
     Tone(&'a Tone),
@@ -173,7 +267,7 @@ enum Source<'a> {
 enum Alpha<'a> {
     None,
     Atlas(&'a wgpu::TextureView),
-    Direct(&'a wgpu::TextureView),
+    Direct(Direct<'a>),
 }
 
 impl Alpha<'_> {
@@ -182,6 +276,13 @@ impl Alpha<'_> {
             Alpha::None => 0,
             Alpha::Atlas(_) => 1,
             Alpha::Direct(_) => 2,
+        }
+    }
+
+    fn origin(self) -> [i32; 2] {
+        match self {
+            Alpha::Direct(d) => d.origin,
+            _ => [0, 0],
         }
     }
 }
@@ -203,6 +304,9 @@ struct TransformTargets {
 struct StrokeTargets {
     stroke: Target,
     preview: Target,
+    /// The canvas rectangle both cover (their size): the whole canvas, or a
+    /// stroke's bounding box with [`RenderProfile::clipped_strokes`].
+    region: Region,
 }
 
 pub struct GpuCanvas {
@@ -230,8 +334,11 @@ pub struct GpuCanvas {
     ink_lut: (wgpu::TextureView, u64),
     lut_sampler: wgpu::Sampler,
 
+    profile: RenderProfile,
     epoch: u64,
     size: (u32, u32),
+    /// The canvas rectangle the composite chains and level caches cover (their size).
+    region: Region,
     residency: Residency,
     selection: bool,
     /// Ping-pong composite targets, one pair per isolation depth.
@@ -239,6 +346,9 @@ pub struct GpuCanvas {
     final_index: usize,
     /// Allocated on the first stroke and kept for later strokes.
     stroke_targets: Option<StrokeTargets>,
+    /// Stroke targets replaced while recording; kept until the next `prepare`,
+    /// after the encoder that still reads them has been submitted.
+    retired: Vec<StrokeTargets>,
     stroke_id: Option<u64>,
     /// Plane read from the stroke preview while compositing.
     preview: Option<Plane>,
@@ -261,6 +371,11 @@ pub struct GpuCanvas {
 
 impl GpuCanvas {
     pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat) -> Self {
+        Self::with_profile(device, surface_format, RenderProfile::default())
+    }
+
+    /// A canvas whose intermediate targets are sized by `profile`.
+    pub fn with_profile(device: &wgpu::Device, surface_format: wgpu::TextureFormat, profile: RenderProfile) -> Self {
         let composite_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("composite"),
             entries: &[
@@ -374,13 +489,16 @@ impl GpuCanvas {
                 min_filter: wgpu::FilterMode::Linear,
                 ..Default::default()
             }),
+            profile,
             epoch: 0,
             size: (0, 0),
+            region: Region::default(),
             residency: Residency::new(device),
             selection: false,
             chains: Vec::new(),
             final_index: 0,
             stroke_targets: None,
+            retired: Vec::new(),
             stroke_id: None,
             preview: None,
             level_caches: Vec::new(),
@@ -420,6 +538,7 @@ impl GpuCanvas {
                 }
             }
         }
+        self.retired.clear();
         // Anything other than new dabs invalidates the stroke-time caches.
         let mut content_changed = frame.recomposite || !frame.uploads.is_empty() || frame.selection != self.selection;
         if frame.epoch != self.epoch || frame.doc_size != self.size || self.chains.is_empty() {
@@ -436,6 +555,25 @@ impl GpuCanvas {
             self.transform_revision = None;
             self.scene_targets.clear();
             self.adjust_luts.clear();
+            self.region = Region::default();
+            content_changed = true;
+        }
+        // The composited area: the whole canvas, or what the view shows. Moving
+        // past it (or zooming in well inside it) reallocates and recomposites.
+        let wanted = if self.profile.viewport_compositing {
+            frame.view.visible_region(self.size, VIEW_MARGIN).unwrap_or(if self.region.is_empty() {
+                Region { x: 0, y: 0, width: self.size.0.min(TILE), height: self.size.1.min(TILE) }
+            } else {
+                self.region
+            })
+        } else {
+            Region::full(self.size)
+        };
+        if self.region.is_empty() || !self.region.contains(&wanted) || self.region.area() > 2 * wanted.area() {
+            self.region = wanted;
+            self.chains.clear();
+            self.level_caches.clear();
+            self.cache_stroke = None;
             content_changed = true;
         }
         self.selection = frame.selection;
@@ -461,8 +599,8 @@ impl GpuCanvas {
         let depth = isolation_depth(&frame.plan);
         while self.chains.len() <= depth {
             self.chains.push([
-                Target::new(device, self.size, TARGET_USAGE, "composite a"),
-                Target::new(device, self.size, TARGET_USAGE, "composite b"),
+                Target::new(device, self.region.size(), TARGET_USAGE, "composite a"),
+                Target::new(device, self.region.size(), TARGET_USAGE, "composite b"),
             ]);
         }
 
@@ -495,6 +633,7 @@ impl GpuCanvas {
         }
 
         let view = if frame.selection { frame.view } else { ViewUniform { show_selection: 0.0, ..frame.view } };
+        let view = view.with_region(self.region);
         queue.write_buffer(&self.view_buffer, 0, bytemuck::bytes_of(&view));
         self.present_bind_group = Some(self.present_bind_group_for(device, &self.view_buffer, view.zoom, frame.selection));
     }
@@ -538,7 +677,7 @@ impl GpuCanvas {
         if self.chains.is_empty() {
             return;
         }
-        let view = ViewUniform { show_selection: 0.0, ..view };
+        let view = ViewUniform { show_selection: 0.0, ..view }.with_region(self.region);
         queue.write_buffer(&self.thumb_buffer, 0, bytemuck::bytes_of(&view));
         self.thumb_bind_group = Some(self.present_bind_group_for(device, &self.thumb_buffer, view.zoom, false));
     }
@@ -563,9 +702,52 @@ impl GpuCanvas {
     }
 
     /// Reads back the last composite as premultiplied RGBA8 (for tests and GPU export).
+    /// With [`RenderProfile::viewport_compositing`] only [`Self::composite_region`]
+    /// is composited; the rest of the canvas reads as transparent.
     pub fn read_composite(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Option<Vec<u8>> {
         let target = self.chains.first()?.get(self.final_index)?;
-        Some(gpu::read_texture(device, queue, &target.texture, self.size))
+        let pixels = gpu::read_texture(device, queue, &target.texture, self.region.size());
+        if self.region == Region::full(self.size) {
+            return Some(pixels);
+        }
+        let mut canvas = vec![0; self.size.0 as usize * self.size.1 as usize * 4];
+        let row = self.region.width as usize * 4;
+        for (y, src) in pixels.chunks_exact(row).enumerate() {
+            let start = ((self.region.y as usize + y) * self.size.0 as usize + self.region.x as usize) * 4;
+            canvas[start..start + row].copy_from_slice(src);
+        }
+        Some(canvas)
+    }
+
+    /// The canvas rectangle (x, y, width, height) the last composite covers:
+    /// the whole canvas unless [`RenderProfile::viewport_compositing`] is on.
+    pub fn composite_region(&self) -> (u32, u32, u32, u32) {
+        let r = self.region;
+        (r.x, r.y, r.width, r.height)
+    }
+
+    /// GPU bytes held by the intermediate targets: composite chains, level
+    /// caches, stroke and transform targets (for tests and profiling).
+    pub fn intermediate_memory_bytes(&self) -> u64 {
+        let chains = self.chains.iter().flatten();
+        let caches = self.level_caches.iter().flat_map(|c| [&c.below, &c.above]);
+        let stroke = self.stroke_targets.iter().flat_map(|t| [&t.stroke, &t.preview]);
+        let transform = self.transform_targets.iter().flat_map(|t| [&t.floating, &t.preview]);
+        chains.chain(caches).chain(stroke).chain(transform).map(Target::bytes).sum()
+    }
+
+    /// The profile sizing the intermediate targets.
+    pub fn profile(&self) -> RenderProfile {
+        self.profile
+    }
+
+    /// Switches the render profile. The composite follows on the next
+    /// `prepare`; stroke targets from the next stroke on.
+    pub fn set_profile(&mut self, profile: RenderProfile) {
+        if profile != self.profile {
+            self.profile = profile;
+            self.region = Region::default();
+        }
     }
 
     /// Returns whether the composite needs to be rebuilt.
@@ -583,21 +765,64 @@ impl GpuCanvas {
         };
 
         let size = self.size;
-        let targets = self.stroke_targets.get_or_insert_with(|| StrokeTargets {
-            stroke: Target::with_format(device, size, STROKE_FORMAT, TARGET_USAGE, "stroke"),
-            preview: Target::new(device, size, TARGET_USAGE, "stroke preview"),
-        });
+        let full = Region::full(size);
+        let low_precision = self.profile.low_precision_strokes;
+        let format = if low_precision { STROKE_FORMAT_8BIT } else { STROKE_FORMAT };
+        let alloc = |region: Region| StrokeTargets {
+            stroke: Target::with_format(device, region.size(), format, TARGET_USAGE, "stroke"),
+            preview: Target::new(device, region.size(), TARGET_USAGE, "stroke preview"),
+            region,
+        };
+        // Where this frame's dabs land: the canvas, or their bounding box plus a margin.
+        let needed = if self.profile.clipped_strokes {
+            DabRenderer::bounds(&stroke.dabs, &stroke.style).and_then(|b| Region::covering(b, STROKE_MARGIN, TILE, size))
+        } else {
+            Some(full)
+        };
         let new_stroke = self.stroke_id != Some(stroke.id);
+        // Profile changes take effect from a new stroke.
+        let fits = |t: &StrokeTargets| {
+            !new_stroke || (t.stroke.texture.format() == format && (self.profile.clipped_strokes || t.region == full))
+        };
+        let mut targets = match self.stroke_targets.take() {
+            Some(t) if fits(&t) => t,
+            _ => alloc(needed.unwrap_or(Region { x: 0, y: 0, width: size.0.min(TILE), height: size.1.min(TILE) })),
+        };
         if new_stroke {
+            if let Some(n) = needed {
+                if targets.region.width >= n.width && targets.region.height >= n.height {
+                    // Big enough: move it over the new stroke, staying on the canvas.
+                    targets.region.x = n.x.min(size.0 - targets.region.width);
+                    targets.region.y = n.y.min(size.1 - targets.region.height);
+                } else {
+                    targets = alloc(n);
+                }
+            }
             gpu::clear(encoder, &targets.stroke.view);
             self.stroke_id = Some(stroke.id);
+        } else if let Some(n) = needed.filter(|n| !targets.region.contains(n)) {
+            // The stroke spread past its target: grow it, keeping what's drawn.
+            let grown = alloc(targets.region.union(&n));
+            gpu::clear(encoder, &grown.stroke.view);
+            gpu::copy_region(encoder, &targets.stroke, &targets.region, &grown.stroke, &grown.region, &targets.region);
+            self.retired.push(std::mem::replace(&mut targets, grown));
         }
+        let targets = self.stroke_targets.insert(targets);
         self.preview = Some(stroke.plane);
         if !new_stroke && stroke.dabs.is_empty() {
             return false;
         }
 
-        self.dabs.draw(device, queue, encoder, &targets.stroke.view, size, &stroke.dabs, &stroke.style);
+        self.dabs.draw_region(
+            device,
+            queue,
+            encoder,
+            &targets.stroke.view,
+            targets.region,
+            low_precision,
+            &stroke.dabs,
+            &stroke.style,
+        );
         let plane_index = self.residency.get(stroke.plane).map_or(&self.no_index, |p| &p.view);
         // An existing but empty selection protects everything: bind the empty index.
         let selection = (self.selection && stroke.respect_selection)
@@ -611,6 +836,7 @@ impl GpuCanvas {
             selection,
             &self.no_index,
             &targets.preview.view,
+            targets.region.origin(),
             MergeOptions::from(stroke),
         );
         true
@@ -678,6 +904,7 @@ impl GpuCanvas {
             None,
             &self.no_index,
             &targets.preview.view,
+            [0, 0],
             MergeOptions { opacity: 1.0, erase: false, alpha_locked: false, blend: 0 },
         );
         self.transform_revision = Some(transform.revision);
@@ -725,8 +952,8 @@ impl GpuCanvas {
     fn ensure_level_caches(&mut self, device: &wgpu::Device, levels: usize) {
         while self.level_caches.len() < levels {
             self.level_caches.push(LevelCache {
-                below: Target::new(device, self.size, CACHE_USAGE, "cache below"),
-                above: Target::new(device, self.size, CACHE_USAGE, "cache above"),
+                below: Target::new(device, self.region.size(), CACHE_USAGE, "cache below"),
+                above: Target::new(device, self.region.size(), CACHE_USAGE, "cache above"),
             });
         }
     }
@@ -738,12 +965,12 @@ impl GpuCanvas {
             let mut cur = vec![0usize; self.chains.len()];
             gpu::clear(encoder, &self.chains[depth][0].view);
             self.composite_seq(device, encoder, level.below.iter().copied(), depth, &mut cur);
-            gpu::copy_texture(encoder, &self.chains[depth][cur[depth]], &cache.below, self.size);
+            gpu::copy_texture(encoder, &self.chains[depth][cur[depth]], &cache.below, self.region.size());
             if level.above_is_flattenable(path.node.id) && !level.above.is_empty() {
                 cur[depth] = 0;
                 gpu::clear(encoder, &self.chains[depth][0].view);
                 self.composite_seq(device, encoder, level.above.iter().copied(), depth, &mut cur);
-                gpu::copy_texture(encoder, &self.chains[depth][cur[depth]], &cache.above, self.size);
+                gpu::copy_texture(encoder, &self.chains[depth][cur[depth]], &cache.above, self.region.size());
             }
         }
     }
@@ -759,12 +986,12 @@ impl GpuCanvas {
             let node = level.enter.unwrap_or(path.node);
             if !self.node_pass(device, encoder, node, depth, &mut cur, Some(&cache.below.view), inner_result) {
                 // Nothing drawn: the cached backdrop is the result so far.
-                gpu::copy_texture(encoder, &cache.below, &self.chains[depth][cur[depth]], self.size);
+                gpu::copy_texture(encoder, &cache.below, &self.chains[depth][cur[depth]], self.region.size());
             }
             if level.above_is_flattenable(path.node.id) {
                 if !level.above.is_empty() {
                     let over = CompositeParams::new(BlendMode::Normal, 1.0);
-                    let above = Source::Direct(&cache.above.view);
+                    let above = Source::Direct(self.local(&cache.above.view));
                     self.blend_pass(device, encoder, depth, &mut cur, None, above, Alpha::None, Alpha::None, over);
                 }
             } else {
@@ -801,18 +1028,28 @@ impl GpuCanvas {
         }
     }
 
+    /// A composite chain target or level cache, which cover [`Self::region`].
+    fn local<'a>(&self, view: &'a wgpu::TextureView) -> Direct<'a> {
+        Direct { view, origin: self.region.origin(), fallback: None }
+    }
+
     /// `plane` as read by a pass: the stroke preview while it is being edited, else its atlas index.
     fn plane_alpha(&self, plane: Plane) -> Option<Alpha<'_>> {
+        let canvas_sized = |view| Alpha::Direct(Direct { view, origin: [0, 0], fallback: None });
         if let Plane::Color(id) = plane {
             if let Some(target) = self.scene_targets.get(&id) {
-                return Some(Alpha::Direct(&target.color.view));
+                return Some(canvas_sized(&target.color.view));
             }
         }
         if self.transform_plane == Some(plane) {
-            return self.transform_targets.as_ref().map(|t| Alpha::Direct(&t.preview.view));
+            return self.transform_targets.as_ref().map(|t| canvas_sized(&t.preview.view));
         }
         if self.preview == Some(plane) {
-            return self.stroke_targets.as_ref().map(|t| Alpha::Direct(&t.preview.view));
+            // Outside a bounding-box preview the plane is unchanged: read it from the atlas.
+            let fallback = self.residency.get(plane).map_or(&self.no_index, |p| &p.view);
+            return self.stroke_targets.as_ref().map(|t| {
+                Alpha::Direct(Direct { view: &t.preview.view, origin: t.region.origin(), fallback: Some(fallback) })
+            });
         }
         self.residency.get(plane).map(|p| Alpha::Atlas(&p.view))
     }
@@ -831,9 +1068,9 @@ impl GpuCanvas {
         source: Option<&wgpu::TextureView>,
     ) -> bool {
         let source = match (source, &node.kind) {
-            (Some(view), _) => Source::Direct(view),
+            (Some(view), _) => Source::Direct(self.local(view)),
             (None, NodeKind::Pixels) => match self.plane_alpha(Plane::Color(node.id)) {
-                Some(Alpha::Direct(v)) => Source::Direct(v),
+                Some(Alpha::Direct(d)) => Source::Direct(d),
                 Some(Alpha::Atlas(v)) => Source::Atlas(v),
                 // Never painted.
                 _ => return false,
@@ -874,7 +1111,7 @@ impl GpuCanvas {
     fn alpha_bindings<'a>(&'a self, alpha: Alpha<'a>) -> (&'a wgpu::TextureView, &'a wgpu::TextureView) {
         match alpha {
             Alpha::Atlas(v) => (v, &self.dummy.view),
-            Alpha::Direct(v) => (&self.no_index, v),
+            Alpha::Direct(d) => (d.fallback.unwrap_or(&self.no_index), d.view),
             Alpha::None => (&self.no_index, &self.dummy.view),
         }
     }
@@ -900,9 +1137,11 @@ impl GpuCanvas {
         let (mut source_index, mut source_direct) = (&self.no_index, &self.dummy.view);
         match source {
             Source::Atlas(v) => source_index = v,
-            Source::Direct(v) => {
+            Source::Direct(d) => {
                 params.source_kind = 1;
-                source_direct = v;
+                params.source_origin = d.origin;
+                source_index = d.fallback.unwrap_or(&self.no_index);
+                source_direct = d.view;
             }
             Source::Solid(color) => {
                 params.source_kind = 2;
@@ -929,8 +1168,11 @@ impl GpuCanvas {
                 params.geom = [t.cell, t.angle.to_radians(), t.density, 0.0];
             }
         }
+        params.origin = self.region.origin();
         params.mask_kind = mask.kind();
+        params.mask_origin = mask.origin();
         params.clip_kind = clip.kind();
+        params.clip_origin = clip.origin();
         let (mask_index, mask_direct) = self.alpha_bindings(mask);
         let (clip_index, clip_direct) = self.alpha_bindings(clip);
 
@@ -986,8 +1228,29 @@ mod tests {
 
     #[test]
     fn uniform_layouts_match_wgsl() {
-        // WGSL `View` and `Params` structs are 96 and 80 bytes.
-        assert_eq!(std::mem::size_of::<ViewUniform>(), 96);
-        assert_eq!(std::mem::size_of::<CompositeParams>(), 80);
+        // WGSL `View` and `Params` structs are 112 bytes each.
+        assert_eq!(std::mem::size_of::<ViewUniform>(), 112);
+        assert_eq!(std::mem::size_of::<CompositeParams>(), 112);
+    }
+
+    #[test]
+    fn visible_region_covers_the_view_in_whole_tiles() {
+        let doc = (4000, 3000);
+        let size = [4000.0, 3000.0];
+        // Fit to a 1000 × 750 widget: everything shows.
+        let fit = ViewUniform::new([1000.0, 750.0], size, [0.0, 0.0], 0.25, 0.0, 8.0);
+        assert_eq!(fit.visible_region(doc, VIEW_MARGIN), Some(Region::full(doc)));
+        // 100 % zoom, centred: the middle 1000 × 750 pixels plus the margin, in tiles.
+        let centred = ViewUniform::new([1000.0, 750.0], size, [0.0, 0.0], 1.0, 0.0, 8.0);
+        let r = centred.visible_region(doc, VIEW_MARGIN).unwrap();
+        assert_eq!((r.x, r.y, r.width, r.height), (1344, 960, 1344, 1088));
+        assert!(r.contains(&Region { x: 1500, y: 1125, width: 1000, height: 750 }));
+        // Rotated, mirrored views still cover every visible pixel.
+        let turned = ViewUniform::new([1000.0, 750.0], size, [300.0, -200.0], 2.0, 0.7, 8.0).with_flip(true);
+        let r = turned.visible_region(doc, 0.0).unwrap();
+        assert!(r.x.is_multiple_of(64) && r.y.is_multiple_of(64) && r.width < 4000 && r.height < 3000, "{r:?}");
+        // Panned off the canvas: nothing to composite.
+        let away = ViewUniform::new([1000.0, 750.0], size, [9000.0, 0.0], 1.0, 0.0, 8.0);
+        assert_eq!(away.visible_region(doc, VIEW_MARGIN), None);
     }
 }

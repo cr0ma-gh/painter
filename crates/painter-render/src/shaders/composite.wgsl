@@ -21,6 +21,14 @@ struct Params {
     color1: vec4<f32>,
     // gradient: start.xy, end.xy | tone: cell, angle (radians), density | HSL: hue (radians), saturation, lightness
     geom: vec4<f32>,
+    // Canvas position of the target's (and the backdrop's) top-left pixel: the
+    // composite may cover only part of the canvas (low-VRAM profiles).
+    origin: vec2<i32>,
+    // Canvas positions of the direct source, mask and clip textures; outside a
+    // direct texture its plane is read from the atlas through its index binding.
+    source_origin: vec2<i32>,
+    mask_origin: vec2<i32>,
+    clip_origin: vec2<i32>,
 };
 
 @group(0) @binding(0) var backdrop: texture_2d<f32>;
@@ -186,25 +194,37 @@ fn adjust(b: vec4<f32>) -> vec3<f32> {
     }
 }
 
+// A direct texture placed at `origin`, falling back to the plane in the atlas outside it.
+fn direct_load(tex: texture_2d<f32>, index: texture_2d<u32>, origin: vec2<i32>, texel: vec2<i32>) -> vec4<f32> {
+    let q = texel - origin;
+    let size = vec2<i32>(textureDimensions(tex));
+    if (all(q >= vec2<i32>(0)) && all(q < size)) {
+        return textureLoad(tex, q, 0);
+    }
+    return atlas_load(index, texel);
+}
+
 fn coverage(texel: vec2<i32>) -> f32 {
     var k = params.opacity;
     if (params.mask_kind == 1u) {
         k = k * (1.0 - atlas_load(mask_index, texel).a);
     } else if (params.mask_kind == 2u) {
-        k = k * (1.0 - textureLoad(mask_direct, texel, 0).a);
+        k = k * (1.0 - direct_load(mask_direct, mask_index, params.mask_origin, texel).a);
     }
     if (params.clip_kind == 1u) {
         k = k * atlas_load(clip_index, texel).a;
     } else if (params.clip_kind == 2u) {
-        k = k * textureLoad(clip_direct, texel, 0).a;
+        k = k * direct_load(clip_direct, clip_index, params.clip_origin, texel).a;
     }
     return k;
 }
 
 @fragment
 fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-    let texel = vec2<i32>(position.xy);
-    let b = textureLoad(backdrop, texel, 0);
+    let local = vec2<i32>(position.xy);
+    let texel = local + params.origin;
+    let at = position.xy + vec2<f32>(params.origin);
+    let b = textureLoad(backdrop, local, 0);
     // A correction layer: recolour the backdrop, keep its alpha (io::apply_adjustment).
     if (params.source_kind == 5u) {
         if (b.a <= 0.0) {
@@ -220,10 +240,10 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     var s = vec4<f32>(0.0);
     switch params.source_kind {
         case 0u: { s = atlas_load(source_index, texel); }
-        case 1u: { s = textureLoad(source_direct, texel, 0); }
+        case 1u: { s = direct_load(source_direct, source_index, params.source_origin, texel); }
         case 2u: { s = params.color0; }
-        case 3u: { s = gradient(position.xy); }
-        default: { s = tone(position.xy); }
+        case 3u: { s = gradient(at); }
+        default: { s = tone(at); }
     }
     if (s.a <= 0.0) {
         return b;
