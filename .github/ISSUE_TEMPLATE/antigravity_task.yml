@@ -1,0 +1,101 @@
+name: "🤖 Antigravity Autonomous Task"
+description: "Specifica formale per task autonomo eseguibile dal runner/agente LLM in background"
+title: "[Task]: "
+labels: ["agent:ready", "type:antigravity"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### 🚀 Antigravity Autonomous Task Specification
+        Questo template definisce i requisiti formali e i vincoli architetturali per consentire all'agente LLM (`antigravity_runner`) di estrarre la issue, creare il branch, implementare il codice e validarlo con la suite di test in totale autonomia.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: "🎯 Obiettivo del Task (Summary & Scope)"
+      description: "Descrizione chiara e concisa di ciò che deve essere implementato o modificato."
+      placeholder: "Es: Implementare un nuovo filtro di convoluzione Gaussiana ottimizzato in painter-core con preview shader WGSL..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: target_crate
+    attributes:
+      label: "📦 Crate Primario Coinvolto"
+      description: "Indica il modulo/crate principale del workspace Painter su cui operare."
+      options:
+        - "painter-core (Logica di business, TileStore, rasterizzazione CPU, IO)"
+        - "painter-render (Pipeline wgpu, WGSL shader, tile atlas, compositing)"
+        - "painter-app (UI egui/eframe, tool state, tablet WinTab/Ink, docked panels)"
+        - "brush-io (Preset pennelli Photoshop .abr, Clip Studio .sut/.todb, .rustbrush)"
+        - "transform-tools (Mesh warp, perspective warp, affine transform)"
+        - "comic-layout (Frame panels, balloon vector shapes, comic wizard)"
+        - "scene-3d (Livelli 3D, mesh rendering, camera controls)"
+        - "vector-export (Esportazione SVG, tracciati vettoriali)"
+        - "scanner-io (Acquisizione scanner TWAIN/WIA)"
+        - "workspace-wide (Modifiche trasversali / multi-crate)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: architectural_constraints
+    attributes:
+      label: "📐 Vincoli Architetturali & Invarianti"
+      description: "Regole inderogabili da rispettare (parità CPU/GPU, gestione memoria, tipi invarianti, compatibilità API)."
+      value: |
+        - **CPU/GPU Parity**: se viene alterato il calcolo dei dab o del blending, aggiornare di pari passo `raster::` e lo shader `.wgsl`. Verificare con `gpu_parity.rs`.
+        - **Tile Atlas**: le operazioni sui pixel devono rispettare la dimensione dei tile (64x64 premultiplied RGBA8) e l'indirection texture R32Uint.
+        - **No API Breakage**: preservare la retrocompatibilità con i tipi pubblici esportati dai crate a meno di esplicita richiesta.
+        - **Multi-threading**: nessuna operazione bloccante sul thread UI (`painter-app`). I task pesanti vanno sul `BackgroundRasterizer` o thread pool.
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical_specs
+    attributes:
+      label: "🛠️ Specifiche Tecniche & Dettagli Implementativi"
+      description: "Dettagli su struct, funzioni, file sorgente da toccare o creare, algoritmi e riferimenti."
+      placeholder: |
+        - File target: `crates/painter-core/src/...`
+        - Struct / Trait da estendere: `pub struct ...`
+        - Formato dati: premultiplied RGBA8 f32 accumulator
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: "✅ Criteri di Accettazione & Test Checklist"
+      description: "Elenco puntato delle condizioni che devono risultare verificate prima di considerare il task completato."
+      value: |
+        - [ ] Compilazione pulita con `cargo check --workspace --all-targets`
+        - [ ] Nessun warning o errore introdotto da `cargo clippy --workspace --all-targets`
+        - [ ] Suite di test verde: `cargo test --workspace`
+        - [ ] Test specifici per la nuova funzionalità scritti e documentati
+        - [ ] Formattazione conforme a `cargo fmt --check`
+        - [ ] Conventional Commit chiaro: `feat(scope): ...` o `fix(scope): ...`
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: "⚡ Priorità Esecuzione"
+      options:
+        - "priority:high (Priorità immediata nel runner)"
+        - "priority:medium (Priorità standard)"
+        - "priority:low (Task di rifinitura o background)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: engine
+    attributes:
+      label: "🧠 Motore AI / Agent Backend"
+      description: "Scegli il motore di esecuzione per questo task (Google Antigravity vs Claude Code)."
+      options:
+        - "Default / Configurato sul Runner"
+        - "Google Antigravity (agy CLI / SDK)"
+        - "Claude Code (claude CLI)"
+    validations:
+      required: false

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "📖 Documentazione & Architettura Painter"
+    url: "https://github.com/cr0ma-gh/painter/tree/main/docs"
+    about: "Consulta le guide architetturali, la pipeline wgpu e il brush engine prima di aprire issue complesse."

@@ -1,0 +1,66 @@
+name: "🐛 Bug Report"
+description: "Segnala un crash, una race condition, difetti di rendering GPU o regressioni"
+title: "[Bug]: "
+labels: ["type:bug", "status:backlog"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Grazie per la segnalazione di un'anomalia in **Painter**.
+        Fornisci dettagli precisi per consentire la riproduzione immediata dell'errore (o l'assegnazione automatica all'agente).
+
+  - type: textarea
+    id: bug_description
+    attributes:
+      label: "🛑 Descrizione del Problema"
+      description: "Cosa è accaduto di anomalo? (Crash immediato, artefatto visivo sul canvas, desincronizzazione GPU/CPU)."
+      placeholder: "Durante il trascinamento rapido del pennello ad alta risoluzione, compaiono tile neri sul canvas..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction_steps
+    attributes:
+      label: "👣 Passi per Riprodurre il Problema"
+      description: "Sequenza dettagliata di azioni per manifestare il bug."
+      value: |
+        1. Avviare Painter su un nuovo canvas 4096x4096.
+        2. Selezionare lo strumento ...
+        3. Eseguire un tratto veloce con pressione massima ...
+        4. Notare che ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: "🎯 Comportamento Atteso"
+      description: "Cosa avrebbe dovuto accadere normalmente."
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: "💻 Ambiente di Esecuzione"
+      description: "Sistema Operativo, Hardware GPU, Driver e Dispositivo di puntamento."
+      value: |
+        - **OS**: Windows 11 / Linux Ubuntu / macOS
+        - **GPU**: NVIDIA RTX / AMD Radeon / Intel Iris Xe / Apple Silicon
+        - **Driver Version**:
+        - **Tablet / Stilo**: Wacom Intuos (WinTab) / Surface Pen (Windows Ink) / Mouse
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs_and_stacktraces
+    attributes:
+      label: "📋 Log, Panic Backtrace o Messaggi WGPU"
+      description: "Incolla l'output di `RUST_BACKTRACE=1 cargo run` o i messaggi del log."
+      render: shell
+
+  - type: textarea
+    id: visual_evidence
+    attributes:
+      label: "🖼️ Evidenza Visiva (Screenshot / Gif)"
+      description: "Trascina o incolla eventuali immagini che mostrano l'anomalia di rendering o il glitch del canvas."

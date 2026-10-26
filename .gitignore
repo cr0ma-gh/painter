@@ -13,3 +13,13 @@
 
 # iOS packaging output.
 /ios/build/
+
+# Antigravity local runner logs, prompts, and locks
+.antigravity/
+
+# Environment secrets
+.env
+.env.local
+.env.*
+!.env.example
+

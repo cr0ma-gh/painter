@@ -1,0 +1,19 @@
+[Unit]
+Description=Painter Antigravity Autonomous Agent Watcher
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Painter
+ExecStart=/usr/bin/python3 %h/Painter/scripts/antigravity_runner.py --daemon --interval 60
+Restart=always
+RestartSec=10
+Environment="PATH=%h/.cargo/bin:%h/.local/bin:/usr/local/bin:/usr/bin:%PATH"
+Environment="RUST_BACKTRACE=1"
+
+# Standard logging to journald
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,57 @@
+name: "✨ Feature Request"
+description: "Proponi un nuovo modulo, strumento o funzionalità per Painter"
+title: "[Feat]: "
+labels: ["type:feature", "status:backlog"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Grazie per contribuire a espandere le capacità di **Painter**!
+        Compila questo modulo descrivendo il modulo desiderato (brush engine, layer stack, viewport, shader wgpu, scorciatoie, ecc.).
+
+  - type: textarea
+    id: feature_summary
+    attributes:
+      label: "💡 Descrizione della Funzionalità"
+      description: "Qual è il nuovo modulo o miglioramento proposto?"
+      placeholder: "Es: Aggiunta del supporto per la simmetria radiale nel brush engine..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: target_area
+    attributes:
+      label: "🎨 Area / Modulo Coinvolto"
+      options:
+        - "Brush Engine & Dab Synthesis (painter-core / painter-render)"
+        - "Canvas Viewport & Navigazione GPU (wgpu shaders, pan/zoom/rotate)"
+        - "Layer Stack & Blending (Clipping masks, folder nesting, blend modes)"
+        - "Color Management & Procedural Fill (ICC profiles, gradients, patterns)"
+        - "File Formats & Presets (.abr, .sut, .psd, .rustbrush, vector SVG)"
+        - "UI Workspace & Docking (eframe/egui layout, shortcuts, tablet pens)"
+        - "Comic & Sequential Art (Frame borders, word balloons)"
+        - "3D Model Reference (scene-3d wgpu renderer)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_experience
+    attributes:
+      label: "🖌️ Esperienza Utente & Workflow"
+      description: "Come interagisce l'utente con questa funzionalità? Quali scorciatoie o controlli UI sono previsti?"
+      placeholder: "L'utente seleziona lo strumento simmetria dalla barra degli strumenti o preme 'R'..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical_architecture
+    attributes:
+      label: "⚙️ Requisiti Tecnici & GPU / Shader"
+      description: "Ci sono considerazioni su pipeline WGSL, tile cache, parità CPU o algoritmi matematici?"
+      placeholder: "Richiede l'invio della matrice di simmetria al dab.wgsl e la duplicazione dei dabs sul worker rasterizer..."
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "🔄 Alternative Considerate"
+      description: "Soluzioni alternative prese in considerazione in software simili (es. Clip Studio Paint, Photoshop, Krita)."
