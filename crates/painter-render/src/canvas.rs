@@ -450,6 +450,8 @@ impl GpuCanvas {
                 }
             }
         }
+        // After layers were deleted or cleared, hand the emptied atlas pages back.
+        self.residency.shrink(device, queue);
         self.residency.flush(queue);
         self.update_adjust_luts(device, queue, &frame.plan);
 
