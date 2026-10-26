@@ -12,6 +12,8 @@ fn main() -> eframe::Result {
     }
     // `painter --reset-settings [FILE]`: the interface and tool options as they come.
     let reset = std::env::args_os().any(|a| a == "--reset-settings");
-    let file = std::env::args_os().skip(1).find(|a| a != "--reset-settings").map(std::path::PathBuf::from);
+    // `--low-gpu` / `--gpu-compat`: OpenGL and downlevel limits, for old GPUs (read by `native_options`).
+    let flag = |a: &std::ffi::OsString| a == "--reset-settings" || painter_app::LOW_GPU_FLAGS.iter().any(|f| a == f);
+    let file = std::env::args_os().skip(1).find(|a| !flag(a)).map(std::path::PathBuf::from);
     painter_app::run(painter_app::native_options(), file, reset)
 }
