@@ -6,9 +6,9 @@
 //! Every touch contact goes through three stages:
 //!
 //! 1. **Hardware**: what the system says the contact is (a pen, its eraser
-//!    end or a finger: `UITouch.type` on iPadOS, the input device's sources
-//!    on Android) and whether it revoked the touch (UIKit's
-//!    `touchesCancelled`, Android's `ACTION_CANCEL`).
+//!    end or a finger: `UITouch.type` on iPadOS, the `MotionEvent` tool
+//!    type on Android) and whether it revoked the touch (UIKit's
+//!    `touchesCancelled`, Android's `ACTION_CANCEL` and `FLAG_CANCELED`).
 //! 2. **Geometry**: a contact wider than a fingertip is a palm; while the pen
 //!    is down, hovers or has just lifted, new touches in the cone below and
 //!    beside the tip on the drawing hand's side are the hand; touches next to
@@ -136,6 +136,7 @@ pub(crate) enum ContactKind {
     /// A finger, or any other capacitive contact (a palm, a knuckle).
     Finger,
     /// The system doesn't say: handled as a finger.
+    #[cfg_attr(not(any(target_os = "android", target_os = "ios", test)), allow(dead_code))]
     Unknown,
 }
 

@@ -355,6 +355,14 @@ pub(crate) fn show_keyboard(show: bool) {
     }
 }
 
+// ---- screen --------------------------------------------------------------------------
+
+/// The screen's density in dots per inch (the configuration's density
+/// bucket), to size touch contacts in millimetres.
+pub(crate) fn screen_dpi() -> Option<f32> {
+    APP.get()?.config().density().map(|dpi| dpi as f32)
+}
+
 // ---- shared storage ------------------------------------------------------------------
 
 /// Whether the app may read and write the device's shared storage.

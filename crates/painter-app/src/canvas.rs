@@ -475,7 +475,7 @@ impl PainterApp {
     /// on) and promotes fingers past their grace period. True when touches
     /// drive the canvas through the arbiter this frame.
     fn palm_touches(&mut self, ui: &egui::Ui, events: &[Event], rect: Rect) -> bool {
-        let mode = self.ws.palm.effective_mode(crate::tablet::CONTACT_KINDS_KNOWN);
+        let mode = self.ws.palm.effective_mode(crate::tablet::contact_kinds_known());
         if mode == PalmMode::Off {
             if self.palm.engaged() {
                 self.palm = Default::default();
@@ -495,6 +495,8 @@ impl PainterApp {
             let phase = match phase {
                 egui::TouchPhase::Start => ContactPhase::Start,
                 egui::TouchPhase::Move => ContactPhase::Move,
+                // The system lifted it as a palm: roll its stroke back.
+                egui::TouchPhase::End if crate::tablet::touch_revoked(id.0) => ContactPhase::Cancel,
                 egui::TouchPhase::End => ContactPhase::End,
                 egui::TouchPhase::Cancel => ContactPhase::Cancel,
             };
