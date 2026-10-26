@@ -492,7 +492,6 @@ impl PainterApp {
         let mut touched = false;
         for event in events {
             let Event::Touch { id, phase, pos, force, .. } = event else { continue };
-            touched = true;
             let phase = match phase {
                 egui::TouchPhase::Start => ContactPhase::Start,
                 egui::TouchPhase::Move => ContactPhase::Move,
@@ -507,6 +506,10 @@ impl PainterApp {
             if phase == ContactPhase::Start && !on_canvas {
                 continue;
             }
+            if phase != ContactPhase::Start && self.palm.class_of(id.0).is_none() {
+                continue;
+            }
+            touched = true;
             let (kind, major_mm) = crate::tablet::touch_contact(id.0, *force);
             let pressure = force.map_or(1.0, |f| f.clamp(0.0, 1.0));
             self.palm.feed(ContactInput { id: id.0, phase, pos: *pos, time: now, kind, pressure, major_mm }, &settings);
@@ -552,23 +555,32 @@ impl PainterApp {
                     }
                 }
                 InkEvent::End | InkEvent::Cancel => {
-                    if event == InkEvent::Cancel && self.stroke.is_some() {
-                        // A palm, or the start of a gesture: as if it never touched.
+                    if event == InkEvent::Cancel {
+                        if self.stroke.is_some() {
+                            // A palm, or the start of a gesture: as if it never touched.
+                            self.smart = None;
+                            self.discard_stroke();
+                        }
+                        if self.eyedropper_held() && !long_press {
+                            self.end_pick();
+                        }
+                        self.line = None;
                         self.smart = None;
-                        self.discard_stroke();
-                    }
-                    if self.eyedropper_held() && !long_press {
-                        self.end_pick();
-                    }
-                    if self.line.is_some() {
-                        self.finish_line();
-                    }
-                    self.smart_release();
-                    if self.stroke.is_some() {
-                        self.end_stroke();
-                    }
-                    if self.drag.is_some() {
-                        self.tool_release();
+                        self.drag = None;
+                    } else {
+                        if self.eyedropper_held() && !long_press {
+                            self.end_pick();
+                        }
+                        if self.line.is_some() {
+                            self.finish_line();
+                        }
+                        self.smart_release();
+                        if self.stroke.is_some() {
+                            self.end_stroke();
+                        }
+                        if self.drag.is_some() {
+                            self.tool_release();
+                        }
                     }
                 }
             }
