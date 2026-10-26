@@ -48,6 +48,8 @@ mod ios_ui;
 mod modifier_keys;
 mod panels;
 mod nav_gizmo;
+mod palm;
+mod palm_ui;
 mod pose_ui;
 mod previews;
 mod ruler_bar;

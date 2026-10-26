@@ -309,6 +309,10 @@ pub struct PainterApp {
     pub(crate) ruler_drag: Option<crate::rulers_ui::RulerDrag>,
     /// A multi-finger touch in progress.
     pub(crate) gesture: Option<crate::canvas::TouchGesture>,
+    /// Palm rejection: which touches paint and which navigate (see `crate::palm`).
+    pub(crate) palm: crate::palm::PalmArbiter,
+    /// Preferences > Input & Tablet is open.
+    pub(crate) palm_open: bool,
     /// The open filter dialog (Filter menu).
     pub(crate) filter_dialog: Option<crate::adjust_ui::FilterDialog>,
     pub(crate) started: Instant,
@@ -360,7 +364,7 @@ impl PainterApp {
             eyedropper: Default::default(),
             layer_selection: Vec::new(),
             tool: Tool::Brush,
-            tools: ToolOptions::default(),
+            tools: ToolOptions { pencil_only: ws.palm.pencil_only(ToolOptions::default().pencil_only), ..ToolOptions::default() },
             view: ViewTransform::default(),
             fit_pending: true,
             canvas_rect: Rect::NOTHING,
@@ -478,6 +482,8 @@ impl PainterApp {
             selected_ruler: None,
             ruler_drag: None,
             gesture: None,
+            palm: Default::default(),
+            palm_open: false,
             filter_dialog: None,
             started: Instant::now(),
         };
@@ -959,13 +965,25 @@ impl PainterApp {
         stroke.rasterizer.push(dabs);
     }
 
-    /// Drops the stroke being drawn (a stray finger before a two-finger gesture).
+    /// Drops the stroke being drawn (a stray finger before a two-finger
+    /// gesture, a palm the system or the pen gave away): the tiles go back to
+    /// their snapshot and nothing is left to redo.
     pub(crate) fn discard_stroke(&mut self) {
-        if self.stroke.take().is_some() {
-            // begin_stroke recorded an undo step for it.
-            self.undo();
-            self.recomposite = true;
+        let Some(stroke) = self.stroke.take() else {
+            return;
+        };
+        // begin_stroke recorded an undo step for it (and the comic page and
+        // scenes beside it, which a stroke doesn't change).
+        if self.history.rollback(&mut self.doc) {
+            self.comic_undo.pop();
+            self.scene_undo.pop();
         }
+        // Stamps merge into the layer as they go: its tiles go up again. Other
+        // strokes only lived in the GPU preview, which goes with the stroke.
+        if stroke.source.is_some() {
+            self.upload_plane(stroke.plane);
+        }
+        self.recomposite = true;
     }
 
     /// Joins the CPU rasteriser and commits its result, which replaces the GPU
@@ -1910,6 +1928,7 @@ impl eframe::App for PainterApp {
         self.brush_reset_prompt(ctx);
         self.chip_picker_window(ctx);
         self.file_types_window(ctx);
+        self.palm_window(ctx);
         self.updater_window(ctx);
         self.close_prompts(ctx);
         if self.doc.selection.is_some() {

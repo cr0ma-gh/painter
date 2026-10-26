@@ -71,12 +71,37 @@ void painter_ios_safe_area(double *top, double *left, double *bottom, double *ri
 static double pencil_altitude = M_PI_2, pencil_azimuth = 0, pencil_time = 0;
 static int pencil_seen = 0;
 
+// Palm rejection (see src/palm.rs): what each touch is and how big. winit
+// names a touch by its UITouch's address, so the latest touches are kept by
+// that address for Rust to look up (a touch ends before Rust reads it, so
+// slots are only reused, never cleared).
+#define TOUCH_SLOTS 32
+static struct { uint64_t id; int type; double major; } touch_slots[TOUCH_SLOTS];
+static int touch_next = 0;
+
+static void remember_touch(UITouch *touch) {
+    uint64_t id = (uint64_t)(uintptr_t)(__bridge void *)touch;
+    int slot = -1;
+    for (int i = 0; i < TOUCH_SLOTS; i++) {
+        if (touch_slots[i].id == id) slot = i;
+    }
+    if (slot < 0) {
+        slot = touch_next;
+        touch_next = (touch_next + 1) % TOUCH_SLOTS;
+    }
+    touch_slots[slot].id = id;
+    touch_slots[slot].type = touch.type == UITouchTypePencil ? 1 : touch.type == UITouchTypeDirect ? 0 : 2;
+    // The contact's major radius in points: its diameter is what Rust compares.
+    touch_slots[slot].major = touch.majorRadius * 2.0;
+}
+
 @interface PainterPencilObserver : UIGestureRecognizer <UIGestureRecognizerDelegate>
 @end
 
 @implementation PainterPencilObserver
 - (void)record:(NSSet<UITouch *> *)touches {
     for (UITouch *touch in touches) {
+        remember_touch(touch);
         if (touch.type != UITouchTypePencil) continue;
         pencil_altitude = touch.altitudeAngle;
         pencil_azimuth = [touch azimuthAngleInView:self.view];
@@ -119,6 +144,8 @@ static int pencil_seen = 0;
 
 static double hover_x = 0, hover_y = 0;
 static int hover_active = 0;
+// The hover is the Pencil above the glass (not a trackpad or mouse pointer).
+static int hover_pencil = 0;
 
 @interface PainterHoverObserver : NSObject
 @end
@@ -131,6 +158,11 @@ static int hover_active = 0;
     hover_x = p.x * scale;
     hover_y = p.y * scale;
     hover_active = (g.state == UIGestureRecognizerStateBegan || g.state == UIGestureRecognizerStateChanged);
+    hover_pencil = 0;
+    if (@available(iOS 16.1, *)) {
+        // Only the Pencil hovers at a height; a pointer is always at 0.
+        hover_pencil = hover_active && g.zOffset > 0;
+    }
     if (@available(iOS 16.4, *)) {
         if (hover_active) {
             pencil_altitude = g.altitudeAngle;
@@ -161,6 +193,24 @@ int painter_pencil_install(void) {
     UIHoverGestureRecognizer *hover = [[UIHoverGestureRecognizer alloc] initWithTarget:hover_target action:@selector(hover:)];
     [view addGestureRecognizer:hover];
     return 1;
+}
+
+// 1 while the Apple Pencil itself hovers over the screen (palm rejection).
+int painter_hover_pencil(void) {
+    return hover_pencil;
+}
+
+// What touch `id` (winit's touch id: the UITouch's address) is: *type 1 for
+// the Pencil, 0 for a finger or other direct contact, 2 for anything else,
+// and *major its contact's major axis in points. 0 when it isn't known.
+int painter_touch_info(uint64_t id, int *type, double *major) {
+    for (int i = 0; i < TOUCH_SLOTS; i++) {
+        if (touch_slots[i].id != id) continue;
+        *type = touch_slots[i].type;
+        *major = touch_slots[i].major;
+        return 1;
+    }
+    return 0;
 }
 
 // Where the Pencil hovers (or the pointer is), in the view's physical pixels; 0 when nothing hovers.

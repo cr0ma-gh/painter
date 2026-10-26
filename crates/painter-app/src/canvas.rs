@@ -1,14 +1,30 @@
 //! The canvas widget (input and the wgpu paint callback) and the navigator thumbnail.
 
-use eframe::egui::{self, Align2, Color32, CursorIcon, Event, FontId, Key, PointerButton, Pos2, Rect, Sense, Stroke, Vec2};
+use eframe::egui::{self, Align2, Color32, CursorIcon, Event, FontId, Key, Modifiers, PointerButton, Pos2, Rect, Sense, Stroke, Vec2};
 use eframe::egui_wgpu;
 use eframe::wgpu;
 use painter_core::StrokePoint;
 use painter_render::{build_plan, live_planes, CanvasFrame, GpuCanvas, ViewUniform};
 
 use crate::app::PainterApp;
+use crate::palm::{ContactClass, ContactInput, ContactPhase, InkEvent, InkSample, NavGesture, PalmMode, PalmSettings};
 use crate::tools::Tool;
 use crate::view::ViewTransform;
+
+/// The palm arbiter's navigation, as egui's multi-touch.
+fn multi_touch(g: NavGesture) -> egui::MultiTouchInfo {
+    egui::MultiTouchInfo {
+        start_time: g.start_time,
+        start_pos: g.start_pos,
+        center_pos: g.center_pos,
+        num_touches: g.num_touches,
+        zoom_delta: g.zoom_delta,
+        zoom_delta_2d: Vec2::splat(g.zoom_delta),
+        rotation_delta: g.rotation_delta,
+        translation_delta: g.translation_delta,
+        force: 0.0,
+    }
+}
 
 /// A multi-finger touch in progress: when it began, the most fingers seen,
 /// and how much it has moved (to tell taps from pans).
@@ -147,6 +163,7 @@ impl PainterApp {
         self.draw_clock(ui, rect);
         self.draw_brush_cursor(&painter, rect, &response);
         self.draw_eyedropper(&painter);
+        self.palm_overlay(ui, rect);
         self.transform_hud(ui.ctx(), rect);
         self.nav_gizmo(ui, rect);
         self.ruler_bar_ui(ui, full, rect, bar_top, bar_left);
@@ -154,7 +171,7 @@ impl PainterApp {
 
     fn canvas_input(&mut self, ui: &egui::Ui, rect: Rect, response: &egui::Response) {
         let doc_size = self.doc_size();
-        let (events, space, zoom_delta, scroll) =
+        let (events, space, mut zoom_delta, scroll) =
             ui.input(|i| (i.events.clone(), i.key_down(Key::Space), i.zoom_delta(), i.raw_scroll_delta));
         // Not over the 3D navigation gizmo (it takes its own clicks and drags).
         let over_gizmo = self.nav_gizmo_rect(rect).zip(ui.input(|i| i.pointer.hover_pos())).is_some_and(|(g, p)| g.contains(p));
@@ -167,19 +184,40 @@ impl PainterApp {
         for event in events.iter().filter(|e| matches!(e, Event::Touch { .. })) {
             self.tablet.observe(event);
         }
-        let multi = ui.input(|i| i.multi_touch());
-        self.touch_gestures(multi, rect);
-        // A finger resting still picks a colour instead of panning.
-        let long_press = self.eyedropper_touches(ui.ctx(), &events, rect);
+        // Palm rejection: touches go through the arbiter, which says which
+        // contact paints and which fingers navigate; egui's pointer (the first
+        // touch, maybe the palm) and its multi-touch (every touch) are set aside.
+        let touch_driven = self.palm_touches(ui, &events, rect);
+        let multi = if touch_driven {
+            let gesture = self.palm.take_gesture().map(multi_touch);
+            // A pinch among the navigating fingers only (egui's would count the palm).
+            zoom_delta = 1.0;
+            if let Some(mt) = gesture.filter(|mt| mt.zoom_delta != 1.0) {
+                self.view.zoom_about(rect, doc_size, mt.center_pos, mt.zoom_delta);
+            }
+            gesture
+        } else {
+            ui.input(|i| i.multi_touch())
+        };
+        self.touch_gestures(multi, rect, !touch_driven);
+        // A finger resting still picks a colour instead of panning (never the palm).
+        let long_press = if touch_driven {
+            let palm = |id: u64| self.palm.class_of(id) == Some(ContactClass::Palm);
+            let events: Vec<Event> = events.iter().filter(|e| !matches!(e, Event::Touch { id, .. } if palm(id.0))).cloned().collect();
+            self.eyedropper_touches(ui.ctx(), &events, rect)
+        } else {
+            self.eyedropper_touches(ui.ctx(), &events, rect)
+        };
 
         // Navigation. On a 3D layer with the 3D tool, the middle button and the
         // wheel steer the scene's camera instead (Space + drag still pans the canvas).
-        // With "Pencil only", a finger pans instead of painting.
-        let finger = self.tools.pencil_only && self.tablet.finger_down() && !long_press;
+        // With "Pencil only", a finger pans instead of painting (the palm
+        // arbiter's navigating fingers move the view in `touch_gestures`).
+        let finger = !touch_driven && self.tools.pencil_only && self.tablet.finger_down() && !long_press;
         // Clip Studio's keys: Space pans, Shift + Space rotates, Ctrl + Space
         // zooms in and Alt + Space out; H, R and / pick the same as tools.
         let mods = self.pointer_mods;
-        let nav = if finger || multi.is_some() {
+        let nav = if finger || (!touch_driven && multi.is_some()) {
             Some(Nav::Pan)
         } else if space {
             Some(if mods.shift {
@@ -269,6 +307,10 @@ impl PainterApp {
             if is_pointer(event) {
                 self.tablet.next_event();
             }
+            // Touches press, move and release through the palm arbiter (below).
+            if touch_driven && (is_pointer(event) || matches!(event, Event::PointerGone)) {
+                continue;
+            }
             match event {
                 // Alt with a brush, fill or gradient: the eyedropper while the button is held.
                 Event::PointerButton { pos, button: PointerButton::Primary, pressed: true, modifiers, .. }
@@ -288,19 +330,7 @@ impl PainterApp {
                     if !hand && !resizing && hovering && rect.contains(*pos) && self.stroke.is_none() && self.drag.is_none() && self.line.is_none() =>
                 {
                     let p = to_doc(&self.view, *pos);
-                    if self.tool == Tool::Brush && modifiers.shift {
-                        // Shift: a straight line (see `crate::lines`).
-                        self.begin_line(self.stroke_point(p));
-                    } else if self.tool == Tool::Brush {
-                        self.begin_stroke(self.stroke_point(p));
-                        self.smart_begin(self.stroke_point(p), *pos);
-                    } else if self.tool == Tool::Stamp(crate::stamp_tool::StampKind::Clone) && modifiers.alt {
-                        self.set_clone_source(p);
-                    } else if self.tool.paints() {
-                        self.begin_stroke(self.stroke_point(p));
-                    } else {
-                        self.tool_press(p, *modifiers);
-                    }
+                    self.press_at(*pos, self.stroke_point(p), *modifiers);
                 }
                 Event::PointerMoved(pos) if self.line.is_some() => {
                     let p = to_doc(&self.view, *pos);
@@ -350,7 +380,9 @@ impl PainterApp {
         if self.stroke.is_some() {
             feed_packets(self, &mut packets_fed);
         }
-        if !ui.input(|i| i.pointer.primary_down()) {
+        if touch_driven {
+            self.palm_ink(rect, hand || resizing, long_press);
+        } else if !ui.input(|i| i.pointer.primary_down()) {
             if self.line.is_some() {
                 self.finish_line();
             }
@@ -379,13 +411,14 @@ impl PainterApp {
     }
 
     /// Two or more fingers: pan and rotate the view (pinch zoom comes through
-    /// `zoom_delta`), drop a stroke a stray finger just started, and turn quick
-    /// taps into undo (two fingers), redo (three) and zen mode (four).
-    fn touch_gestures(&mut self, multi: Option<egui::MultiTouchInfo>, rect: Rect) {
+    /// `zoom_delta`), drop a stroke a stray finger just started (`discard_young`;
+    /// the palm arbiter does that itself), and turn quick taps into undo (two
+    /// fingers), redo (three) and zen mode (four).
+    fn touch_gestures(&mut self, multi: Option<egui::MultiTouchInfo>, rect: Rect, discard_young: bool) {
         let now = self.started.elapsed().as_secs_f64();
         match multi {
             Some(mt) => {
-                if self.stroke.as_ref().is_some_and(|s| s.age() < 0.3) {
+                if discard_young && self.stroke.as_ref().is_some_and(|s| s.age() < 0.3) {
                     self.discard_stroke();
                 }
                 self.view.pan += mt.translation_delta;
@@ -417,6 +450,136 @@ impl PainterApp {
     /// A pointer sample at canvas point `p`, with pen pressure, tilt and time.
     fn stroke_point(&self, p: Pos2) -> StrokePoint {
         StrokePoint::new(p.x, p.y, self.tablet.pressure()).with_tilt(self.tablet.tilt()).with_azimuth(self.tablet.azimuth()).at_time(self.started.elapsed().as_secs_f32())
+    }
+
+    /// The primary button, or the palm arbiter's ink contact, goes down at
+    /// window point `pos`; `p` is the sample on the canvas.
+    fn press_at(&mut self, pos: Pos2, p: StrokePoint, modifiers: Modifiers) {
+        let at = Pos2::new(p.x, p.y);
+        if self.tool == Tool::Brush && modifiers.shift {
+            // Shift: a straight line (see `crate::lines`).
+            self.begin_line(p);
+        } else if self.tool == Tool::Brush {
+            self.begin_stroke(p);
+            self.smart_begin(p, pos);
+        } else if self.tool == Tool::Stamp(crate::stamp_tool::StampKind::Clone) && modifiers.alt {
+            self.set_clone_source(at);
+        } else if self.tool.paints() {
+            self.begin_stroke(p);
+        } else {
+            self.tool_press(at, modifiers);
+        }
+    }
+
+    /// Feeds this frame's touches to the palm arbiter (when palm rejection is
+    /// on) and promotes fingers past their grace period. True when touches
+    /// drive the canvas through the arbiter this frame.
+    fn palm_touches(&mut self, ui: &egui::Ui, events: &[Event], rect: Rect) -> bool {
+        let mode = self.ws.palm.effective_mode(crate::tablet::CONTACT_KINDS_KNOWN);
+        if mode == PalmMode::Off {
+            if self.palm.engaged() {
+                self.palm = Default::default();
+            }
+            return false;
+        }
+        let settings = PalmSettings { mode, ..self.ws.palm };
+        let ctx = ui.ctx();
+        let now = self.started.elapsed().as_secs_f64();
+        if let Some(pos) = crate::tablet::pen_hover(ctx) {
+            self.palm.hover(pos, now);
+        }
+        let gizmo = self.nav_gizmo_rect(rect);
+        let mut touched = false;
+        for event in events {
+            let Event::Touch { id, phase, pos, force, .. } = event else { continue };
+            touched = true;
+            let phase = match phase {
+                egui::TouchPhase::Start => ContactPhase::Start,
+                egui::TouchPhase::Move => ContactPhase::Move,
+                egui::TouchPhase::End => ContactPhase::End,
+                egui::TouchPhase::Cancel => ContactPhase::Cancel,
+            };
+            // Only touches that land on the canvas (not on a panel, a menu
+            // or the navigation gizmo over it) are the canvas's.
+            let on_canvas = rect.contains(*pos)
+                && ctx.layer_id_at(*pos).is_none_or(|layer| layer == ui.layer_id())
+                && !gizmo.is_some_and(|g| g.contains(*pos));
+            if phase == ContactPhase::Start && !on_canvas {
+                continue;
+            }
+            let (kind, major_mm) = crate::tablet::touch_contact(id.0, *force);
+            let pressure = force.map_or(1.0, |f| f.clamp(0.0, 1.0));
+            self.palm.feed(ContactInput { id: id.0, phase, pos: *pos, time: now, kind, pressure, major_mm }, &settings);
+        }
+        self.palm.tick(now, &settings);
+        if self.palm.pending() {
+            // Nothing else wakes the app while a staged finger rests still.
+            ctx.request_repaint_after(std::time::Duration::from_millis(8));
+        }
+        touched || self.palm.engaged()
+    }
+
+    /// Strokes from the palm arbiter's ink contact: it presses, moves and
+    /// releases like the primary button; a cancelled stroke is rolled back.
+    /// `blocked`: navigation or brush resizing has the pointer.
+    fn palm_ink(&mut self, rect: Rect, blocked: bool, long_press: bool) {
+        let doc_size = self.doc_size();
+        for event in self.palm.take_ink() {
+            match event {
+                InkEvent::Begin(s) => {
+                    if blocked || self.stroke.is_some() || self.drag.is_some() || self.line.is_some() {
+                        continue;
+                    }
+                    let p = self.ink_point(rect, doc_size, s);
+                    let mods = self.pointer_mods;
+                    if mods.alt && !mods.ctrl && self.alt_eyedropper() {
+                        self.begin_temporary_pick(Pos2::new(p.x, p.y));
+                    } else {
+                        self.press_at(s.pos, p, mods);
+                    }
+                }
+                InkEvent::Move(s) => {
+                    let p = self.ink_point(rect, doc_size, s);
+                    if self.eyedropper_held() && !long_press {
+                        self.eyedrop_at(Pos2::new(p.x, p.y));
+                    } else if self.line.is_some() {
+                        let snap = self.pointer_mods.command || self.pointer_mods.ctrl;
+                        self.move_line(p, snap);
+                    } else if self.stroke.is_some() {
+                        self.continue_stroke(p);
+                    } else if self.drag.is_some() {
+                        self.tool_move(Pos2::new(p.x, p.y));
+                    }
+                }
+                InkEvent::End | InkEvent::Cancel => {
+                    if event == InkEvent::Cancel && self.stroke.is_some() {
+                        // A palm, or the start of a gesture: as if it never touched.
+                        self.smart = None;
+                        self.discard_stroke();
+                    }
+                    if self.eyedropper_held() && !long_press {
+                        self.end_pick();
+                    }
+                    if self.line.is_some() {
+                        self.finish_line();
+                    }
+                    self.smart_release();
+                    if self.stroke.is_some() {
+                        self.end_stroke();
+                    }
+                    if self.drag.is_some() {
+                        self.tool_release();
+                    }
+                }
+            }
+        }
+    }
+
+    /// An ink sample on the canvas; the pen's tilt applies to the pen only.
+    fn ink_point(&self, rect: Rect, doc_size: Vec2, s: InkSample) -> StrokePoint {
+        let p = self.view.screen_to_doc(rect, doc_size, s.pos);
+        let (tilt, azimuth) = if s.pen { (self.tablet.tilt(), self.tablet.azimuth()) } else { (0.0, 0.0) };
+        StrokePoint::new(p.x, p.y, s.pressure).with_tilt(tilt).with_azimuth(azimuth).at_time(s.time as f32)
     }
 
     /// The whole canvas at fit size, with the visible area outlined; click or drag to pan.

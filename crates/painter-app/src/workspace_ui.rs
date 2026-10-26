@@ -27,6 +27,7 @@ const TOOLBAR_KEY: &str = "toolbar_v1";
 const COMMAND_BAR_KEY: &str = "command_bar_v1";
 const BARS_KEY: &str = "bars_v1";
 const WELCOME_KEY: &str = "welcome_v1";
+const PALM_KEY: &str = "palm_v1";
 /// Height of an area's header strip.
 const HEADER: f32 = 22.0;
 /// Rows shown in the command palette.
@@ -58,6 +59,8 @@ pub(crate) struct WorkspaceUi {
     pub(crate) bars: crate::toolbar::Bars,
     /// Show the welcome screen at startup.
     pub(crate) welcome: bool,
+    /// Palm rejection (Preferences > Input & Tablet).
+    pub(crate) palm: crate::palm::PalmSettings,
     /// Workspace tab being renamed, with the text so far.
     renaming: Option<(usize, String)>,
     /// Where settings live when eframe has no storage (iPadOS), and what
@@ -96,6 +99,7 @@ impl WorkspaceUi {
             command_bar_search: String::new(),
             bars: get(BARS_KEY).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
             welcome: get(WELCOME_KEY).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or(true),
+            palm: get(PALM_KEY).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
             renaming: None,
             settings_file,
             written,
@@ -113,6 +117,7 @@ impl WorkspaceUi {
         self.command_bar = crate::toolbar::default_command_bar();
         self.bars = Default::default();
         self.welcome = true;
+        self.palm = Default::default();
         self.applied_theme = None;
         self.applied_zoom = None;
         self.area_rects.clear();
@@ -122,7 +127,7 @@ impl WorkspaceUi {
         self.theme_editor = false;
     }
 
-    fn entries(&self) -> [(&'static str, String); 7] {
+    fn entries(&self) -> [(&'static str, String); 8] {
         [
             (WORKSPACES_KEY, self.set.to_json()),
             (CHROME_KEY, serde_json::to_string(&self.chrome).unwrap_or_default()),
@@ -131,6 +136,7 @@ impl WorkspaceUi {
             (COMMAND_BAR_KEY, serde_json::to_string(&self.command_bar.iter().map(crate::toolbar::Item::key).collect::<Vec<_>>()).unwrap_or_default()),
             (BARS_KEY, serde_json::to_string(&self.bars).unwrap_or_default()),
             (WELCOME_KEY, serde_json::to_string(&self.welcome).unwrap_or_default()),
+            (PALM_KEY, serde_json::to_string(&self.palm).unwrap_or_default()),
         ]
     }
 
@@ -1026,7 +1032,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 91] = [
+        let fixed: [FixedCommand; 92] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -1093,6 +1099,7 @@ impl PainterApp {
             ("view.grid", "Show Grid", C::View, "Ctrl+'", &["guides"], true),
             ("rulers.snap", "Snap to Rulers", C::View, "Ctrl+1", &["perspective", "symmetry", "ruler"], true),
             ("view.zen", "Toggle Zen Mode", C::View, "Tab / F11", &["fullscreen", "hide panels", "distraction free"], true),
+            ("view.input", "Input & Tablet...", C::View, "", &["palm rejection", "stylus", "pen", "touch", "left-handed", "preferences"], true),
             ("view.screen.0", "Screen Mode: Standard", C::View, "", &["window", "screen mode"], true),
             ("view.screen.1", "Screen Mode: Full Screen with Menus", C::View, "F", &["fullscreen", "screen mode"], true),
             ("view.screen.2", "Screen Mode: Full Screen", C::View, "", &["fullscreen", "canvas only", "presentation", "screen mode"], true),
@@ -1246,6 +1253,7 @@ impl PainterApp {
             "view.grid" => self.doc.rulers.grid.visible = !self.doc.rulers.grid.visible,
             "rulers.snap" => self.toggle_ruler_snapping(),
             "view.zen" => self.toggle_zen(),
+            "view.input" => self.palm_open = true,
             "view.screen.0" => { let ctx = self.egui_ctx.clone(); self.set_screen_mode(&ctx, 0) }
             "view.screen.1" => { let ctx = self.egui_ctx.clone(); self.set_screen_mode(&ctx, 1) }
             "view.screen.2" => { let ctx = self.egui_ctx.clone(); self.set_screen_mode(&ctx, 2) }

@@ -212,6 +212,17 @@ impl History {
         true
     }
 
+    /// Takes back the last step as if it never happened: `doc` returns to the
+    /// state before it and, unlike [`History::undo`], nothing is left to redo
+    /// (a stroke a resting palm started, rolled back).
+    pub fn rollback(&mut self, doc: &mut Document) -> bool {
+        let Some(snapshot) = self.undo.pop() else {
+            return false;
+        };
+        snapshot.restore(doc);
+        true
+    }
+
     pub fn redo(&mut self, doc: &mut Document) -> bool {
         let Some(snapshot) = self.redo.pop() else {
             return false;
@@ -316,6 +327,19 @@ mod tests {
         doc.width = 4;
         assert!(history.undo(&mut doc));
         assert_eq!(doc.canvas(), (10, 10));
+    }
+
+    #[test]
+    fn rollback_leaves_nothing_to_redo() {
+        let mut doc = Document::new(10, 10);
+        let mut history = History::new(10);
+        history.push_labelled(&doc, "Pen");
+        doc.find_mut(doc.active).unwrap().name = "Stray".into();
+        assert!(history.rollback(&mut doc));
+        assert_eq!(doc.active_layer().unwrap().name, "Layer 1");
+        assert!(!history.can_undo());
+        assert!(!history.can_redo());
+        assert!(!history.rollback(&mut doc));
     }
 
     #[test]
