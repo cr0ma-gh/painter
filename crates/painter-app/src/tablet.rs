@@ -290,9 +290,9 @@ pub(crate) fn pencil_hover(ctx: &eframe::egui::Context) -> Option<eframe::egui::
 /// touch's force as egui reports it.
 ///
 /// - iPadOS: `UITouch.type` and `majorRadius`, from the native observer.
-/// - Android: winit gives every touch a force and passes on neither the
-///   tool type nor the contact's size: [`ContactKind::Unknown`] (see
-///   [`CONTACT_KINDS_KNOWN`]).
+/// - Android: the `MotionEvent` tool type and `AXIS_TOUCH_MAJOR`, noted as
+///   winit reads the input queue (`crate::android_touch`);
+///   [`ContactKind::Unknown`] for a touch it hasn't seen.
 /// - Elsewhere (Windows Ink, X11 touch): a touch with a force is a pen.
 pub(crate) fn touch_contact(id: u64, force: Option<f32>) -> (crate::palm::ContactKind, Option<f32>) {
     use crate::palm::ContactKind;
@@ -301,19 +301,46 @@ pub(crate) fn touch_contact(id: u64, force: Option<f32>) -> (crate::palm::Contac
         // iPads lay out about 132 points to the inch.
         return (kind, Some(major_points * 25.4 / 132.0).filter(|mm| *mm > 0.0));
     }
+    #[cfg(target_os = "android")]
+    {
+        let _ = force;
+        match crate::android_touch::pointer(id) {
+            Some(info) => crate::android_touch::contact(info, crate::android::screen_dpi()),
+            None => (ContactKind::Unknown, None),
+        }
+    }
+    #[cfg(not(target_os = "android"))]
     let _ = id;
-    if cfg!(target_os = "android") {
-        (ContactKind::Unknown, None)
-    } else if force.is_some() {
+    #[cfg(not(target_os = "android"))]
+    if force.is_some() {
         (ContactKind::Stylus, None)
     } else {
         (ContactKind::Finger, None)
     }
 }
 
-/// Whether [`touch_contact`] can tell a pen from a finger here: not on
-/// Android, where "Stylus Only" then falls back to the standard rejection.
-pub(crate) const CONTACT_KINDS_KNOWN: bool = !cfg!(target_os = "android");
+/// Whether the system revoked touch `id` as it lifted (Android's
+/// `FLAG_CANCELED`: it decided the touch was a palm), so its end is a cancel;
+/// true once per revoked touch.
+pub(crate) fn touch_revoked(id: u64) -> bool {
+    #[cfg(target_os = "android")]
+    return crate::android_touch::take_revoked(id);
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = id;
+        false
+    }
+}
+
+/// Whether [`touch_contact`] can tell a pen from a finger here: on Android
+/// once the input queue has been read through `crate::android_touch`;
+/// without that "Stylus Only" falls back to the standard rejection.
+pub(crate) fn contact_kinds_known() -> bool {
+    #[cfg(target_os = "android")]
+    return crate::android_touch::bridged();
+    #[cfg(not(target_os = "android"))]
+    true
+}
 
 /// Where the pen hovers above the screen, in egui points, for palm
 /// rejection: the Apple Pencil on iPad (not a trackpad or mouse pointer).

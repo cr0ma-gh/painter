@@ -6,6 +6,8 @@ mod actions;
 mod adjust_ui;
 #[cfg(target_os = "android")]
 mod android;
+#[cfg(any(target_os = "android", test))]
+mod android_touch;
 mod advanced_tool;
 mod app;
 mod brush_cursor;

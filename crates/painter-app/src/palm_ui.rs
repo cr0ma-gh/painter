@@ -31,7 +31,7 @@ impl PainterApp {
                 };
                 ui.radio_value(&mut palm.mode, mode, tr(mode.label())).on_hover_text(hint);
             }
-            if palm.mode == PalmMode::StylusOnly && !crate::tablet::CONTACT_KINDS_KNOWN {
+            if palm.mode == PalmMode::StylusOnly && !crate::tablet::contact_kinds_known() {
                 ui.small(tr("This device doesn't tell the pen from a finger: Standard rejection is used instead."));
             }
             ui.add_enabled_ui(palm.mode != PalmMode::Off, |ui| {
