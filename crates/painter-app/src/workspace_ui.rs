@@ -1174,13 +1174,20 @@ impl PainterApp {
         }
     }
 
+    /// Whether a command can run right now: undo/redo and the selection and
+    /// mask commands follow the live document, the rest the registry's flag
+    /// (which only [`Self::refresh_commands`] rebuilds).
+    pub(crate) fn is_command_enabled(&self, id: &str) -> bool {
+        live_command_enabled(id, &self.history, &self.doc).unwrap_or_else(|| self.ws.commands.get(id).is_none_or(|c| c.enabled))
+    }
+
     /// Runs a palette command by id.
     pub(crate) fn run_command(&mut self, id: &str) {
-        if let Some(c) = self.ws.commands.get(id) {
-            if !c.enabled {
+        if !self.is_command_enabled(id) {
+            if let Some(c) = self.ws.commands.get(id) {
                 self.status = format!("{} isn't available right now", c.label);
-                return;
             }
+            return;
         }
         self.ws.commands.note_used(id);
         self.actions.record(id);
@@ -1537,5 +1544,62 @@ impl PainterApp {
         if !open {
             self.ws.theme_editor = false;
         }
+    }
+}
+
+/// The availability of the commands that change with every stroke, undo or
+/// selection, read from the live state; `None` for the others.
+fn live_command_enabled(id: &str, history: &painter_core::history::History, doc: &painter_core::document::Document) -> Option<bool> {
+    let has_sel = || doc.selection.is_some();
+    let has_mask = || doc.active_layer().is_some_and(|l| l.mask.is_some());
+    Some(match id {
+        "edit.undo" => history.can_undo(),
+        "edit.redo" => history.can_redo(),
+        "edit.clear" | "select.none" | "select.save_channel" | "layer.tone" => has_sel(),
+        "layer.add_mask" => !has_mask(),
+        "layer.delete_mask" => has_mask(),
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod command_state_tests {
+    use super::*;
+    use painter_core::document::Document;
+    use painter_core::history::History;
+
+    #[test]
+    fn undo_and_redo_follow_the_history() {
+        let mut doc = Document::new(10, 10);
+        let mut history = History::new(10);
+        assert_eq!(live_command_enabled("edit.undo", &history, &doc), Some(false));
+        assert_eq!(live_command_enabled("edit.redo", &history, &doc), Some(false));
+
+        history.push_labelled(&doc, "Paint");
+        assert_eq!(live_command_enabled("edit.undo", &history, &doc), Some(true), "a stroke can be undone");
+        assert_eq!(live_command_enabled("edit.redo", &history, &doc), Some(false));
+
+        assert!(history.undo(&mut doc));
+        assert_eq!(live_command_enabled("edit.undo", &history, &doc), Some(false));
+        assert_eq!(live_command_enabled("edit.redo", &history, &doc), Some(true), "the undone stroke can come back");
+
+        assert!(history.redo(&mut doc));
+        assert_eq!(live_command_enabled("edit.undo", &history, &doc), Some(true));
+        assert_eq!(live_command_enabled("edit.redo", &history, &doc), Some(false));
+    }
+
+    #[test]
+    fn selection_commands_follow_the_selection() {
+        let mut doc = Document::new(10, 10);
+        let history = History::new(10);
+        let ids = ["edit.clear", "select.none", "select.save_channel"];
+        for id in ids {
+            assert_eq!(live_command_enabled(id, &history, &doc), Some(false), "{id}");
+        }
+        doc.selection = Some(painter_core::tile::TileStore::default());
+        for id in ids {
+            assert_eq!(live_command_enabled(id, &history, &doc), Some(true), "{id}");
+        }
+        assert_eq!(live_command_enabled("file.save", &history, &doc), None, "the registry decides the rest");
     }
 }
