@@ -557,7 +557,7 @@ impl PainterApp {
                 ui.separator();
                 continue;
             };
-            let enabled = self.ws.commands.get(id).is_none_or(|c| c.enabled);
+            let enabled = self.is_command_enabled(id);
             let response = ui.add_enabled_ui(enabled, |ui| self.command_button(ui, id)).inner;
             if response.clicked() {
                 let id = id.clone();
