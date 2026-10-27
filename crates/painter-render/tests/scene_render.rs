@@ -123,3 +123,41 @@ fn textures_paint_over_the_colour() {
     let centre = &rgba[(32 * 96 + 48) * 4..][..4];
     assert!(centre[0] > 90 && centre[1] > 90, "mixed: {centre:?}");
 }
+
+#[test]
+fn normals_stay_perpendicular_under_non_uniform_scale() {
+    let Some((device, queue, _turn)) = gpu() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    // A quad on the plane z = y, facing the camera at 45°.
+    let normal = [0.0, -std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2];
+    let corners = [[-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]];
+    let vertices = corners.map(|position| scene_3d::mesh::Vertex { position, normal, uv: [0.0; 2] }).to_vec();
+    let quad = Arc::new(Mesh::from_buffers("Quad", vertices, vec![0, 1, 2, 0, 2, 3]));
+    // Stretched 4× along z the surface becomes z = 4y: its true normal is
+    // (0, -4, 1) / √17, nearly facing the camera; scaling the normal like a
+    // position would give (0, -1, 4) / √17, nearly edge-on to it.
+    let size = (96, 64);
+    let mut cam = ViewCamera::default();
+    cam.set_view(ViewPreset::Front);
+    cam.distance = 8.0;
+    let stretch = Transform { scale: vec3(1.0, 1.0, 4.0), ..Transform::default() };
+    let preview = ScenePreview {
+        layer: painter_core::LayerId(1),
+        revision: 1,
+        view_proj: cam.view_projection(size.0 as f32 / size.1 as f32).0,
+        draws: vec![SceneDraw { mesh: quad, model: stretch.matrix().0, color: [1.0; 3], selected: false, texture: None }],
+        // Light from the camera: brightness is the normal's facing.
+        lights: vec![SceneLight::Sun { direction: [0.0, 1.0, 0.0], color: [1.0; 3] }],
+        ambient: 0.0,
+    };
+    let mut renderer = SceneRenderer::new(device);
+    let rgba = renderer.render_to_rgba(device, queue, &preview, size);
+    let centre = &rgba[(32 * 96 + 48) * 4..][..4];
+    let expected = 255.0 * 4.0 / 17f32.sqrt();
+    for c in &centre[..3] {
+        assert!((*c as f32 - expected).abs() <= 3.0, "lit by the true normal ({expected:.0}): {centre:?}");
+    }
+    assert_eq!(centre[3], 255);
+}

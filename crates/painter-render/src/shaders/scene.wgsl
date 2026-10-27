@@ -40,8 +40,13 @@ fn vs_main(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @lo
     let world = object.model * vec4<f32>(position, 1.0);
     out.position = globals.view_proj * world;
     out.world = world.xyz;
-    // Fine for the uniform-ish scales of reference models.
-    out.normal = (object.model * vec4<f32>(normal, 0.0)).xyz;
+    // Normals go through the cofactor of the model's 3×3 (det × inverse
+    // transpose), so they stay perpendicular to the faces under non-uniform
+    // scale. The det factor is dropped by the normalize in fs_main, and its
+    // sign (mirrored models) by the two-sided lighting.
+    let m = mat3x3<f32>(object.model[0].xyz, object.model[1].xyz, object.model[2].xyz);
+    let cofactor = mat3x3<f32>(cross(m[1], m[2]), cross(m[2], m[0]), cross(m[0], m[1]));
+    out.normal = cofactor * normal;
     out.uv = uv;
     return out;
 }
