@@ -25,6 +25,7 @@
 //!   material encodings are kept as references.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use painter_core::{AntiAlias, BrushMode, BrushSettings, PressureCurve, SmoothingMethod};
@@ -180,14 +181,66 @@ pub struct MaterialLibrary {
 }
 
 impl MaterialLibrary {
-    /// This user's Clip Studio material folder (`%APPDATA%\CELSYSUserData\CELSYS\CLIPStudioCommon\Material\Install`).
+    /// This user's Clip Studio material folders: on Windows
+    /// `%APPDATA%\CELSYSUserData\CELSYS\CLIPStudioCommon\Material\Install` and
+    /// `%USERPROFILE%\Documents\CELSYS\…`; on macOS `~/Library/CELSYS/…`,
+    /// `~/Library/Application Support/CELSYS/…` and `~/Documents/CELSYS/…`;
+    /// elsewhere `~/.local/share/CELSYS/…`, `~/Documents/CELSYS/…` and the
+    /// Windows folders inside Wine prefixes. Only existing folders are kept.
     pub fn for_current_user() -> Self {
-        let roots = std::env::var_os("APPDATA")
-            .map(|appdata| PathBuf::from(appdata).join(r"CELSYSUserData\CELSYS\CLIPStudioCommon\Material\Install"))
-            .filter(|p| p.is_dir())
-            .into_iter()
-            .collect();
+        let mut roots = Vec::new();
+        for root in Self::candidate_roots(std::env::consts::OS, |name| std::env::var_os(name)) {
+            if root.is_dir() && !roots.contains(&root) {
+                roots.push(root);
+            }
+        }
         Self { roots }
+    }
+
+    /// Where Clip Studio may keep materials on `os` (a `std::env::consts::OS`
+    /// value), reading environment variables through `var`. Wine prefixes are
+    /// listed from disk; other candidates may not exist.
+    fn candidate_roots(os: &str, var: impl Fn(&str) -> Option<OsString>) -> Vec<PathBuf> {
+        const INSTALL: [&str; 4] = ["CELSYS", "CLIPStudioCommon", "Material", "Install"];
+        let install = |base: PathBuf| INSTALL.iter().fold(base, |p, c| p.join(c));
+        // `%APPDATA%\CELSYSUserData\CELSYS\…`, the folder Clip Studio uses on Windows.
+        let roaming = |appdata: PathBuf| install(appdata.join("CELSYSUserData"));
+        let path = |name: &str| var(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+        let mut out = Vec::new();
+        match os {
+            "windows" => {
+                out.extend(path("APPDATA").map(roaming));
+                out.extend(path("USERPROFILE").map(|home| install(home.join("Documents"))));
+            }
+            "macos" => {
+                if let Some(home) = path("HOME") {
+                    out.push(install(home.join("Library")));
+                    out.push(install(home.join("Library").join("Application Support")));
+                    out.push(install(home.join("Documents")));
+                }
+            }
+            _ => {
+                let home = path("HOME");
+                let data = path("XDG_DATA_HOME").or_else(|| home.as_ref().map(|h| h.join(".local").join("share")));
+                out.extend(data.map(install));
+                if let Some(home) = &home {
+                    out.push(install(home.join("Documents")));
+                }
+                // Wine: `$WINEPREFIX` or `~/.wine`, with Clip Studio's Windows
+                // folders under every `drive_c/users/<user>`.
+                let prefix = path("WINEPREFIX").or_else(|| home.map(|h| h.join(".wine")));
+                if let Some(Ok(users)) = prefix.map(|p| std::fs::read_dir(p.join("drive_c").join("users"))) {
+                    let mut users: Vec<PathBuf> =
+                        users.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect();
+                    users.sort();
+                    for user in users {
+                        out.push(roaming(user.join("AppData").join("Roaming")));
+                        out.push(install(user.join("Documents")));
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// Adds every material folder found under `dir` (a few levels deep): a
@@ -799,6 +852,63 @@ mod tests {
         found.add_copied(&copied);
         assert_eq!(found.roots.len(), 1, "no duplicates");
         std::fs::remove_dir_all(copied).ok();
+    }
+
+    #[test]
+    fn lists_material_folders_per_platform() {
+        let install = |base: PathBuf| base.join("CELSYS").join("CLIPStudioCommon").join("Material").join("Install");
+        fn env(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> {
+            let vars: Vec<(String, OsString)> = vars.iter().map(|(k, v)| (k.to_string(), v.into())).collect();
+            move |name| vars.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone())
+        }
+
+        let windows = MaterialLibrary::candidate_roots(
+            "windows",
+            env(&[("APPDATA", "C:/Users/a/AppData/Roaming"), ("USERPROFILE", "C:/Users/a")]),
+        );
+        assert_eq!(
+            windows,
+            vec![
+                install(PathBuf::from("C:/Users/a/AppData/Roaming/CELSYSUserData")),
+                install(PathBuf::from("C:/Users/a/Documents")),
+            ]
+        );
+
+        let home = PathBuf::from("/Users/a");
+        let macos = MaterialLibrary::candidate_roots("macos", env(&[("HOME", "/Users/a")]));
+        assert_eq!(
+            macos,
+            vec![
+                install(home.join("Library")),
+                install(home.join("Library").join("Application Support")),
+                install(home.join("Documents")),
+            ]
+        );
+        assert!(MaterialLibrary::candidate_roots("macos", env(&[("HOME", "")])).is_empty());
+
+        // Linux with a Wine prefix holding two users.
+        let prefix = std::env::temp_dir().join(format!("painter-sut-wine-{}", std::process::id()));
+        let users = prefix.join("drive_c").join("users");
+        for user in ["a", "steamuser"] {
+            std::fs::create_dir_all(users.join(user)).unwrap();
+        }
+        let prefix_str = prefix.to_string_lossy();
+        let linux = MaterialLibrary::candidate_roots("linux", env(&[("HOME", "/home/a"), ("WINEPREFIX", &prefix_str)]));
+        let roaming = |user: &str| install(users.join(user).join("AppData").join("Roaming").join("CELSYSUserData"));
+        assert_eq!(
+            linux,
+            vec![
+                install(PathBuf::from("/home/a").join(".local").join("share")),
+                install(PathBuf::from("/home/a").join("Documents")),
+                roaming("a"),
+                install(users.join("a").join("Documents")),
+                roaming("steamuser"),
+                install(users.join("steamuser").join("Documents")),
+            ]
+        );
+        let xdg = MaterialLibrary::candidate_roots("linux", env(&[("XDG_DATA_HOME", "/data")]));
+        assert_eq!(xdg, vec![install(PathBuf::from("/data"))]);
+        std::fs::remove_dir_all(prefix).ok();
     }
 
     #[test]
