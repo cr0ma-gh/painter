@@ -373,6 +373,9 @@ impl PainterApp {
                         self.palm_open = true;
                         ui.close_menu();
                     }
+                    ui.menu_button(tr("Performance Profile"), |ui| self.performance_ui(ui))
+                        .response
+                        .on_hover_text(tr("How much quality is traded for GPU memory and RAM"));
                     ui.checkbox(&mut self.modifier_keys.shown, tr("On-Screen Modifier Keys"))
                         .on_hover_text(tr("Ctrl, Shift and Alt buttons for touch screens: tap to hold a key, tap again to release it"));
                     ui.separator();

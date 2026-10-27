@@ -4,7 +4,7 @@ use eframe::egui::{self, Align2, Color32, CursorIcon, Event, FontId, Key, Modifi
 use eframe::egui_wgpu;
 use eframe::wgpu;
 use painter_core::StrokePoint;
-use painter_render::{build_plan, live_planes, CanvasFrame, GpuCanvas, ViewUniform};
+use painter_render::{build_plan, live_planes, CanvasFrame, GpuCanvas, RenderProfile, ViewUniform};
 
 use crate::app::PainterApp;
 use crate::palm::{ContactClass, ContactInput, ContactPhase, InkEvent, InkSample, NavGesture, PalmMode, PalmSettings};
@@ -34,8 +34,9 @@ pub(crate) struct TouchGesture {
     travel: f32,
 }
 
-/// Carries one frame of canvas work to the GPU canvas stored in egui's callback resources.
-struct CanvasCallback(CanvasFrame);
+/// Carries one frame of canvas work to the GPU canvas stored in egui's callback resources,
+/// and a new render profile to switch it to first, if any.
+struct CanvasCallback(CanvasFrame, Option<RenderProfile>);
 
 impl egui_wgpu::CallbackTrait for CanvasCallback {
     fn prepare(
@@ -47,6 +48,9 @@ impl egui_wgpu::CallbackTrait for CanvasCallback {
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
         if let Some(canvas) = resources.get_mut::<GpuCanvas>() {
+            if let Some(profile) = self.1 {
+                canvas.set_profile(profile);
+            }
             canvas.prepare(device, queue, encoder, &self.0);
         }
         Vec::new()
@@ -139,7 +143,7 @@ impl PainterApp {
                 },
                 ink_lut: if self.proofer.display.is_some() { self.proofer.display.clone() } else { self.proofer.lut.clone() },
             };
-            ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, CanvasCallback(frame)));
+            ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, CanvasCallback(frame, self.pending_render_profile.take())));
         } else {
             ui.painter().text(
                 rect.center(),

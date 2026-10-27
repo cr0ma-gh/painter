@@ -926,6 +926,19 @@ fn low_vram_profile_options_match_commit() {
     );
 }
 
+/// The legacy profile (low-VRAM targets in a compact 1024² atlas), with and
+/// without 8-bit strokes, as legacy machines run it.
+#[test]
+fn legacy_profile_matches_commit() {
+    let legacy = RenderProfile::legacy();
+    check_low_vram_stroke(BrushSettings { size: 40.0, ..pen() }, LowVramCase { selection: true, ..PLAIN }, legacy);
+    check_low_vram_stroke(
+        BrushSettings { size: 50.0, ..BrushSettings::airbrush() },
+        LowVramCase { edit_mask: true, ..PLAIN },
+        RenderProfile { low_precision_strokes: true, ..legacy },
+    );
+}
+
 /// Brush blend modes: the live preview mixes with the layer as the commit does.
 #[test]
 fn brush_blend_modes_preview_matches_commit() {

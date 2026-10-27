@@ -39,6 +39,7 @@ mod file_types;
 mod file_object;
 mod files;
 mod gamut_selector;
+mod hardware;
 mod history_ui;
 mod icons;
 mod i18n;

@@ -38,15 +38,16 @@ pub(crate) enum AtlasProfile {
 }
 
 impl AtlasProfile {
-    /// `PAINTER_ATLAS=compact|standard` when set, otherwise compact on devices
-    /// limited to downlevel texture sizes (2D textures under 4096 px).
-    pub fn detect(device: &wgpu::Device) -> Self {
+    /// `PAINTER_ATLAS=compact|standard` when set, otherwise compact when
+    /// `compact` asks for it (see [`crate::RenderProfile::compact_atlas`]) or on
+    /// devices limited to downlevel texture sizes (2D textures under 4096 px).
+    pub fn choose(device: &wgpu::Device, compact: bool) -> Self {
         match std::env::var("PAINTER_ATLAS").ok().as_deref().map(str::trim) {
             Some(v) if v.eq_ignore_ascii_case("compact") => return Self::Compact,
             Some(v) if v.eq_ignore_ascii_case("standard") => return Self::Standard,
             _ => {}
         }
-        if device.limits().max_texture_dimension_2d < 2 * PAGE_SIZE {
+        if compact || device.limits().max_texture_dimension_2d < 2 * PAGE_SIZE {
             Self::Compact
         } else {
             Self::Standard
@@ -87,10 +88,6 @@ pub(crate) struct Atlas {
 }
 
 impl Atlas {
-    pub fn new(device: &wgpu::Device) -> Self {
-        Self::with_profile(device, AtlasProfile::detect(device))
-    }
-
     /// An atlas with `profile`'s page size, starting at [`FIRST_PAGES`] pages.
     pub fn with_profile(device: &wgpu::Device, profile: AtlasProfile) -> Self {
         let page_size = profile.page_size();
@@ -318,13 +315,14 @@ pub(crate) struct Residency {
 }
 
 impl Residency {
-    pub fn new(device: &wgpu::Device) -> Self {
-        Self { atlas: Atlas::new(device), planes: HashMap::new(), grid: (0, 0) }
+    /// An empty residency whose atlas has `profile`'s page size.
+    pub fn new(device: &wgpu::Device, profile: AtlasProfile) -> Self {
+        Self { atlas: Atlas::with_profile(device, profile), planes: HashMap::new(), grid: (0, 0) }
     }
 
-    /// Drops everything for a new canvas size.
-    pub fn reset(&mut self, device: &wgpu::Device, canvas: (u32, u32)) {
-        self.atlas = Atlas::new(device);
+    /// Drops everything for a new canvas size, with a fresh atlas of `profile`.
+    pub fn reset(&mut self, device: &wgpu::Device, canvas: (u32, u32), profile: AtlasProfile) {
+        self.atlas = Atlas::with_profile(device, profile);
         self.planes.clear();
         self.grid = (canvas.0.div_ceil(TILE_SIZE), canvas.1.div_ceil(TILE_SIZE));
     }

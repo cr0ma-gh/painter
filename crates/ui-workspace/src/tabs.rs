@@ -323,6 +323,9 @@ pub struct Chrome {
     /// The interface language ("it", "en"…); empty: the system's.
     #[serde(default)]
     pub language: LangCode,
+    /// The performance profile (Automatic: picked from the hardware).
+    #[serde(default)]
+    pub performance: PerformanceProfile,
 }
 
 /// What a layer thumbnail in the Layers panel frames, as Clip Studio's
@@ -334,6 +337,37 @@ pub enum LayerThumbMode {
     Content,
     /// The whole canvas, in its shape.
     Canvas,
+}
+
+/// How much the app trades rendering quality for memory and GPU load
+/// (Preferences: Performance Profile).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PerformanceProfile {
+    /// Picked from the hardware at start: RAM, GPU type and limits, `--low-gpu`.
+    #[default]
+    Auto,
+    /// Full-canvas targets, float stroke accumulation, generous undo and tab memory.
+    HighQuality,
+    /// Viewport-sized targets, with somewhat smaller undo and tab memory budgets.
+    Balanced,
+    /// Everything as small as it goes: viewport targets, compact atlas,
+    /// 8-bit strokes where float blending is slow, low RAM budgets.
+    Legacy,
+}
+
+impl PerformanceProfile {
+    /// Every profile, in menu order.
+    pub const ALL: [Self; 4] = [Self::Auto, Self::HighQuality, Self::Balanced, Self::Legacy];
+
+    /// The name shown in settings (English, translated by the app).
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Automatic",
+            Self::HighQuality => "High Quality",
+            Self::Balanced => "Balanced",
+            Self::Legacy => "Legacy / Low Resource",
+        }
+    }
 }
 
 /// A short language code ("it", "pt-BR"), kept as a string in settings.
@@ -391,7 +425,7 @@ pub const UI_SCALE_RANGE: (f32, f32) = (0.5, 3.0);
 
 impl Default for Chrome {
     fn default() -> Self {
-        Self { menu_bar: true, toolbar: true, workspace_tabs: true, status_bar: true, zen: false, ui_scale: 1.0, ruler_bar: false, ruler_bar_mm: false, brush_crosshair: true, clock: true, layer_thumbs: 1, layer_thumb_mode: LayerThumbMode::Content, language: LangCode::default() }
+        Self { menu_bar: true, toolbar: true, workspace_tabs: true, status_bar: true, zen: false, ui_scale: 1.0, ruler_bar: false, ruler_bar_mm: false, brush_crosshair: true, clock: true, layer_thumbs: 1, layer_thumb_mode: LayerThumbMode::Content, language: LangCode::default(), performance: PerformanceProfile::Auto }
     }
 }
 

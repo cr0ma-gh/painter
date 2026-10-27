@@ -100,9 +100,10 @@ impl SuspendPolicy {
     /// After 5 minutes, or past 2 GiB for all documents. PAINTER_TAB_SUSPEND_MIN
     /// sets the minutes (0: never for being idle) and PAINTER_TAB_RAM_MB the
     /// memory (0: no bound); PAINTER_LOW_RAM=1 makes them 1 minute and 512 MiB.
+    /// Without those, the performance profile's (see `crate::hardware::RamBudget`).
     pub(crate) fn from_env() -> Self {
-        let low_ram = std::env::var("PAINTER_LOW_RAM").is_ok_and(|v| !v.is_empty() && v != "0");
-        let (minutes, mib) = if low_ram { (1, 512) } else { (5, 2048) };
+        let budget = crate::hardware::RamBudget::current();
+        let (minutes, mib) = (budget.idle_minutes, budget.tabs_mib);
         let number = |name: &str, default: u64| std::env::var(name).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(default);
         let minutes = number("PAINTER_TAB_SUSPEND_MIN", minutes);
         let mib = number("PAINTER_TAB_RAM_MB", mib) as usize;
