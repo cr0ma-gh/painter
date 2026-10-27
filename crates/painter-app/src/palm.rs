@@ -874,6 +874,38 @@ mod tests {
     }
 
     #[test]
+    fn a_pencil_stroke_uikit_cancels_is_rolled_back() {
+        // iPadOS: `touchesCancelled` arrives for the touch (or its end is
+        // revoked): the stroke it drew goes, and the next one starts afresh.
+        let s = settings(PalmMode::Standard);
+        let mut a = PalmArbiter::default();
+        a.feed(pen(1, Start, 100.0, 100.0, 0.0), &s);
+        a.feed(pen(1, Move, 120.0, 100.0, 10.0), &s);
+        a.feed(pen(1, Cancel, 120.0, 100.0, 20.0), &s);
+        let ink = a.take_ink();
+        assert!(matches!(ink[0], InkEvent::Begin(p) if p.pen));
+        assert_eq!(ink.last(), Some(&InkEvent::Cancel));
+        assert!(!ink.contains(&InkEvent::End), "a cancelled stroke is never committed");
+        assert!(!a.engaged());
+        a.feed(pen(2, Start, 300.0, 300.0, 100.0), &s);
+        assert!(matches!(a.take_ink()[..], [InkEvent::Begin(p)] if p.pen));
+    }
+
+    #[test]
+    fn a_revoked_palm_leaves_no_ink() {
+        // A wide contact UIKit later cancels: it never painted, so nothing to undo.
+        let s = settings(PalmMode::Standard);
+        let mut a = PalmArbiter::default();
+        a.feed(ContactInput { major_mm: Some(30.0), ..finger(1, Start, 10.0, 10.0, 0.0) }, &s);
+        a.feed(finger(1, Move, 12.0, 10.0, 50.0), &s);
+        a.tick(0.5, &s);
+        a.feed(finger(1, Cancel, 12.0, 10.0, 600.0), &s);
+        a.tick(1.0, &s);
+        assert!(a.take_ink().is_empty());
+        assert_eq!(a.class_of(1), None);
+    }
+
+    #[test]
     fn a_second_finger_on_an_old_stroke_is_the_hand() {
         let s = settings(PalmMode::Standard);
         let mut a = PalmArbiter::default();

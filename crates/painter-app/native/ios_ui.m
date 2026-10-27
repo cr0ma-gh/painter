@@ -74,22 +74,54 @@ static int pencil_seen = 0;
 // Palm rejection (see src/palm.rs): what each touch is and how big. winit
 // names a touch by its UITouch's address, so the latest touches are kept by
 // that address for Rust to look up (a touch ends before Rust reads it, so
-// slots are only reused, never cleared).
+// slots are only reused, never cleared). A new touch takes a slot whose touch
+// has lifted, so the touches still down are never pushed out.
 #define TOUCH_SLOTS 32
-static struct { uint64_t id; int type; double major; } touch_slots[TOUCH_SLOTS];
+static struct { uint64_t id; int type; double major; int down; } touch_slots[TOUCH_SLOTS];
 static int touch_next = 0;
 
-static void remember_touch(UITouch *touch) {
-    uint64_t id = (uint64_t)(uintptr_t)(__bridge void *)touch;
+// Touches UIKit cancelled (touchesCancelled: it decided the touch was a palm,
+// or a system gesture took it), kept until Rust reads them
+// (painter_touch_revoked) or the address comes back as a new touch.
+static uint64_t cancelled_slots[TOUCH_SLOTS];
+static int cancelled_next = 0;
+
+static uint64_t touch_id(UITouch *touch) {
+    return (uint64_t)(uintptr_t)(__bridge void *)touch;
+}
+
+static void forget_cancelled(uint64_t id) {
+    for (int i = 0; i < TOUCH_SLOTS; i++) {
+        if (cancelled_slots[i] == id) cancelled_slots[i] = 0;
+    }
+}
+
+static void note_cancelled(uint64_t id) {
+    forget_cancelled(id);
+    cancelled_slots[cancelled_next] = id;
+    cancelled_next = (cancelled_next + 1) % TOUCH_SLOTS;
+}
+
+static void remember_touch(UITouch *touch, int down) {
+    uint64_t id = touch_id(touch);
     int slot = -1;
     for (int i = 0; i < TOUCH_SLOTS; i++) {
         if (touch_slots[i].id == id) slot = i;
     }
     if (slot < 0) {
+        // The next slot whose touch has lifted; the oldest when all are down.
         slot = touch_next;
-        touch_next = (touch_next + 1) % TOUCH_SLOTS;
+        for (int n = 0; n < TOUCH_SLOTS; n++) {
+            int i = (touch_next + n) % TOUCH_SLOTS;
+            if (!touch_slots[i].down) {
+                slot = i;
+                break;
+            }
+        }
+        touch_next = (slot + 1) % TOUCH_SLOTS;
     }
     touch_slots[slot].id = id;
+    touch_slots[slot].down = down;
     touch_slots[slot].type = touch.type == UITouchTypePencil ? 1 : touch.type == UITouchTypeDirect ? 0 : 2;
     // The contact's major radius in points: its diameter is what Rust compares.
     touch_slots[slot].major = touch.majorRadius * 2.0;
@@ -99,9 +131,9 @@ static void remember_touch(UITouch *touch) {
 @end
 
 @implementation PainterPencilObserver
-- (void)record:(NSSet<UITouch *> *)touches {
+- (void)record:(NSSet<UITouch *> *)touches down:(int)down {
     for (UITouch *touch in touches) {
-        remember_touch(touch);
+        remember_touch(touch, down);
         if (touch.type != UITouchTypePencil) continue;
         pencil_altitude = touch.altitudeAngle;
         pencil_azimuth = [touch azimuthAngleInView:self.view];
@@ -109,25 +141,41 @@ static void remember_touch(UITouch *touch) {
         pencil_seen = 1;
     }
 }
+// Fails (so UIKit resets it) only once every touch it follows has lifted: a
+// failed recognizer sees no more touches, so failing as the first of several
+// lifts would miss the touches that land, and the cancels that come, after.
+- (void)finishIfIdle:(UIEvent *)event {
+    for (UITouch *touch in [event touchesForGestureRecognizer:self]) {
+        if (touch.phase != UITouchPhaseEnded && touch.phase != UITouchPhaseCancelled) return;
+    }
+    self.state = UIGestureRecognizerStateFailed;
+}
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     [super touchesBegan:touches withEvent:event];
-    [self record:touches];
+    // A new touch may reuse a cancelled one's address.
+    for (UITouch *touch in touches) forget_cancelled(touch_id(touch));
+    [self record:touches down:1];
 }
 - (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     [super touchesMoved:touches withEvent:event];
-    [self record:touches];
+    [self record:touches down:1];
 }
 - (void)touchesEstimatedPropertiesUpdated:(NSSet<UITouch *> *)touches {
-    [self record:touches];
+    for (UITouch *touch in touches) {
+        int down = touch.phase != UITouchPhaseEnded && touch.phase != UITouchPhaseCancelled;
+        [self record:[NSSet setWithObject:touch] down:down];
+    }
 }
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     [super touchesEnded:touches withEvent:event];
-    [self record:touches];
-    self.state = UIGestureRecognizerStateFailed;
+    [self record:touches down:0];
+    [self finishIfIdle:event];
 }
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     [super touchesCancelled:touches withEvent:event];
-    self.state = UIGestureRecognizerStateFailed;
+    [self record:touches down:0];
+    for (UITouch *touch in touches) note_cancelled(touch_id(touch));
+    [self finishIfIdle:event];
 }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)a shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)b {
     return YES;
@@ -208,6 +256,18 @@ int painter_touch_info(uint64_t id, int *type, double *major) {
         if (touch_slots[i].id != id) continue;
         *type = touch_slots[i].type;
         *major = touch_slots[i].major;
+        return 1;
+    }
+    return 0;
+}
+
+// 1 when UIKit cancelled touch `id` (winit's touch id: the UITouch's address)
+// and that hasn't been read yet; the cancellation is forgotten as it's read.
+int painter_touch_revoked(uint64_t id) {
+    if (!id) return 0;
+    for (int i = 0; i < TOUCH_SLOTS; i++) {
+        if (cancelled_slots[i] != id) continue;
+        cancelled_slots[i] = 0;
         return 1;
     }
     return 0;
