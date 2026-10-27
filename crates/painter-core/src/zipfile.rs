@@ -5,6 +5,14 @@
 
 use std::io::{Read, Write};
 
+/// The largest uncompressed entry `ZipReader::read` will inflate. Entries
+/// declaring more are refused rather than risking running out of memory.
+const MAX_ENTRY_SIZE: usize = 1 << 30;
+
+/// The most `ZipReader::read` reserves up front for a deflated entry: the size
+/// comes from the archive, so it isn't trusted for a large allocation.
+const MAX_INITIAL_CAPACITY: usize = 16 << 20;
+
 #[derive(Clone, Debug)]
 struct Entry {
     name: String,
@@ -66,7 +74,8 @@ impl ZipReader {
         self.entries.iter().map(|e| e.name.as_str())
     }
 
-    /// An entry's contents.
+    /// An entry's contents. `None` for a missing or damaged entry, or a deflated
+    /// one declaring more than [`MAX_ENTRY_SIZE`] or inflating past its declared size.
     pub fn read(&self, name: &str) -> Option<Vec<u8>> {
         let e = self.entries.iter().find(|e| e.name == name)?;
         let d = &self.data;
@@ -78,9 +87,14 @@ impl ZipReader {
         match e.method {
             0 => Some(raw.to_vec()),
             8 => {
-                let mut out = Vec::with_capacity(e.size);
-                flate2::read::DeflateDecoder::new(raw).read_to_end(&mut out).ok()?;
-                Some(out)
+                if e.size > MAX_ENTRY_SIZE {
+                    return None;
+                }
+                // Inflate at most one byte past the declared size, so a zip bomb
+                // stops there instead of exhausting memory.
+                let mut out = Vec::with_capacity(e.size.min(MAX_INITIAL_CAPACITY));
+                flate2::read::DeflateDecoder::new(raw).take(e.size as u64 + 1).read_to_end(&mut out).ok()?;
+                (out.len() <= e.size).then_some(out)
             }
             _ => None,
         }
@@ -184,6 +198,40 @@ mod tests {
         assert_eq!(r.read("città.txt").unwrap(), b"ciao");
         assert!(r.read("missing").is_none());
         assert!(ZipReader::new(b"not a zip".to_vec()).is_err());
+    }
+
+    /// Overwrites the declared uncompressed size of the only entry, in both headers.
+    fn with_declared_size(mut bytes: Vec<u8>, size: u32) -> Vec<u8> {
+        bytes[22..26].copy_from_slice(&size.to_le_bytes());
+        let central = bytes.windows(4).rposition(|w| w == [0x50, 0x4b, 0x01, 0x02]).unwrap();
+        bytes[central + 24..central + 28].copy_from_slice(&size.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn refuses_entries_inflating_past_their_declared_size() {
+        // A small declared size over a highly compressible payload: a zip bomb in miniature.
+        let bomb = vec![0u8; 1 << 20];
+        let mut w = ZipWriter::new();
+        w.add("bomb.bin", &bomb, true);
+        let bytes = w.finish();
+        assert_eq!(ZipReader::new(bytes.clone()).unwrap().read("bomb.bin").unwrap(), bomb);
+        let r = ZipReader::new(with_declared_size(bytes, 100 * 1024)).unwrap();
+        assert!(r.read("bomb.bin").is_none());
+    }
+
+    #[test]
+    fn refuses_huge_declared_sizes_without_allocating_them() {
+        let zip = || {
+            let mut w = ZipWriter::new();
+            w.add("a.txt", b"hello hello hello", true);
+            w.finish()
+        };
+        let r = ZipReader::new(with_declared_size(zip(), u32::MAX)).unwrap();
+        assert!(r.read("a.txt").is_none());
+        // A generous but allowed declaration reads fine, reserving only a bounded buffer.
+        let r = ZipReader::new(with_declared_size(zip(), MAX_ENTRY_SIZE as u32)).unwrap();
+        assert_eq!(r.read("a.txt").unwrap(), b"hello hello hello");
     }
 
     #[test]
