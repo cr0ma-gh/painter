@@ -95,6 +95,11 @@ fn png_texts(png: &[u8]) -> Result<BTreeMap<String, String>, BrushIoError> {
         flate2::read::ZlibDecoder::new(data).read_to_end(&mut out).ok()?;
         Some(out)
     };
+    // The spec says Latin-1, but Krita writes UTF-8: prefer it, fall back to Latin-1.
+    let decode = |bytes: Vec<u8>| -> String {
+        String::from_utf8(bytes)
+            .unwrap_or_else(|e| e.into_bytes().into_iter().map(char::from).collect())
+    };
     let mut out = BTreeMap::new();
     let mut at = 8;
     while at + 8 <= png.len() {
@@ -106,8 +111,8 @@ fn png_texts(png: &[u8]) -> Result<BTreeMap<String, String>, BrushIoError> {
         let key = String::from_utf8_lossy(&body[..nul]).into_owned();
         let rest = &body[nul + 1..];
         let text = match kind {
-            b"tEXt" => Some(rest.iter().map(|&b| b as char).collect()),
-            b"zTXt" => rest.get(1..).and_then(inflate).map(|t| t.iter().map(|&b| b as char).collect()),
+            b"tEXt" => Some(decode(rest.to_vec())),
+            b"zTXt" => rest.get(1..).and_then(inflate).map(decode),
             b"iTXt" => {
                 let (compressed, rest) = (rest.first().copied().unwrap_or(0), rest.get(2..).unwrap_or_default());
                 // Language tag and translated keyword, each NUL-terminated.
@@ -1049,5 +1054,53 @@ mod tests {
         assert_eq!(mask[1], 100);
         assert!(mask[0] > 100 && mask[0] < 200);
         assert_eq!(decode_tip("b.png", &rgba, true).unwrap().alpha, [200, 100]);
+    }
+
+    /// `png` with a raw tEXt or zTXt chunk added before IEND.
+    fn with_raw_text(png: &[u8], kind: &[u8; 4], key: &str, text: &[u8]) -> Vec<u8> {
+        let mut body = key.as_bytes().to_vec();
+        body.push(0);
+        if kind == b"zTXt" {
+            body.push(0);
+            let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+            std::io::Write::write_all(&mut z, text).unwrap();
+            body.extend(z.finish().unwrap());
+        } else {
+            body.extend(text);
+        }
+        let iend = png.len() - 12;
+        let mut out = png[..iend].to_vec();
+        out.extend((body.len() as u32).to_be_bytes());
+        let mut chunk = kind.to_vec();
+        chunk.extend(&body);
+        out.extend(&chunk);
+        out.extend(crc32fast::hash(&chunk).to_be_bytes());
+        out.extend(&png[iend..]);
+        out
+    }
+
+    #[test]
+    fn text_chunks_decode_utf8_and_fall_back_to_latin1() {
+        let base = preview_png(&BrushPreset::new(BrushSettings::g_pen()));
+        let utf8 = "Crayon à l'eau é — 鉛筆 ひらがな Карандаш";
+        let png = with_raw_text(&base, b"tEXt", "plain", utf8.as_bytes());
+        let png = with_raw_text(&png, b"zTXt", "packed", utf8.as_bytes());
+        let png = with_raw_text(&png, b"tEXt", "latin1", b"Caf\xe9");
+        let png = with_raw_text(&png, b"zTXt", "zlatin1", b"na\xefve");
+        let texts = png_texts(&png).unwrap();
+        assert_eq!(texts["plain"], utf8);
+        assert_eq!(texts["packed"], utf8);
+        assert_eq!(texts["latin1"], "Café");
+        assert_eq!(texts["zlatin1"], "naïve");
+    }
+
+    #[test]
+    fn reads_a_preset_with_raw_utf8_in_its_xml() {
+        let xml = "<Preset paintopid=\"paintbrush\" name=\"鉛筆 è\">\n <param name=\"OpacityValue\" type=\"string\"><![CDATA[0.8]]></param>\n</Preset>\n";
+        let base = preview_png(&BrushPreset::new(BrushSettings::g_pen()));
+        let png = with_texts(&base, &[("version", "2.2")]);
+        let png = with_raw_text(&png, b"zTXt", "preset", xml.as_bytes());
+        let r = read_kpp(&png, &|_| None).unwrap();
+        assert_eq!(r.presets[0].name(), "鉛筆 è");
     }
 }
