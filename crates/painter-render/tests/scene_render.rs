@@ -161,3 +161,37 @@ fn normals_stay_perpendicular_under_non_uniform_scale() {
     }
     assert_eq!(centre[3], 255);
 }
+
+#[test]
+fn point_light_fades_out_at_its_range() {
+    let Some((device, queue, _turn)) = gpu() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    // A white unit cube seen from the front, its front face (y = -0.5) facing
+    // a point light 50 units away on the view axis.
+    let size = (96, 64);
+    let mut cam = ViewCamera::default();
+    cam.set_view(ViewPreset::Front);
+    cam.distance = 8.0;
+    let cube = Arc::new(Mesh::cube());
+    let lit = |range: f32| {
+        let preview = ScenePreview {
+            layer: painter_core::LayerId(1),
+            revision: 1,
+            view_proj: cam.view_projection(size.0 as f32 / size.1 as f32).0,
+            draws: vec![SceneDraw { mesh: cube.clone(), model: Transform::default().matrix().0, color: [1.0; 3], selected: false, texture: None }],
+            lights: vec![SceneLight::Point { position: [0.0, -50.5, 0.0], range, color: [1.0; 3] }],
+            ambient: 0.0,
+        };
+        let mut renderer = SceneRenderer::new(device);
+        let rgba = renderer.render_to_rgba(device, queue, &preview, size);
+        rgba[(32 * 96 + 48) * 4..][..4].to_vec()
+    };
+    assert_eq!(lit(10.0), [0, 0, 0, 255], "out of range: no light at all");
+    // Halfway through a range of 100: (1 - 0.5)² of full brightness.
+    let half = lit(100.0);
+    for c in &half[..3] {
+        assert!((*c as f32 - 255.0 * 0.25).abs() <= 3.0, "quadratic falloff: {half:?}");
+    }
+}

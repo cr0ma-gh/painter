@@ -35,7 +35,8 @@ pub struct SceneDraw {
 pub enum SceneLight {
     /// Direction the light travels.
     Sun { direction: [f32; 3], color: [f32; 3] },
-    Point { position: [f32; 3], color: [f32; 3] },
+    /// Light from `position` that fades out to nothing `range` units away.
+    Point { position: [f32; 3], range: f32, color: [f32; 3] },
 }
 
 /// A 3D layer for one frame: what to draw and when it last changed.
@@ -211,12 +212,12 @@ impl SceneRenderer {
     pub(crate) fn draw(&mut self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, target: &SceneTarget, scene: &ScenePreview) {
         let mut globals = Globals { view_proj: scene.view_proj, light_vec: [[0.0; 4]; MAX_LIGHTS], light_color: [[0.0; 4]; MAX_LIGHTS], params: [0.0; 4] };
         for (i, light) in scene.lights.iter().take(MAX_LIGHTS).enumerate() {
-            let (v, w, c) = match *light {
-                SceneLight::Sun { direction, color } => (direction, 0.0, color),
-                SceneLight::Point { position, color } => (position, 1.0, color),
+            let (v, w, c, range) = match *light {
+                SceneLight::Sun { direction, color } => (direction, 0.0, color, 0.0),
+                SceneLight::Point { position, range, color } => (position, 1.0, color, range),
             };
             globals.light_vec[i] = [v[0], v[1], v[2], w];
-            globals.light_color[i] = [c[0], c[1], c[2], 0.0];
+            globals.light_color[i] = [c[0], c[1], c[2], range];
         }
         globals.params = [scene.lights.len().min(MAX_LIGHTS) as f32, scene.ambient, 0.0, 0.0];
         let uniform = |label, bytes: &[u8], layout: &wgpu::BindGroupLayout| {
