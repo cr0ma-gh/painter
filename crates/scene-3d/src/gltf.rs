@@ -4,7 +4,7 @@
 //! triangles (positions, normals, first UV set, indices), and each material's
 //! base colour and base colour image (embedded, in the GLB, or a file beside).
 
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use serde_json::Value;
 
@@ -88,8 +88,21 @@ fn load_uri(uri: &str, dir: Option<&Path>) -> Option<Vec<u8>> {
         let (_, data) = rest.split_once(";base64,")?;
         return base64(data);
     }
-    let name = percent_decode(uri);
+    let name = relative_file(&percent_decode(uri))?;
     std::fs::read(dir?.join(name)).ok()
+}
+
+/// A decoded URI as a path that stays inside the model's folder, or `None` for
+/// anything that could reach elsewhere: another scheme (`http:`, `file:`), a
+/// drive letter, an absolute or UNC path, or a `..` step. Both `/` and `\` count
+/// as separators so the check holds on every platform.
+fn relative_file(name: &str) -> Option<PathBuf> {
+    if name.is_empty() || name.contains([':', '\0']) {
+        return None;
+    }
+    let path = PathBuf::from(name.replace('\\', "/"));
+    let local = |c: Component| matches!(c, Component::Normal(_) | Component::CurDir);
+    (path.components().all(local) && !path.is_absolute()).then_some(path)
 }
 
 fn percent_decode(s: &str) -> String {
@@ -494,6 +507,37 @@ mod tests {
             }
         }
         s
+    }
+
+    #[test]
+    fn external_uris_stay_inside_the_model_folder() {
+        let root = std::env::temp_dir().join(format!("painter-gltf-uri-{}", std::process::id()));
+        let dir = root.join("model");
+        std::fs::create_dir_all(dir.join("tex")).unwrap();
+        std::fs::write(root.join("secret.bin"), b"secret").unwrap();
+        std::fs::write(dir.join("ok.bin"), b"ok").unwrap();
+        std::fs::write(dir.join("tex").join("a b.png"), b"png").unwrap();
+        let secret = root.join("secret.bin").to_string_lossy().into_owned();
+
+        assert_eq!(load_uri("ok.bin", Some(&dir)).as_deref(), Some(&b"ok"[..]));
+        let png = load_uri("./tex/a%20b.png", Some(&dir));
+        assert_eq!(png.as_deref(), Some(&b"png"[..]));
+        for uri in [
+            "../secret.bin",
+            "..\\secret.bin",
+            "%2E%2E/secret.bin",
+            "tex/../../secret.bin",
+            &secret,
+            "/etc/passwd",
+            "\\\\server\\share\\secret.bin",
+            "C:secret.bin",
+            "file:///etc/passwd",
+            "https://example.com/secret.bin",
+            "",
+        ] {
+            assert_eq!(load_uri(uri, Some(&dir)), None, "{uri}");
+        }
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
