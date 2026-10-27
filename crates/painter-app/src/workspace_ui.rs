@@ -1540,6 +1540,8 @@ impl PainterApp {
                 lib.active = 0;
                 lib.revision += 1;
             }
+            ui.separator();
+            ui.collapsing(tr("Performance Profile"), |ui| self.performance_ui(ui));
         });
         if !open {
             self.ws.theme_editor = false;

@@ -66,6 +66,8 @@ windows = { version = "0.58", features = [
     "Win32_Graphics_Gdi",
     "Win32_Storage_Xps",
     "Win32_System_Memory",
+    # Physical RAM, for the performance profile (GlobalMemoryStatusEx).
+    "Win32_System_SystemInformation",
     # The system's language for the interface.
     "Win32_Globalization",
 ] }

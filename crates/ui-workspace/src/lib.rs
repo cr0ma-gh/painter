@@ -21,6 +21,6 @@ pub mod themes;
 pub mod tiles;
 
 pub use command_palette::{Command, CommandCategory, CommandRegistry, Match, PaletteState};
-pub use tabs::{Chrome, LayerThumbMode, Workspace, WorkspaceKind, WorkspaceSet};
+pub use tabs::{Chrome, LayerThumbMode, PerformanceProfile, Workspace, WorkspaceKind, WorkspaceSet};
 pub use themes::{Rgba, Theme, ThemeColors, ThemeLibrary};
 pub use tiles::{AreaId, EditorType, Rect, SplitKind, TileTree};

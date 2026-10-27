@@ -35,7 +35,7 @@ use bytemuck::{Pod, Zeroable};
 use painter_core::{AdjustOp, BlendMode, Gradient, Tile, TileCoord, Tone};
 use wgpu::util::DeviceExt;
 
-use crate::atlas::{index_texture, Plane, Residency};
+use crate::atlas::{index_texture, AtlasProfile, Plane, Residency};
 use crate::gpu::{
     self, PipelineDesc, Region, Target, CACHE_USAGE, CANVAS_FORMAT, STROKE_FORMAT, STROKE_FORMAT_8BIT, TARGET_USAGE,
 };
@@ -157,12 +157,22 @@ pub struct RenderProfile {
     /// for hardware that blends float targets slowly. Faint, heavily overlapping
     /// dabs are slightly noisier than the committed stroke.
     pub low_precision_strokes: bool,
+    /// Grow the tile atlas by 1024² pages (4 MiB each) instead of 2048² ones
+    /// (16 MiB), for GPUs with a small video memory aperture. Applies when the
+    /// atlas is next rebuilt (a new document, epoch or canvas size).
+    pub compact_atlas: bool,
 }
 
 impl RenderProfile {
     /// Viewport-constrained compositing and bounding-box stroke targets.
     pub fn low_vram() -> Self {
-        Self { viewport_compositing: true, clipped_strokes: true, low_precision_strokes: false }
+        Self { viewport_compositing: true, clipped_strokes: true, low_precision_strokes: false, compact_atlas: false }
+    }
+
+    /// [`Self::low_vram`] with the compact atlas, for legacy GPUs (Intel GMA
+    /// 4500MHD class) and shared video memory on machines with little RAM.
+    pub fn legacy() -> Self {
+        Self { compact_atlas: true, ..Self::low_vram() }
     }
 }
 
@@ -493,7 +503,7 @@ impl GpuCanvas {
             epoch: 0,
             size: (0, 0),
             region: Region::default(),
-            residency: Residency::new(device),
+            residency: Residency::new(device, AtlasProfile::choose(device, profile.compact_atlas)),
             selection: false,
             chains: Vec::new(),
             final_index: 0,
@@ -544,7 +554,7 @@ impl GpuCanvas {
         if frame.epoch != self.epoch || frame.doc_size != self.size || self.chains.is_empty() {
             self.epoch = frame.epoch;
             self.size = frame.doc_size;
-            self.residency.reset(device, self.size);
+            self.residency.reset(device, self.size, AtlasProfile::choose(device, self.profile.compact_atlas));
             self.chains.clear();
             self.stroke_targets = None;
             self.stroke_id = None;

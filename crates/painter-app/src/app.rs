@@ -33,20 +33,26 @@ use transform_tools::FloatingSelection;
 pub(crate) const UNDO_LIMIT: usize = 100;
 /// RAM the undo history of one document may keep of its own before older
 /// steps page out to disk, in MiB.
-const HISTORY_RAM_MIB: usize = 512;
+pub(crate) const HISTORY_RAM_MIB: usize = 512;
 
 /// An empty undo history for a document: within a RAM budget, older steps
-/// paged out to `history_swap` in the app's data folder. PAINTER_HISTORY_RAM_MB
-/// sets the budget (0: no bound); PAINTER_LOW_RAM=1, for machines with 2–4 GB,
-/// also keeps fewer steps.
+/// paged out to `history_swap` in the app's data folder. The budget and the
+/// steps kept follow the performance profile (see `crate::hardware`);
+/// PAINTER_HISTORY_RAM_MB sets the budget (0: no bound) and PAINTER_LOW_RAM=1,
+/// for machines with 2–4 GB, the low-RAM one with fewer steps.
 pub(crate) fn new_history() -> History {
-    let low_ram = std::env::var("PAINTER_LOW_RAM").is_ok_and(|v| !v.is_empty() && v != "0");
-    let (limit, default_mib) = if low_ram { (20, 96) } else { (UNDO_LIMIT, HISTORY_RAM_MIB) };
-    let mib = std::env::var("PAINTER_HISTORY_RAM_MB").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(default_mib);
-    let mut history = History::new(limit);
+    let mut history = History::new(UNDO_LIMIT);
     history.set_swap_dir(crate::files::app_data_dir().unwrap_or_else(std::env::temp_dir).join("history_swap"));
-    history.set_ram_budget((mib > 0).then(|| mib * 1024 * 1024));
+    apply_history_budget(&mut history);
     history
+}
+
+/// Gives `history` the steps and RAM budget of the performance profile in effect.
+pub(crate) fn apply_history_budget(history: &mut History) {
+    let budget = crate::hardware::RamBudget::current();
+    let mib = std::env::var("PAINTER_HISTORY_RAM_MB").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(budget.history_mib);
+    history.set_limit(budget.undo_steps);
+    history.set_ram_budget((mib > 0).then(|| mib * 1024 * 1024));
 }
 /// Where a comic page goes in a .painter file (extras/comic.json).
 const COMIC_ENTRY: &str = "comic.json";
@@ -154,6 +160,10 @@ pub struct PainterApp {
     pub(crate) sent_uploads: (Vec<Upload>, bool),
     pub(crate) tablet: TabletState,
     pub(crate) gpu_ready: bool,
+    /// RAM and GPU, as the performance profile sees them.
+    pub(crate) hardware: crate::hardware::Hardware,
+    /// GPU canvas settings for the next canvas frame to apply (a profile change).
+    pub(crate) pending_render_profile: Option<painter_render::RenderProfile>,
     pub(crate) gpu_stats: Option<(u32, u64)>,
     /// Size being edited in the New Canvas dialog, when open.
     pub(crate) new_canvas: Option<crate::print_ui::NewCanvas>,
@@ -350,21 +360,22 @@ impl PainterApp {
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         crate::text_tool::load_fonts();
         crate::text_tool::install_symbol_fallback(&cc.egui_ctx);
+        let ws = crate::workspace_ui::WorkspaceUi::load(cc.storage);
+        // The performance profile (picked, or from RAM and GPU) sizes the GPU
+        // canvas, and the RAM budgets of the histories and tabs made below.
+        let gpu = cc.wgpu_render_state.as_ref().map(|rs| crate::hardware::GpuInfo::new(&rs.adapter, &rs.device));
+        let hardware = crate::hardware::Hardware::detect(gpu);
+        let tier = hardware.tier(ws.chrome.performance);
+        crate::hardware::set_tier(tier);
         let gpu_ready = match &cc.wgpu_render_state {
             Some(rs) => {
-                // PAINTER_LOW_VRAM=1 (or `8bit`, also halving stroke targets) for GPUs with little video memory.
-                let profile = match std::env::var("PAINTER_LOW_VRAM").as_deref() {
-                    Ok("8bit") => painter_render::RenderProfile { low_precision_strokes: true, ..painter_render::RenderProfile::low_vram() },
-                    Ok(v) if !v.is_empty() && v != "0" => painter_render::RenderProfile::low_vram(),
-                    _ => painter_render::RenderProfile::default(),
-                };
-                let canvas = GpuCanvas::with_profile(&rs.device, rs.target_format, profile);
+                // PAINTER_LOW_VRAM=1 (or `8bit`, also halving stroke targets) still forces the low-VRAM targets.
+                let canvas = GpuCanvas::with_profile(&rs.device, rs.target_format, hardware.render_profile(tier));
                 rs.renderer.write().callback_resources.insert(canvas);
                 true
             }
             None => false,
         };
-        let ws = crate::workspace_ui::WorkspaceUi::load(cc.storage);
         // The interface language: the one chosen, else the system's.
         crate::i18n::set_language(ws.chrome.language.as_str());
         let (brush_library, saved_brushes) = crate::brush_library::BrushLibrary::load();
@@ -413,6 +424,8 @@ impl PainterApp {
             sent_uploads: (Vec::new(), false),
             tablet: TabletState::default(),
             gpu_ready,
+            hardware,
+            pending_render_profile: None,
             gpu_stats: None,
             new_canvas: None,
             new_canvas_last: None,
