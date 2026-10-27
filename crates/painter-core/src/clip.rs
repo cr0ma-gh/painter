@@ -258,45 +258,7 @@ impl Reader<'_> {
         let (attribute, id) = self.offscreen(mipmap)?;
         let (w, h, across, _) = offscreen_size(&attribute)?;
         let data = self.buffers.get(&id)?;
-        let mut store = TileStore::new();
-        let (cw, ch) = (self.canvas.0 as i64, self.canvas.1 as i64);
-        let n = (BLOCK * BLOCK) as usize;
-        for (index, raw) in read_blocks(data) {
-            let (bx, by) = ((index % across.max(1)) * BLOCK, (index / across.max(1)) * BLOCK);
-            let per_pixel = raw.len() / n;
-            for y in 0..BLOCK {
-                for x in 0..BLOCK {
-                    let (ox, oy) = (bx + x, by + y);
-                    if ox >= w || oy >= h {
-                        continue;
-                    }
-                    let (px, py) = (origin.0 + ox as i64, origin.1 + oy as i64);
-                    if px < 0 || py < 0 || px >= cw || py >= ch {
-                        continue;
-                    }
-                    let i = (y * BLOCK + x) as usize;
-                    let rgba = match per_pixel {
-                        // The alpha plane, then B, G, R, x.
-                        5 => {
-                            let c = &raw[n + i * 4..n + i * 4 + 4];
-                            [c[2], c[1], c[0], raw[i]]
-                        }
-                        // Grey and alpha planes.
-                        2 => [raw[n + i], raw[n + i], raw[n + i], raw[i]],
-                        // Coverage only (masks, monochrome).
-                        1 => [raw[i]; 4],
-                        _ => continue,
-                    };
-                    if rgba[3] == 0 {
-                        continue;
-                    }
-                    let coord = TileCoord::containing(px as i32, py as i32);
-                    let (tx, ty) = coord.origin();
-                    store.get_or_create_mut(coord).set_pixel((px as i32 - tx) as u32, (py as i32 - ty) as u32, premultiply(rgba));
-                }
-            }
-        }
-        Some(store)
+        Some(place_blocks(read_blocks(data), (w, h), across, origin))
     }
 
     /// The children of folder `first`'s chain, bottom to top.
@@ -363,6 +325,56 @@ impl Reader<'_> {
         }
         Some(layer)
     }
+}
+
+/// Decoded offscreen blocks (`across` to a row) of a `size` picture, placed at
+/// `origin`. Pixels past the canvas are kept: layers often reach beyond its edges.
+fn place_blocks(blocks: Vec<(u32, Vec<u8>)>, size: (u32, u32), across: u32, origin: (i64, i64)) -> TileStore {
+    let mut store = TileStore::new();
+    let n = (BLOCK * BLOCK) as usize;
+    // Positions tile coordinates can hold.
+    let fits = |p: i64| (i32::MIN as i64..=i32::MAX as i64 - crate::tile::TILE_SIZE as i64).contains(&p);
+    for (index, raw) in blocks {
+        let (bx, by) = ((index % across.max(1)) * BLOCK, (index / across.max(1)) * BLOCK);
+        let per_pixel = raw.len() / n;
+        for y in 0..BLOCK {
+            for x in 0..BLOCK {
+                let (ox, oy) = (bx + x, by + y);
+                if ox >= size.0 || oy >= size.1 {
+                    continue;
+                }
+                let (px, py) = (origin.0 + ox as i64, origin.1 + oy as i64);
+                if !fits(px) || !fits(py) {
+                    continue;
+                }
+                let i = (y * BLOCK + x) as usize;
+                let rgba = match per_pixel {
+                    // The alpha plane, then B, G, R, x.
+                    5 => {
+                        let c = &raw[n + i * 4..n + i * 4 + 4];
+                        [c[2], c[1], c[0], raw[i]]
+                    }
+                    // B, G, R, A together.
+                    4 => {
+                        let c = &raw[i * 4..i * 4 + 4];
+                        [c[2], c[1], c[0], c[3]]
+                    }
+                    // Grey and alpha planes.
+                    2 => [raw[n + i], raw[n + i], raw[n + i], raw[i]],
+                    // Coverage only (masks, monochrome).
+                    1 => [raw[i]; 4],
+                    _ => continue,
+                };
+                if rgba[3] == 0 {
+                    continue;
+                }
+                let coord = TileCoord::containing(px as i32, py as i32);
+                let (tx, ty) = coord.origin();
+                store.get_or_create_mut(coord).set_pixel((px as i32 - tx) as u32, (py as i32 - ty) as u32, premultiply(rgba));
+            }
+        }
+    }
+    store
 }
 
 /// Coverage tiles (alpha = shown) as a mask (alpha = hidden) over the canvas.
@@ -1261,6 +1273,25 @@ mod tests {
         assert!((b.opacity - 0.5).abs() < 0.01);
         let (a, z) = (crate::io::flatten(&doc), crate::io::flatten(&back));
         assert!(a.iter().zip(&z).all(|(p, q)| p.abs_diff(*q) <= 1), "same picture");
+    }
+
+    #[test]
+    fn blocks_keep_off_canvas_pixels_and_read_four_bytes() {
+        let n = (BLOCK * BLOCK) as usize;
+        // B, G, R, A per pixel: pixel 0 opaque red, pixel 1 half-alpha blue.
+        let mut bgra = vec![0u8; n * 4];
+        bgra[..8].copy_from_slice(&[0, 0, 255, 255, 255, 0, 0, 128]);
+        let tiles = place_blocks(vec![(0, bgra)], (BLOCK, BLOCK), 1, (-10, -5));
+        assert_eq!(tiles.pixel(-10, -5), [255, 0, 0, 255], "off the canvas, kept");
+        assert_eq!(tiles.pixel(-9, -5), premultiply([0, 0, 255, 128]));
+        assert_eq!(tiles.pixel(-8, -5)[3], 0);
+
+        // The alpha plane, then B, G, R, x; past the canvas's right edge.
+        let mut planes = vec![0u8; n * 5];
+        planes[0] = 255;
+        planes[n..n + 4].copy_from_slice(&[0, 255, 0, 0]);
+        let tiles = place_blocks(vec![(0, planes)], (BLOCK, BLOCK), 1, (5000, 0));
+        assert_eq!(tiles.pixel(5000, 0), [0, 255, 0, 255]);
     }
 
     #[test]
