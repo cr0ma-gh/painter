@@ -137,29 +137,47 @@ impl<'a> Cursor<'a> {
     }
 }
 
+/// Deepest descriptor / list nesting accepted before the input is treated as
+/// corrupt. Real brush descriptors nest only a handful of levels; the cap keeps
+/// crafted files from overflowing the stack.
+const MAX_DESCRIPTOR_DEPTH: usize = 64;
+
 /// Reads a descriptor body (class name, class ID, items).
 pub(crate) fn read_descriptor(c: &mut Cursor<'_>) -> Result<Descriptor, BrushIoError> {
+    read_descriptor_at(c, 0)
+}
+
+fn check_depth(depth: usize) -> Result<(), BrushIoError> {
+    if depth > MAX_DESCRIPTOR_DEPTH {
+        return Err(BrushIoError::Corrupt("descriptor nested too deep".into()));
+    }
+    Ok(())
+}
+
+fn read_descriptor_at(c: &mut Cursor<'_>, depth: usize) -> Result<Descriptor, BrushIoError> {
+    check_depth(depth)?;
     let _name = c.unicode()?;
     let class = c.id()?;
     let count = c.u32()? as usize;
     let mut items = BTreeMap::new();
     for _ in 0..count {
         let key = c.id()?;
-        let value = read_value(c)?;
+        let value = read_value(c, depth)?;
         items.insert(key, value);
     }
     Ok(Descriptor { class, items })
 }
 
-fn read_value(c: &mut Cursor<'_>) -> Result<Value, BrushIoError> {
+fn read_value(c: &mut Cursor<'_>, depth: usize) -> Result<Value, BrushIoError> {
+    check_depth(depth)?;
     let tag: [u8; 4] = c.take(4)?.try_into().unwrap();
     Ok(match &tag {
-        b"Objc" | b"GlbO" => Value::Descriptor(read_descriptor(c)?),
+        b"Objc" | b"GlbO" => Value::Descriptor(read_descriptor_at(c, depth + 1)?),
         b"VlLs" => {
             let n = c.u32()? as usize;
             let mut list = Vec::with_capacity(n.min(4096));
             for _ in 0..n {
-                list.push(read_value(c)?);
+                list.push(read_value(c, depth + 1)?);
             }
             Value::List(list)
         }
@@ -303,5 +321,63 @@ mod tests {
         let Value::Descriptor(inner) = &d.list("Brsh").unwrap()[0] else { panic!() };
         assert_eq!(inner.class, "sampledBrush");
         assert_eq!(inner.number("Spcn"), Some(15.0));
+    }
+
+    /// A descriptor whose single item is `levels` nested one-element lists
+    /// (`VlLs` → `VlLs` → ...) ending in a `long`, or nested `Objc`s when
+    /// `objects` is set. Built iteratively so the writer itself can't recurse.
+    fn nested(levels: usize, objects: bool) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        unicode(&mut bytes, "");
+        id(&mut bytes, "null");
+        bytes.extend(1u32.to_be_bytes());
+        id(&mut bytes, "Nest");
+        for _ in 0..levels {
+            if objects {
+                bytes.extend(b"Objc");
+                unicode(&mut bytes, "");
+                id(&mut bytes, "null");
+                bytes.extend(1u32.to_be_bytes());
+                id(&mut bytes, "Nest");
+            } else {
+                bytes.extend(b"VlLs");
+                bytes.extend(1u32.to_be_bytes());
+            }
+        }
+        write(&mut bytes, &V::Long(7));
+        bytes
+    }
+
+    #[test]
+    fn rejects_deep_nesting_without_overflowing() {
+        for objects in [false, true] {
+            for levels in [MAX_DESCRIPTOR_DEPTH + 1, 100_000] {
+                let bytes = nested(levels, objects);
+                match read_descriptor(&mut Cursor::new(&bytes)) {
+                    Err(BrushIoError::Corrupt(msg)) => assert!(msg.contains("nested too deep"), "{msg}"),
+                    other => panic!("expected Corrupt for {levels} levels (objects={objects}), got {other:?}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn accepts_nesting_up_to_the_limit() {
+        for objects in [false, true] {
+            let bytes = nested(MAX_DESCRIPTOR_DEPTH, objects);
+            let mut d = read_descriptor(&mut Cursor::new(&bytes)).unwrap();
+            for _ in 0..MAX_DESCRIPTOR_DEPTH {
+                d = match d.items.remove("Nest").unwrap() {
+                    Value::List(mut l) if !objects => {
+                        let mut wrapper = Descriptor::default();
+                        wrapper.items.insert("Nest".into(), l.remove(0));
+                        wrapper
+                    }
+                    Value::Descriptor(inner) if objects => inner,
+                    other => panic!("unexpected value {other:?}"),
+                };
+            }
+            assert_eq!(d.number("Nest"), Some(7.0));
+        }
     }
 }
