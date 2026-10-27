@@ -321,6 +321,8 @@ pub fn erase_selected(tiles: &TileStore, selection: Option<&TileStore>) -> TileS
             }
         }
     }
+    // Tiles wholly inside the selection are now empty: no memory for them.
+    out.prune_transparent();
     out
 }
 
@@ -411,6 +413,8 @@ mod tests {
         let rest = erase_selected(&tiles, Some(&selection));
         assert_eq!(rest.pixel(10, 10)[3], 0);
         assert_eq!(rest.pixel(12, 12)[3], 255);
+        // Cutting all of it leaves no empty tile behind.
+        assert!(erase_selected(&tiles, Some(&square(0, 0, 64, 64))).is_empty());
         let placed = paste_tiles(&floating, PasteMode::InPlace);
         assert_eq!(placed.pixel(11, 11), [200, 0, 0, 255]);
         let centred = paste_tiles(&floating, PasteMode::Centered { view_center: [32.0, 32.0] });
