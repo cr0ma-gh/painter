@@ -127,7 +127,8 @@ impl PainterApp {
         let start = p.pose.clone();
         let start_world = o.transform.matrix().transform_point(p.rig.joints_in_object(&p.pose)[bone]);
         self.pose_bone = Some(bone);
-        self.checkpoint();
+        // The undo step waits for the first move (pose_move): a click that
+        // keeps or cancels the pose untouched records none.
         let d = at - centre;
         self.pose_drag = Some(PoseDrag { object, bone, centre, press: at, start_angle: d.y.atan2(d.x), start, start_world, moved: false, grab: false });
         self.drag = Some(ToolDrag { start: at, current: at, points: Vec::new(), op: SelectionOp::Replace });
@@ -142,6 +143,10 @@ impl PainterApp {
         let reach = 3.0 / self.view.zoom.max(1e-3);
         if !drag.moved && !drag.grab && drag.press.distance(at) < reach {
             return true;
+        }
+        if !drag.moved {
+            // The pose is about to change: its undo step, before any bone turns.
+            self.checkpoint();
         }
         if let Some(d) = &mut self.pose_drag {
             d.moved = true;
@@ -217,6 +222,12 @@ impl PainterApp {
                     p.pose = drag.start;
                 }
                 apply_pose(o);
+            }
+            // The first move recorded an undo step (and the comic page and
+            // scenes beside it): the pose is back, so the step goes too.
+            if drag.moved && self.history.rollback(&mut self.doc) {
+                self.comic_undo.pop();
+                self.scene_undo.pop();
             }
             self.scene_changed(id);
             self.status = tr("Pose cancelled").into();
