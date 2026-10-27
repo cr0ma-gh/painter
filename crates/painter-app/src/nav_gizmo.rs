@@ -90,15 +90,17 @@ impl PainterApp {
         let response = response.on_hover_text(tr("Click an axis to look along it; drag to orbit"));
         let mut changed = false;
         if let Some(layer) = self.scenes.get_mut(&id) {
-            let cam = &mut layer.scene.camera;
             if response.dragged() {
                 let d = response.drag_delta();
-                cam.orbit(d.x, d.y);
+                layer.scene.camera.orbit(d.x, d.y);
                 changed = d != Vec2::ZERO;
+                if changed {
+                    layer.motion.stop_glide();
+                }
             } else if response.clicked() {
                 if let Some(k) = hovered_end {
-                    cam.set_view(ends[k].view);
-                    changed = true;
+                    // Glides there over a few frames (see `animate_scenes`).
+                    self.glide_to_view(id, ends[k].view);
                 }
             }
         }

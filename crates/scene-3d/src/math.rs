@@ -136,6 +136,30 @@ impl Quat {
         let t = q.cross(v) * 2.0;
         v + t * self.w + q.cross(t)
     }
+
+    /// The 4D dot product (the cosine of half the angle between two unit rotations).
+    pub fn dot(self, o: Quat) -> f32 {
+        self.w * o.w + self.x * o.x + self.y * o.y + self.z * o.z
+    }
+
+    /// Spherical interpolation from `self` (`t` = 0) to `to` (`t` = 1), the
+    /// short way round, at constant angular speed.
+    pub fn slerp(self, to: Quat, t: f32) -> Quat {
+        // q and −q are the same rotation: take the nearer one.
+        let (to, cos) = match self.dot(to) {
+            d if d < 0.0 => (Quat { w: -to.w, x: -to.x, y: -to.y, z: -to.z }, -d),
+            d => (to, d),
+        };
+        let (a, b) = if cos > 0.9995 {
+            // Nearly the same rotation: a plain lerp is precise and avoids sin θ ≈ 0.
+            (1.0 - t, t)
+        } else {
+            let theta = cos.min(1.0).acos();
+            let s = theta.sin();
+            (((1.0 - t) * theta).sin() / s, (t * theta).sin() / s)
+        };
+        Quat { w: self.w * a + to.w * b, x: self.x * a + to.x * b, y: self.y * a + to.y * b, z: self.z * a + to.z * b }.normalize()
+    }
 }
 
 impl Mul for Quat {

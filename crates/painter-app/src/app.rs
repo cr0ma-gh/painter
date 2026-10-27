@@ -1911,6 +1911,7 @@ impl eframe::App for PainterApp {
         self.prune_scenes();
         self.model_paint_tick();
         self.texture_documents_tick(ctx);
+        self.animate_scenes(ctx);
         self.commit_scenes(false);
         self.scene_repaint(ctx);
         self.workspace_frame(ctx);
