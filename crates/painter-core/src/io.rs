@@ -99,6 +99,22 @@ impl Area {
         let (x, y) = (x as i64 - self.x0 as i64, y as i64 - self.y0 as i64);
         (in_canvas && x >= 0 && y >= 0 && x < self.w as i64 && y < self.h as i64).then(|| (y as u32 * self.w + x as u32) as usize)
     }
+
+    /// The run of canvas row `y`, within the tile whose left column is `ox`, that
+    /// is in the area and the canvas: tile-local columns `tx0..tx1` and the buffer
+    /// index of `tx0`. `None` when the row misses.
+    fn row_span(&self, ox: i32, y: i32) -> Option<(u32, u32, usize)> {
+        if y < 0 || y as u32 >= self.canvas.1 || (y as u32) < self.y0 || y as u32 >= self.y0 + self.h {
+            return None;
+        }
+        let lo = (ox as i64).max(self.x0 as i64).max(0);
+        let hi = (ox as i64 + TILE_SIZE as i64).min((self.x0 + self.w).min(self.canvas.0) as i64);
+        if lo >= hi {
+            return None;
+        }
+        let i = ((y as u32 - self.y0) * self.w) as usize + (lo - self.x0 as i64) as usize;
+        Some(((lo - ox as i64) as u32, (hi - ox as i64) as u32, i))
+    }
 }
 
 pub(crate) fn composite_layers(layers: &[Layer], buf: &mut [u8], area: Area) {
@@ -136,11 +152,15 @@ pub(crate) fn composite_layers(layers: &[Layer], buf: &mut [u8], area: Area) {
 
 /// Blends `source × (1 − mask) × clip × opacity` into `buf`, tile by tile.
 /// Mirrors `fs_main` in painter-render's `composite.wgsl`.
+///
+/// Normal blending of byte sources at full strength (the bulk of most
+/// artwork) takes an exact integer path; see [`blend_normal_row`].
 fn blend_source(buf: &mut [u8], area: Area, source: &Source<'_>, shape: &Shape<'_>) {
     let coords: Vec<TileCoord> = match source {
         Source::Tiles(tiles) => tiles.iter().map(|(c, _)| c).filter(|c| area.touches(*c)).collect(),
         _ => area.tiles().collect(),
     };
+    let integer = shape.mode == BlendMode::Normal && !matches!(source, Source::Procedural(_));
     let pixels = buf.as_chunks_mut::<4>().0;
     for coord in coords {
         let clip_tile = match shape.clip {
@@ -155,16 +175,34 @@ fn blend_source(buf: &mut [u8], area: Area, source: &Source<'_>, shape: &Shape<'
             Source::Tiles(tiles) => tiles.get(coord),
             _ => None,
         };
+        let unshaped = shape.opacity == 1.0 && mask_tile.is_none() && clip_tile.is_none();
         let (ox, oy) = coord.origin();
         for ty in 0..TILE_SIZE {
             let y = oy + ty as i32;
-            for tx in 0..TILE_SIZE {
+            let Some((tx0, tx1, i0)) = area.row_span(ox, y) else { continue };
+            let len = (tx1 - tx0) as usize;
+            if integer && unshaped {
+                let src = match source {
+                    Source::Tiles(_) => match source_tile {
+                        Some(t) => &t.bytes().as_chunks::<4>().0[(ty * TILE_SIZE + tx0) as usize..][..len],
+                        None => continue,
+                    },
+                    Source::Dense(group) => &group.as_chunks::<4>().0[i0..i0 + len],
+                    Source::Procedural(_) => unreachable!("procedural sources blend in float"),
+                };
+                blend_normal_row(&mut pixels[i0..i0 + len], src);
+                continue;
+            }
+            for (i, tx) in (i0..).zip(tx0..tx1) {
                 let x = ox + tx as i32;
-                let Some(i) = area.index(x, y) else { continue };
+                let s8 = match source {
+                    Source::Tiles(_) => source_tile.map_or([0; 4], |t| t.pixel(tx, ty)),
+                    Source::Dense(group) => [group[i * 4], group[i * 4 + 1], group[i * 4 + 2], group[i * 4 + 3]],
+                    Source::Procedural(_) => [0; 4],
+                };
                 let mut s = match source {
-                    Source::Tiles(_) => to_f32(source_tile.map_or([0; 4], |t| t.pixel(tx, ty))),
-                    Source::Dense(group) => to_f32([group[i * 4], group[i * 4 + 1], group[i * 4 + 2], group[i * 4 + 3]]),
                     Source::Procedural(f) => f(x as f32 + 0.5, y as f32 + 0.5),
+                    _ => to_f32(s8),
                 };
                 if s[3] <= 0.0 {
                     continue;
@@ -177,6 +215,10 @@ fn blend_source(buf: &mut [u8], area: Area, source: &Source<'_>, shape: &Shape<'
                     k *= c.pixel(tx, ty)[3] as f32 / 255.0;
                 }
                 if k <= 0.0 {
+                    continue;
+                }
+                if integer && k == 1.0 {
+                    blend_normal_px(&mut pixels[i], s8);
                     continue;
                 }
                 s = s.map(|v| v * k);
@@ -239,6 +281,72 @@ pub fn flatten_region(doc: &Document, x0: u32, y0: u32, w: u32, h: u32) -> Vec<u
 
 fn blend_px(dst: &mut [u8; 4], s: Rgba, mode: BlendMode) {
     *dst = to_u8(composite(to_f32(*dst), s, mode));
+}
+
+/// `round(x / 255)` for `x <= 255 * 255`, without a division.
+#[inline(always)]
+fn div255(x: u16) -> u16 {
+    let x = x + 128;
+    (x + (x >> 8)) >> 8
+}
+
+/// Normal-mode "source over" of premultiplied `s` onto `d` in integers:
+/// `round((s·255 + d·(255 − sa)) / 255)` per channel. For a valid premultiplied
+/// source (`rgb <= a`) this is exactly what [`blend_px`] produces, as the true
+/// result never lies within float error of a rounding boundary; the exhaustive
+/// `normal_integer_path_matches_float` test checks that.
+#[inline(always)]
+fn normal_over(d: &mut [u8; 4], s: [u8; 4]) {
+    let inv = 255 - s[3] as u16;
+    let c = |i: usize| div255(s[i] as u16 * 255 + d[i] as u16 * inv) as u8;
+    let a = c(3);
+    *d = [c(0).min(a), c(1).min(a), c(2).min(a), a];
+}
+
+fn is_premultiplied(s: [u8; 4]) -> bool {
+    s[0] <= s[3] && s[1] <= s[3] && s[2] <= s[3]
+}
+
+/// One pixel of [`blend_normal_row`]: transparent sources leave `dst` alone,
+/// opaque ones replace it, the rest blend in integers (or in float for a
+/// source breaking the premultiplied invariant, to keep its clamping).
+#[inline(always)]
+fn blend_normal_px(dst: &mut [u8; 4], s: [u8; 4]) {
+    match s[3] {
+        0 => {}
+        255 => *dst = s,
+        _ if is_premultiplied(s) => normal_over(dst, s),
+        _ => blend_px(dst, to_f32(s), BlendMode::Normal),
+    }
+}
+
+/// Normal blending of a full-strength row of byte pixels, identical to
+/// [`blend_px`] per pixel. Fully transparent rows are skipped, fully opaque
+/// ones copied, and valid premultiplied rows run a branch-free 16-bit integer
+/// loop that auto-vectorises (SSE2, NEON).
+fn blend_normal_row(dst: &mut [[u8; 4]], src: &[[u8; 4]]) {
+    let (mut lo, mut hi, mut valid) = (255u8, 0u8, true);
+    for &s in src {
+        lo = lo.min(s[3]);
+        hi = hi.max(s[3]);
+        valid &= is_premultiplied(s);
+    }
+    if hi == 0 {
+        return;
+    }
+    if lo == 255 {
+        dst.copy_from_slice(src);
+    } else if valid {
+        // Alpha 0 (so colour 0) leaves `d` as is and alpha 255 replaces it, so
+        // no branches are needed; `dst` is premultiplied, being our own output.
+        for (d, &s) in dst.iter_mut().zip(src) {
+            normal_over(d, s);
+        }
+    } else {
+        for (d, &s) in dst.iter_mut().zip(src) {
+            blend_normal_px(d, s);
+        }
+    }
 }
 /// Writes the flattened canvas as PNG, with its resolution (`pHYs`).
 pub fn export_png(doc: &Document, path: &Path) -> Result<(), ImageError> {
@@ -552,5 +660,86 @@ mod tests {
         }
         doc.layers.push(folder);
         assert_eq!(flatten(&doc)[9 * 4..9 * 4 + 4], px[9 * 4..9 * 4 + 4]);
+    }
+
+    #[test]
+    fn normal_integer_path_matches_float() {
+        // Every channel value against every source alpha and backdrop value,
+        // on opaque and on matching-alpha backdrops.
+        for sa in 0..=255u8 {
+            for sc in 0..=sa {
+                let s = [sc, sa - sc, sa / 2, sa];
+                for b in 0..=255u8 {
+                    for d in [[b, b / 3, 255 - b, 255], [b, b / 2, 0, b]] {
+                        let (mut fast, mut float) = (d, d);
+                        blend_normal_px(&mut fast, s);
+                        blend_px(&mut float, to_f32(s), BlendMode::Normal);
+                        assert_eq!(fast, float, "{s:?} over {d:?}");
+                        normal_over(&mut fast, s);
+                        normal_over(&mut float, s);
+                        assert_eq!(fast, float);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn normal_rows_match_float() {
+        let mut seed = 0x2545_f491_u32;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed
+        };
+        let mut pixel = |valid: bool| {
+            let r = next().to_le_bytes();
+            let a = match r[3] % 4 {
+                0 => 0,
+                1 => 255,
+                _ => r[3],
+            };
+            if valid {
+                premultiply([r[0], r[1], r[2], a])
+            } else {
+                r
+            }
+        };
+        for round in 0..400 {
+            let valid = round % 4 != 0;
+            let src: Vec<[u8; 4]> = (0..64).map(|_| pixel(valid)).collect();
+            let dst: Vec<[u8; 4]> = (0..64).map(|_| pixel(true)).collect();
+            let mut fast = dst.clone();
+            blend_normal_row(&mut fast, &src);
+            let mut float = dst;
+            for (d, &s) in float.iter_mut().zip(&src) {
+                if s[3] > 0 {
+                    blend_px(d, to_f32(s), BlendMode::Normal);
+                }
+            }
+            assert_eq!(fast, float, "round {round}");
+        }
+        // Opaque and transparent rows take the copy and skip shortcuts.
+        let mut row = vec![[9, 8, 7, 200]; 5];
+        blend_normal_row(&mut row, &[[0; 4]; 5]);
+        assert_eq!(row, vec![[9, 8, 7, 200]; 5]);
+        blend_normal_row(&mut row, &[[1, 2, 3, 255]; 5]);
+        assert_eq!(row, vec![[1, 2, 3, 255]; 5]);
+    }
+
+    #[test]
+    fn row_spans_cover_the_area() {
+        let area = Area { canvas: (100, 90), x0: 30, y0: 10, w: 80, h: 20 };
+        for coord in area.tiles() {
+            let (ox, oy) = coord.origin();
+            for ty in 0..TILE_SIZE as i32 {
+                let span = area.row_span(ox, oy + ty);
+                let index = |tx: u32| area.index(ox + tx as i32, oy + ty).map(|i| (tx, i));
+                let expect: Vec<(u32, usize)> = (0..TILE_SIZE).filter_map(index).collect();
+                let got: Vec<(u32, usize)> = span.map_or(vec![], |(tx0, tx1, i0)| (tx0..tx1).zip(i0..).collect());
+                assert_eq!(got, expect, "tile {coord:?} row {ty}");
+            }
+        }
     }
 }
