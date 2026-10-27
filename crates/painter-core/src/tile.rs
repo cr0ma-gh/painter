@@ -134,6 +134,11 @@ impl TileStore {
         }
     }
 
+    /// Stores `tile` as is, transparent or not (the history paging a step back in).
+    pub(crate) fn put_shared(&mut self, coord: TileCoord, tile: Arc<Tile>) {
+        self.tiles.insert(coord, tile);
+    }
+
     pub fn remove(&mut self, coord: TileCoord) -> Option<Arc<Tile>> {
         self.tiles.remove(&coord)
     }

@@ -18,7 +18,7 @@ use eframe::egui;
 use painter_core::{io, project, psd, Document, History, LayerId};
 
 use super::split_viewport::ReferenceView;
-use crate::app::{file_stem, PainterApp, UNDO_LIMIT};
+use crate::app::{file_stem, new_history, PainterApp};
 use crate::scene_ui::{SceneLayer, SceneSnapshot};
 use crate::view::ViewTransform;
 
@@ -192,7 +192,7 @@ impl PainterApp {
     fn take_session(&mut self) -> DocSession {
         DocSession {
             doc: std::mem::replace(&mut self.doc, Document::new(1, 1)),
-            history: std::mem::replace(&mut self.history, History::new(UNDO_LIMIT)),
+            history: std::mem::replace(&mut self.history, new_history()),
             view: std::mem::take(&mut self.view),
             comic: self.comic.take(),
             comic_undo: std::mem::take(&mut self.comic_undo),
