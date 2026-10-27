@@ -432,6 +432,14 @@ impl PainterApp {
                         ui.close_menu();
                         self.check_for_updates();
                     }
+                    if ui.button(tr("Report a Bug...")).clicked() {
+                        ui.close_menu();
+                        crate::crash_report::report_bug(ui.ctx());
+                    }
+                    if ui.button(tr("View Crash Logs...")).clicked() {
+                        ui.close_menu();
+                        self.crash_reports.show();
+                    }
                     if ui.button(tr("Reset Settings...")).clicked() {
                         ui.close_menu();
                         self.reset_dialog = Some(Default::default());

@@ -4724,3 +4724,38 @@ msgstr ""
 msgid "Layer Properties"
 msgstr ""
 
+#: crates/painter-app/src/panels.rs:435
+msgid "Report a Bug..."
+msgstr ""
+
+#: crates/painter-app/src/panels.rs:439
+msgid "View Crash Logs..."
+msgstr ""
+
+#: crates/painter-app/src/crash_report.rs:268
+msgid "Crash Reports"
+msgstr ""
+
+#: crates/painter-app/src/crash_report.rs:274
+msgid "Painter closed unexpectedly in the last session."
+msgstr ""
+
+#: crates/painter-app/src/crash_report.rs:275
+msgid "Reporting it on GitHub, with the report below, helps get it fixed."
+msgstr ""
+
+#: crates/painter-app/src/crash_report.rs:279
+msgid "No crash reports."
+msgstr ""
+
+#: crates/painter-app/src/crash_report.rs:304
+msgid "Open Issue on GitHub"
+msgstr ""
+
+#: crates/painter-app/src/crash_report.rs:307
+msgid "Copy Diagnostics"
+msgstr ""
+
+#: crates/painter-app/src/crash_report.rs:310
+msgid "Delete Log"
+msgstr ""
