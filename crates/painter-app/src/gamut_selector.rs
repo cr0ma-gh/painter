@@ -301,9 +301,15 @@ fn pick(shape: GamutShape, l: &Layout, part: Part, p: Pos2, [h, s, x]: [f32; 3])
     let up = |r: Rect| (1.0 - (p.y - r.top()) / r.height()).clamp(0.0, 1.0);
     match (part, shape) {
         (Part::Ring, _) => [angle_hue((p - l.centre).angle()), s, x],
-        (Part::Bar, GamutShape::SquareHueBar) => [across(l.bar.unwrap()), s, x],
-        (Part::Bar, GamutShape::HueThird) => [h, across(l.bar.unwrap()), x],
-        (Part::Bar, _) => [h, s, across(l.bar.unwrap())],
+        (Part::Bar, _) => {
+            // A drag can outlive its bar when the shape changes mid-drag: leave the colour as it is.
+            let Some(bar) = l.bar else { return [h, s, x] };
+            match shape {
+                GamutShape::SquareHueBar => [across(bar), s, x],
+                GamutShape::HueThird => [h, across(bar), x],
+                _ => [h, s, across(bar)],
+            }
+        }
         (Part::Shape, GamutShape::RingTriangle) => {
             let [k, w, c] = triangle(l);
             // Barycentric weights of black, white and the hue, clamped into the triangle.
@@ -506,6 +512,11 @@ impl PainterApp {
         let l = layout(shape, size);
         let sel = &mut self.gamut;
 
+        // A part the shape no longer has (switched mid-drag) can't keep the drag.
+        if (sel.dragging == Some(Part::Bar) && !shape.has_bar()) || (sel.dragging == Some(Part::Ring) && !shape.has_ring()) {
+            sel.dragging = None;
+        }
+
         // Drags: the part pressed on keeps the drag.
         if let Some(pos) = response.interact_pointer_pos() {
             let local = (pos - rect.min).to_pos2();
@@ -674,5 +685,16 @@ mod tests {
         let p = l.centre + Vec2::angled(hue_angle(0.25)) * (l.inner + l.outer) / 2.0;
         assert_eq!(part_at(GamutShape::RingSquare, &l, p), Some(Part::Ring));
         assert!((pick(GamutShape::RingSquare, &l, Part::Ring, p, [0.0; 3])[0] - 0.25).abs() < 1e-3);
+    }
+
+    #[test]
+    fn picking_a_missing_bar_keeps_the_colour() {
+        // A bar drag that outlives a switch to a shape without a bar must not panic.
+        let hsx = [0.3, 0.6, 0.7];
+        for shape in GamutShape::ALL.into_iter().filter(|s| !s.has_bar()) {
+            let l = layout(shape, Vec2::splat(200.0));
+            assert!(l.bar.is_none());
+            assert_eq!(pick(shape, &l, Part::Bar, Pos2::ZERO, hsx), hsx, "{shape:?}");
+        }
     }
 }
