@@ -31,6 +31,23 @@ use scene_3d::gizmo::Gizmo;
 use transform_tools::FloatingSelection;
 
 pub(crate) const UNDO_LIMIT: usize = 100;
+/// RAM the undo history of one document may keep of its own before older
+/// steps page out to disk, in MiB.
+const HISTORY_RAM_MIB: usize = 512;
+
+/// An empty undo history for a document: within a RAM budget, older steps
+/// paged out to `history_swap` in the app's data folder. PAINTER_HISTORY_RAM_MB
+/// sets the budget (0: no bound); PAINTER_LOW_RAM=1, for machines with 2–4 GB,
+/// also keeps fewer steps.
+pub(crate) fn new_history() -> History {
+    let low_ram = std::env::var("PAINTER_LOW_RAM").is_ok_and(|v| !v.is_empty() && v != "0");
+    let (limit, default_mib) = if low_ram { (20, 96) } else { (UNDO_LIMIT, HISTORY_RAM_MIB) };
+    let mib = std::env::var("PAINTER_HISTORY_RAM_MB").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(default_mib);
+    let mut history = History::new(limit);
+    history.set_swap_dir(crate::files::app_data_dir().unwrap_or_else(std::env::temp_dir).join("history_swap"));
+    history.set_ram_budget((mib > 0).then(|| mib * 1024 * 1024));
+    history
+}
 /// Where a comic page goes in a .painter file (extras/comic.json).
 const COMIC_ENTRY: &str = "comic.json";
 /// The Clip Studio file kept as the .clip export template, in the app's data folder.
@@ -347,7 +364,7 @@ impl PainterApp {
         let last_eraser = brushes.iter().position(|b| b.settings.mode == BrushMode::Erase).unwrap_or(0);
         let mut app = Self {
             doc: Document::new(2480, 3508),
-            history: History::new(UNDO_LIMIT),
+            history: new_history(),
             epoch: 1,
             brushes,
             brush_library,
