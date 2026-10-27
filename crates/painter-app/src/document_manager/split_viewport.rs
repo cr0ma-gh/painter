@@ -668,13 +668,21 @@ impl PainterApp {
 
     /// Picks image files for the board.
     pub(crate) fn add_board_images_dialog(&mut self) {
-        if let Some(paths) = crate::files::FileDialog::new()
-            .add_filter(
-                "Pictures, videos and documents",
-                &[IMAGE_EXTENSIONS.as_slice(), super::video::VIDEO_EXTENSIONS.as_slice(), DOCUMENT_EXTENSIONS.as_slice()].concat(),
-            )
-            .add_filter("Images", &IMAGE_EXTENSIONS)
-            .add_filter("Videos", &super::video::VIDEO_EXTENSIONS)
+        // Videos are only offered where they can play (not on Android / iOS yet).
+        let dialog = if super::video::PLAYBACK_SUPPORTED {
+            crate::files::FileDialog::new()
+                .add_filter(
+                    "Pictures, videos and documents",
+                    &[IMAGE_EXTENSIONS.as_slice(), super::video::VIDEO_EXTENSIONS.as_slice(), DOCUMENT_EXTENSIONS.as_slice()].concat(),
+                )
+                .add_filter("Images", &IMAGE_EXTENSIONS)
+                .add_filter("Videos", &super::video::VIDEO_EXTENSIONS)
+        } else {
+            crate::files::FileDialog::new()
+                .add_filter("Pictures and documents", &[IMAGE_EXTENSIONS.as_slice(), DOCUMENT_EXTENSIONS.as_slice()].concat())
+                .add_filter("Images", &IMAGE_EXTENSIONS)
+        };
+        if let Some(paths) = dialog
             .add_filter("Documents (PSD, Krita, OpenRaster, Painter, Clip Studio)", &DOCUMENT_EXTENSIONS)
             .purpose(crate::files::Purpose::ReferenceImage)
             .pick_files()
