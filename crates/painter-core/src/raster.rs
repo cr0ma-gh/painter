@@ -10,8 +10,9 @@
 //! steps. Pixels are quantised to 8 bits once, when merged into the layer.
 
 use std::collections::{BTreeSet, HashMap};
-use std::sync::mpsc::{self, Sender};
-use std::thread::{self, JoinHandle};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 use crate::blend::{to_f32, to_u8, Rgba};
 use crate::brush::{BrushBlend, BrushMode, BrushSettings, Dab};
@@ -268,6 +269,20 @@ pub fn merge_stroke(
     selection: Option<&Tile>,
 ) -> Tile {
     let mut out = before.cloned().unwrap_or_default();
+    merge_stroke_in_place(&mut out, stroke, opacity, mode, blend, alpha_locked, selection);
+    out
+}
+
+/// [`merge_stroke`] writing into `out`, which already holds the pre-stroke pixels.
+fn merge_stroke_in_place(
+    out: &mut Tile,
+    stroke: &[Rgba],
+    opacity: f32,
+    mode: BrushMode,
+    blend: BrushBlend,
+    alpha_locked: bool,
+    selection: Option<&Tile>,
+) {
     for (i, (o, s)) in out.bytes_mut().as_chunks_mut::<4>().0.iter_mut().zip(stroke).enumerate() {
         if s[3] <= 0.0 {
             continue;
@@ -320,7 +335,20 @@ pub fn merge_stroke(
         };
         *o = to_u8(result);
     }
-    out
+}
+
+/// Below this many dirty tiles per thread a commit stays on fewer threads:
+/// spreading a few tiles over threads costs more than it saves.
+const PARALLEL_COMMIT_TILES: usize = 16;
+
+/// One tile of a commit: where it goes, its inputs, and the layer's current
+/// tile there, whose allocation is reused when nothing else shares it.
+struct CommitJob<'a> {
+    coord: TileCoord,
+    pixels: &'a [Rgba],
+    before: Option<&'a Tile>,
+    selection: Option<&'a Tile>,
+    current: Option<Arc<Tile>>,
 }
 
 /// Merges every dirty stroke tile into `tiles`, rebuilding from `before`.
@@ -336,6 +364,7 @@ pub fn commit_stroke(
     alpha_locked: bool,
     selection: Option<&TileStore>,
 ) {
+    let mut jobs = Vec::with_capacity(stroke.dirty.len());
     for &coord in &stroke.dirty {
         let Some(pixels) = stroke.buffer.get(coord) else {
             continue;
@@ -347,8 +376,44 @@ pub fn commit_stroke(
                 None => continue,
             },
         };
-        let merged = merge_stroke(before.get(coord).map(|t| &**t), pixels, opacity, mode, blend, alpha_locked, selection_tile);
-        tiles.insert(coord, merged);
+        let current = tiles.remove(coord);
+        jobs.push(CommitJob { coord, pixels, before: before.get(coord).map(|t| &**t), selection: selection_tile, current });
+    }
+    let merge = |job: CommitJob<'_>| -> (TileCoord, Arc<Tile>) {
+        let tile = match job.current {
+            // Nothing else holds the layer's tile (not `before`, not an undo
+            // snapshot): rebuild it where it is instead of allocating a new one.
+            Some(mut current) if Arc::strong_count(&current) == 1 && Arc::weak_count(&current) == 0 => {
+                let out = Arc::get_mut(&mut current).expect("checked unique");
+                match job.before {
+                    Some(b) => out.bytes_mut().copy_from_slice(b.bytes()),
+                    None => out.bytes_mut().fill(0),
+                }
+                merge_stroke_in_place(out, job.pixels, opacity, mode, blend, alpha_locked, job.selection);
+                current
+            }
+            _ => Arc::new(merge_stroke(job.before, job.pixels, opacity, mode, blend, alpha_locked, job.selection)),
+        };
+        (job.coord, tile)
+    };
+    let threads = thread::available_parallelism().map_or(1, |n| n.get()).min(jobs.len() / PARALLEL_COMMIT_TILES);
+    let merged: Vec<(TileCoord, Arc<Tile>)> = if threads <= 1 {
+        jobs.into_iter().map(merge).collect()
+    } else {
+        // Broad strokes: the tiles are independent, so split them across the cores.
+        let per_thread = jobs.len().div_ceil(threads);
+        let mut batches = Vec::with_capacity(threads);
+        while !jobs.is_empty() {
+            batches.push(jobs.split_off(jobs.len().saturating_sub(per_thread)));
+        }
+        let merge = &merge;
+        thread::scope(|scope| {
+            let handles: Vec<_> = batches.into_iter().map(|batch| scope.spawn(move || batch.into_iter().map(merge).collect::<Vec<_>>())).collect();
+            handles.into_iter().flat_map(|h| h.join().expect("tile merge thread panicked")).collect()
+        })
+    };
+    for (coord, tile) in merged {
+        tiles.insert_shared(coord, tile);
     }
 }
 
@@ -377,30 +442,83 @@ pub struct RasterizedStroke {
     pub dirty: BTreeSet<TileCoord>,
 }
 
+/// Most idle stroke workers kept alive between strokes: one serves a single
+/// pen, the spare covers a stroke begun before the last one was joined.
+const IDLE_STROKE_WORKERS: usize = 2;
+
+/// Work for a stroke worker: rasterises one stroke and returns what hands it
+/// back, which runs once the worker is idle again so the next stroke finds it free.
+type StrokeJob = Box<dyn FnOnce() -> Box<dyn FnOnce() + Send> + Send>;
+
+/// Stroke workers waiting for their next stroke, by the sender that feeds them.
+static IDLE_WORKERS: Mutex<Vec<Sender<StrokeJob>>> = Mutex::new(Vec::new());
+
+/// Runs `job` on an idle stroke worker, starting a thread only when none is
+/// free, so rapid strokes reuse the same thread instead of creating one each.
+fn run_on_stroke_worker(job: StrokeJob) {
+    let idle = IDLE_WORKERS.lock().unwrap_or_else(|e| e.into_inner()).pop();
+    let job = match idle {
+        Some(worker) => match worker.send(job) {
+            Ok(()) => return,
+            // A worker that is gone hands the job back for a new one.
+            Err(mpsc::SendError(job)) => job,
+        },
+        None => job,
+    };
+    let (sender, receiver) = mpsc::channel::<StrokeJob>();
+    sender.send(job).expect("the receiver is alive");
+    thread::Builder::new()
+        .name("stroke-raster".into())
+        .spawn(move || stroke_worker(sender, receiver))
+        .expect("failed to spawn stroke rasteriser thread");
+}
+
+/// A stroke worker's loop: after each stroke it offers itself back to the
+/// idle list, or exits when that list is already full.
+fn stroke_worker(own: Sender<StrokeJob>, jobs: Receiver<StrokeJob>) {
+    while let Ok(job) = jobs.recv() {
+        let deliver = job();
+        let keep = {
+            let mut idle = IDLE_WORKERS.lock().unwrap_or_else(|e| e.into_inner());
+            let keep = idle.len() < IDLE_STROKE_WORKERS;
+            if keep {
+                idle.push(own.clone());
+            }
+            keep
+        };
+        deliver();
+        if !keep {
+            return;
+        }
+    }
+}
+
 /// Stamps a stroke's dabs on a worker thread, so the UI thread only places
 /// dabs while the GPU draws the live preview. Joining it yields the
-/// authoritative stroke buffer.
+/// authoritative stroke buffer. Worker threads persist between strokes, so
+/// rapid strokes don't each pay for creating an OS thread.
 pub struct BackgroundRasterizer {
     sender: Option<Sender<Vec<Dab>>>,
-    worker: Option<JoinHandle<RasterizedStroke>>,
+    result: Receiver<RasterizedStroke>,
 }
 
 impl BackgroundRasterizer {
     pub fn spawn(color: [f32; 3], settings: BrushSettings, canvas: (u32, u32)) -> Self {
         let (sender, receiver) = mpsc::channel::<Vec<Dab>>();
-        let worker = thread::Builder::new()
-            .name("stroke-raster".into())
-            .spawn(move || {
-                let mut stroke = RasterizedStroke { buffer: StrokeBuffer::new(), dirty: BTreeSet::new() };
-                for dabs in receiver {
-                    for dab in &dabs {
-                        stamp_dab(&mut stroke.buffer, dab, color, &settings, canvas, &mut stroke.dirty);
-                    }
+        let (done, result) = mpsc::sync_channel::<RasterizedStroke>(1);
+        run_on_stroke_worker(Box::new(move || {
+            let mut stroke = RasterizedStroke { buffer: StrokeBuffer::new(), dirty: BTreeSet::new() };
+            for dabs in receiver {
+                for dab in &dabs {
+                    stamp_dab(&mut stroke.buffer, dab, color, &settings, canvas, &mut stroke.dirty);
                 }
-                stroke
+            }
+            Box::new(move || {
+                // An abandoned stroke has no one waiting for it.
+                let _ = done.send(stroke);
             })
-            .expect("failed to spawn stroke rasteriser thread");
-        Self { sender: Some(sender), worker: Some(worker) }
+        }));
+        Self { sender: Some(sender), result }
     }
 
     pub fn push(&self, dabs: Vec<Dab>) {
@@ -413,11 +531,7 @@ impl BackgroundRasterizer {
     /// Waits for every queued dab to be stamped.
     pub fn finish(mut self) -> RasterizedStroke {
         drop(self.sender.take());
-        self.worker
-            .take()
-            .expect("worker is only taken here")
-            .join()
-            .expect("stroke rasteriser thread panicked")
+        self.result.recv().expect("stroke rasteriser thread panicked")
     }
 }
 
@@ -461,6 +575,72 @@ mod tests {
         assert_eq!(background.dirty, dirty);
         for coord in dirty {
             assert_eq!(background.buffer.get(coord), inline.get(coord));
+        }
+    }
+
+    #[test]
+    fn sequential_strokes_reuse_worker_threads() {
+        let mut threads = std::collections::HashSet::new();
+        for _ in 0..20 {
+            let (tx, rx) = mpsc::channel();
+            run_on_stroke_worker(Box::new(move || {
+                Box::new(move || tx.send(thread::current().id()).unwrap()) as Box<dyn FnOnce() + Send>
+            }));
+            threads.insert(rx.recv().unwrap());
+        }
+        // Other tests may hold a worker meanwhile, but most strokes land on a reused one.
+        assert!(threads.len() <= 1 + IDLE_STROKE_WORKERS, "{} threads for 20 strokes", threads.len());
+    }
+
+    #[test]
+    fn broad_commit_matches_per_tile_merge() {
+        // Wide enough for the parallel path, over a layer whose tiles are shared and unique.
+        let canvas = (1024, 1024);
+        let mut layer = TileStore::new();
+        for ty in 0..16 {
+            for tx in 0..16 {
+                if (tx + ty) % 3 != 0 {
+                    let mut tile = Tile::empty();
+                    tile.bytes_mut().as_chunks_mut::<4>().0.iter_mut().for_each(|p| *p = [40, (tx * 10) as u8, (ty * 10) as u8, 255]);
+                    layer.insert(TileCoord::new(tx, ty), tile);
+                }
+            }
+        }
+        let dabs: Vec<Dab> =
+            (0..60).map(|i| Dab { x: 20.0 + i as f32 * 16.0, y: 30.0 + i as f32 * 15.0, radius: 120.0, alpha: 0.7, angle: 0.0, thickness: 1.0, mirror: false }).collect();
+        for mode in [BrushMode::Paint, BrushMode::Erase] {
+            let settings = BrushSettings { mode, ..BrushSettings::airbrush() };
+            let mut stroke = RasterizedStroke { buffer: StrokeBuffer::new(), dirty: BTreeSet::new() };
+            for dab in &dabs {
+                stamp_dab(&mut stroke.buffer, dab, [0.9, 0.1, 0.3], &settings, canvas, &mut stroke.dirty);
+            }
+            assert!(stroke.dirty.len() >= 4 * PARALLEL_COMMIT_TILES);
+
+            let mut expected = layer.clone();
+            for &coord in &stroke.dirty {
+                let tile = merge_stroke(layer.get(coord).map(|t| &**t), stroke.buffer.get(coord).unwrap(), 0.8, mode, BrushBlend::Normal, false, None);
+                expected.insert(coord, tile);
+            }
+
+            // Shared with `before`, as in the app.
+            let mut shared = layer.clone();
+            commit_stroke(&mut shared, &layer, &stroke, 0.8, mode, BrushBlend::Normal, false, None);
+            // Unique tiles, rebuilt in place.
+            let mut unique = TileStore::new();
+            for (coord, tile) in layer.iter() {
+                unique.insert(coord, (**tile).clone());
+            }
+            commit_stroke(&mut unique, &layer, &stroke, 0.8, mode, BrushBlend::Normal, false, None);
+
+            for store in [&shared, &unique] {
+                assert_eq!(store.len(), expected.len());
+                for (coord, tile) in expected.iter() {
+                    assert_eq!(store.get(coord).map(|t| t.bytes()), Some(tile.bytes()), "{mode:?} at {coord:?}");
+                }
+            }
+            // Untouched layer tiles are still shared with the snapshot.
+            let untouched = layer.iter().find(|(c, _)| !stroke.dirty.contains(c)).map(|(c, _)| c).unwrap();
+            assert!(Arc::ptr_eq(shared.get(untouched).unwrap(), layer.get(untouched).unwrap()));
         }
     }
 
