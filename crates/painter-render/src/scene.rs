@@ -72,8 +72,10 @@ struct MeshBuffers {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
     count: u32,
-    /// Keeps the mesh alive so its address can't be reused by another one.
-    _mesh: Arc<Mesh>,
+    /// Watches the mesh without keeping it alive: the buffers are dropped once
+    /// it is (posing makes a new mesh per change), and the weak count keeps its
+    /// address from being reused by another mesh meanwhile.
+    mesh: std::sync::Weak<Mesh>,
 }
 
 /// Colour and depth targets of one 3D layer.
@@ -87,7 +89,7 @@ pub struct SceneRenderer {
     pipeline: wgpu::RenderPipeline,
     globals_layout: wgpu::BindGroupLayout,
     object_layout: wgpu::BindGroupLayout,
-    /// GPU buffers by mesh address, uploaded once.
+    /// GPU buffers by mesh address, uploaded once; dropped once the mesh is.
     meshes: HashMap<usize, MeshBuffers>,
     /// Uploaded textures by address; dropped once the texture is (painting makes new ones).
     textures: HashMap<usize, (std::sync::Weak<Texture>, wgpu::TextureView)>,
@@ -196,7 +198,7 @@ impl SceneRenderer {
                 usage: wgpu::BufferUsages::INDEX,
             }),
             count: mesh.indices.len() as u32,
-            _mesh: mesh.clone(),
+            mesh: Arc::downgrade(mesh),
         })
     }
 
@@ -226,6 +228,9 @@ impl SceneRenderer {
             })
         };
         let globals_group = uniform("scene globals", bytemuck::bytes_of(&globals), &self.globals_layout);
+        // Meshes: drop the buffers of the ones no longer alive. Anything this
+        // or an earlier draw in the open encoder used is still held by its scene.
+        self.meshes.retain(|_, b| b.mesh.strong_count() > 0);
         // Textures: drop the ones no longer alive, upload new ones.
         self.textures.retain(|_, (weak, _)| weak.strong_count() > 0);
         if self.blank.is_none() {
@@ -360,5 +365,46 @@ mod tests {
     fn uniforms_match_wgsl() {
         assert_eq!(std::mem::size_of::<Globals>(), 208);
         assert_eq!(std::mem::size_of::<ObjectUniform>(), 96);
+    }
+
+    fn preview(meshes: &[Arc<Mesh>]) -> ScenePreview {
+        let identity = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]];
+        ScenePreview {
+            layer: LayerId(1),
+            revision: 1,
+            view_proj: identity,
+            draws: meshes.iter().map(|m| SceneDraw { mesh: m.clone(), model: identity, color: [1.0; 3], selected: false, texture: None }).collect(),
+            lights: Vec::new(),
+            ambient: 1.0,
+        }
+    }
+
+    /// Posing makes a new mesh per change: buffers of dropped meshes must go
+    /// on the next draw. Skipped without a GPU.
+    #[test]
+    fn dropped_meshes_release_their_buffers() {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let Some(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+            eprintln!("skipped: no GPU adapter");
+            return;
+        };
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None)) else {
+            eprintln!("skipped: no GPU device");
+            return;
+        };
+        let mut renderer = SceneRenderer::new(&device);
+        let kept = Arc::new(Mesh::cube());
+        for _ in 0..4 {
+            let posed = Arc::new(Mesh::cube());
+            renderer.render_to_rgba(&device, &queue, &preview(&[kept.clone(), posed]), (8, 8));
+        }
+        // Each frame's posed mesh is gone by the next one.
+        assert_eq!(renderer.meshes.len(), 2);
+        renderer.render_to_rgba(&device, &queue, &preview(std::slice::from_ref(&kept)), (8, 8));
+        assert_eq!(renderer.meshes.len(), 1);
+        assert!(renderer.meshes.contains_key(&(Arc::as_ptr(&kept) as usize)), "the live mesh keeps its buffers");
+        drop(kept);
+        renderer.render_to_rgba(&device, &queue, &preview(&[]), (8, 8));
+        assert!(renderer.meshes.is_empty());
     }
 }
