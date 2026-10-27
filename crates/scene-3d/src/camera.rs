@@ -13,6 +13,10 @@
 //! | Numpad 5                       | toggle [`Projection`]      |
 //! | Numpad . (frame selected)      | [`ViewCamera::frame`]      |
 //!
+//! View changes can glide instead of jumping: a [`CameraAnimation`] eases the
+//! rotation (slerp), pivot and distance to a target view over a few frames,
+//! and [`ViewCamera::spin`] turns the view around world Z for a turntable.
+//!
 //! Coordinates: world Z up; screen pixels with y down.
 
 use crate::math::{vec3, Mat4, Quat, Vec3};
@@ -195,6 +199,11 @@ impl ViewCamera {
     }
 
     pub fn set_view(&mut self, preset: ViewPreset) {
+        self.rotation = Self::preset_rotation(preset);
+    }
+
+    /// The camera rotation of a preset view (what [`Self::set_view`] sets).
+    pub fn preset_rotation(preset: ViewPreset) -> Quat {
         // Camera axes (right, up, back) for each preset.
         let (right, up) = match preset {
             ViewPreset::Front => (Vec3::X, Vec3::Z),
@@ -204,7 +213,13 @@ impl ViewCamera {
             ViewPreset::Top => (Vec3::X, Vec3::Y),
             ViewPreset::Bottom => (Vec3::X, -Vec3::Y),
         };
-        self.rotation = quat_from_axes(right, up, right.cross(up));
+        quat_from_axes(right, up, right.cross(up))
+    }
+
+    /// Turns the view `angle` radians around world Z through the pivot, so the
+    /// scene seems to spin the other way on a turntable.
+    pub fn spin(&mut self, angle: f32) {
+        self.rotation = (Quat::from_axis_angle(Vec3::Z, angle) * self.rotation).normalize();
     }
 
     pub fn toggle_projection(&mut self) {
@@ -405,6 +420,95 @@ impl ViewCamera {
     }
 }
 
+/// How long a view change glides by default, in seconds.
+pub const VIEW_TRANSITION_SECS: f32 = 0.18;
+
+/// Turntable spin speed by default: 15° a second, in radians per second.
+pub const TURNTABLE_SPEED: f32 = 15.0 * std::f32::consts::PI / 180.0;
+
+/// A camera gliding from one view to another: rotation by slerp, pivot and
+/// distance by lerp, all on an ease-out curve. Advance it each frame with
+/// [`Self::advance`]; on its last step the camera gets the target exactly.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CameraAnimation {
+    from_rotation: Quat,
+    from_pivot: Vec3,
+    from_distance: f32,
+    to_rotation: Quat,
+    to_pivot: Vec3,
+    to_distance: f32,
+    /// Seconds the transition takes.
+    duration: f32,
+    /// Seconds since it began.
+    elapsed: f32,
+}
+
+impl CameraAnimation {
+    /// From `from`'s view to `to`'s (only rotation, pivot and distance move).
+    pub fn new(from: &ViewCamera, to: &ViewCamera, duration: f32) -> Self {
+        Self {
+            from_rotation: from.rotation,
+            from_pivot: from.pivot,
+            from_distance: from.distance,
+            to_rotation: to.rotation,
+            to_pivot: to.pivot,
+            to_distance: to.distance,
+            duration: duration.max(0.0),
+            elapsed: 0.0,
+        }
+    }
+
+    /// From `cam`'s view to a preset, keeping its pivot and distance.
+    pub fn to_preset(cam: &ViewCamera, preset: ViewPreset, duration: f32) -> Self {
+        let mut to = cam.clone();
+        to.set_view(preset);
+        Self::new(cam, &to, duration)
+    }
+
+    /// Progress in [0, 1], before easing.
+    pub fn progress(&self) -> f32 {
+        if self.duration <= 0.0 {
+            1.0
+        } else {
+            (self.elapsed / self.duration).clamp(0.0, 1.0)
+        }
+    }
+
+    /// Whether the camera has reached the target.
+    pub fn is_finished(&self) -> bool {
+        self.progress() >= 1.0
+    }
+
+    /// Moves time on by `dt` seconds and poses `cam` there. Returns whether
+    /// the animation is still running (false once `cam` sits on the target).
+    pub fn advance(&mut self, cam: &mut ViewCamera, dt: f32) -> bool {
+        self.elapsed += dt.max(0.0);
+        self.apply(cam);
+        !self.is_finished()
+    }
+
+    /// Poses `cam` at the current time.
+    pub fn apply(&self, cam: &mut ViewCamera) {
+        if self.is_finished() {
+            // Exactly the target: no drift from the interpolation.
+            cam.rotation = self.to_rotation;
+            cam.pivot = self.to_pivot;
+            cam.distance = self.to_distance;
+            return;
+        }
+        let t = ease_out_cubic(self.progress());
+        cam.rotation = self.from_rotation.slerp(self.to_rotation, t);
+        cam.pivot = self.from_pivot + (self.to_pivot - self.from_pivot) * t;
+        cam.distance = self.from_distance + (self.to_distance - self.from_distance) * t;
+    }
+}
+
+/// Fast start, gentle stop: 1 − (1 − t)³, for `t` in [0, 1].
+pub fn ease_out_cubic(t: f32) -> f32 {
+    let u = 1.0 - t.clamp(0.0, 1.0);
+    1.0 - u * u * u
+}
+
 /// Where a triangle's three altitudes meet.
 fn orthocentre(a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> Option<[f32; 2]> {
     // Solve (p − a)·(c − b) = 0 and (p − b)·(c − a) = 0.
@@ -547,6 +651,75 @@ mod tests {
         assert_eq!(cam.vanishing_point(cam.right(), w, h), None);
         cam.toggle_projection();
         assert!(cam.axis_vanishing_points(w, h).is_empty(), "orthographic views have none");
+    }
+
+    #[test]
+    fn transitions_land_exactly_on_the_preset() {
+        let from = ViewCamera::default();
+        for preset in [ViewPreset::Front, ViewPreset::Back, ViewPreset::Right, ViewPreset::Left, ViewPreset::Top, ViewPreset::Bottom] {
+            let mut cam = from.clone();
+            let mut anim = CameraAnimation::to_preset(&cam, preset, VIEW_TRANSITION_SECS);
+            let mut frames = 0;
+            // Uneven frame times, overshooting the end.
+            while anim.advance(&mut cam, 0.007 + 0.003 * (frames % 3) as f32) {
+                frames += 1;
+                assert!(frames < 1000);
+                assert!((cam.rotation.dot(cam.rotation) - 1.0).abs() < 1e-4, "stays a unit rotation");
+            }
+            assert!(frames > 5, "{preset:?} glides over several frames");
+            assert_eq!(cam.rotation, ViewCamera::preset_rotation(preset), "{preset:?}: no drift");
+            let mut want = from.clone();
+            want.set_view(preset);
+            assert_eq!(cam, want, "pivot and distance unchanged");
+        }
+    }
+
+    #[test]
+    fn transitions_move_pivot_and_distance_smoothly() {
+        let from = ViewCamera::default();
+        let mut to = from.clone();
+        to.set_view(ViewPreset::Top);
+        to.frame(&Aabb { min: vec3(2.0, 2.0, 0.0), max: vec3(4.0, 4.0, 2.0) });
+        let mut cam = from.clone();
+        let mut anim = CameraAnimation::new(&from, &to, 0.2);
+        assert!(anim.advance(&mut cam, 0.0));
+        assert_eq!(cam, from, "starts where it was");
+        anim.advance(&mut cam, 0.1);
+        // Ease-out: past the halfway point at half time.
+        let k = (cam.distance - from.distance) / (to.distance - from.distance);
+        assert!((k - ease_out_cubic(0.5)).abs() < 1e-4 && k > 0.5, "{k}");
+        let path = to.pivot - from.pivot;
+        let along = (cam.pivot - from.pivot).dot(path) / path.dot(path);
+        assert!((along - k).abs() < 1e-4);
+        assert!(!anim.advance(&mut cam, 0.5));
+        assert_eq!(cam, to);
+        // Zero-length: straight to the end.
+        let mut cam = from.clone();
+        assert!(!CameraAnimation::new(&from, &to, 0.0).advance(&mut cam, 0.0));
+        assert_eq!(cam, to);
+    }
+
+    #[test]
+    fn slerp_takes_the_short_way_at_constant_speed() {
+        let a = ViewCamera::preset_rotation(ViewPreset::Front);
+        let b = ViewCamera::preset_rotation(ViewPreset::Right);
+        assert_eq!(a.slerp(b, 0.0), a);
+        assert!(a.slerp(b, 1.0).dot(b).abs() > 1.0 - 1e-6);
+        // −b is the same rotation; the path must not go the long way round.
+        let neg = Quat { w: -b.w, x: -b.x, y: -b.y, z: -b.z };
+        let mid = a.slerp(b, 0.5);
+        assert!(mid.dot(a.slerp(neg, 0.5)).abs() > 1.0 - 1e-6);
+        // Front → Right is 90° around Z: halfway looks 45° between +Y and −X.
+        let mut cam = ViewCamera { rotation: mid, ..ViewCamera::default() };
+        let f = cam.forward();
+        assert!(f.z.abs() < 1e-5 && (f.x.atan2(f.y).to_degrees() + 45.0).abs() < 1e-3, "{f:?}");
+        // Identical rotations don't blow up.
+        assert!(a.slerp(a, 0.3).dot(a) > 1.0 - 1e-6);
+        // Spin goes around world Z, keeping the horizon level.
+        cam.set_view(ViewPreset::Front);
+        cam.spin(90f32.to_radians());
+        assert!(close(cam.forward(), -Vec3::X), "{:?}", cam.forward());
+        assert!(close(cam.up(), Vec3::Z));
     }
 
     #[test]

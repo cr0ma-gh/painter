@@ -9,7 +9,8 @@
 //! With the 3D tool on a 3D layer, navigation works like Blender: middle drag
 //! orbits, Shift + middle drag pans, Ctrl + middle drag or the wheel zooms;
 //! 1 / 3 / 7 (Ctrl for the opposite side) set front / right / top views,
-//! 5 toggles perspective, Home or . frames everything. Left click picks an
+//! 5 toggles perspective, Home or . frames everything (views glide there),
+//! T toggles a slow turntable spin. Left click picks an
 //! object; G / R / S switch the gizmo; dragging its arrows, rings or handles
 //! moves, rotates or scales the object (Ctrl snaps).
 
@@ -22,7 +23,7 @@ use painter_core::rulers::{Ruler, RulerKind, RulerScope};
 use painter_core::{project, Layer, LayerId, LayerKind, SelectionOp, TileStore};
 use painter_render::{Plane, SceneDraw, SceneLight, ScenePreview, SceneRenderer, MAX_LIGHTS};
 use scene_3d::blend_loader::{load_camera, load_objects, BlendCamera, BlendFile};
-use scene_3d::camera::{OrbitStyle, Projection, ViewCamera, ViewPreset};
+use scene_3d::camera::{CameraAnimation, OrbitStyle, Projection, ViewCamera, ViewPreset, TURNTABLE_SPEED, VIEW_TRANSITION_SECS};
 use scene_3d::gizmo::{Constraint, Gizmo, GizmoMode, Transform, AXIS_COLORS};
 use scene_3d::math::{vec3, Vec3};
 use scene_3d::mesh::load_obj;
@@ -42,6 +43,62 @@ pub(crate) struct SceneLayer {
     commit_at: Option<Instant>,
     /// The camera of the .blend file the layer came from (not saved in projects).
     blend_camera: Option<BlendCamera>,
+    /// The camera's glide to a new view and turntable spin (not saved in projects).
+    pub(crate) motion: CameraMotion,
+}
+
+/// A 3D layer's camera moving by itself: gliding to a view, or spinning.
+#[derive(Clone, Default)]
+pub(crate) struct CameraMotion {
+    /// The glide under way to a preset or framed view.
+    glide: Option<CameraAnimation>,
+    /// Turntable spin around world Z, while no glide runs.
+    pub(crate) spinning: bool,
+    /// The last frame the motion moved the camera, for frame times.
+    last_tick: Option<Instant>,
+}
+
+impl CameraMotion {
+    /// Starts gliding `cam`'s view to `to`'s.
+    pub(crate) fn glide(&mut self, cam: &ViewCamera, to: &ViewCamera) {
+        self.glide = Some(CameraAnimation::new(cam, to, VIEW_TRANSITION_SECS));
+        self.last_tick = Some(Instant::now());
+    }
+
+    /// Ends a glide where it is (the user took over the camera).
+    pub(crate) fn stop_glide(&mut self) {
+        self.glide = None;
+    }
+
+    /// Turns the turntable spin on or off.
+    pub(crate) fn set_spinning(&mut self, on: bool) {
+        self.spinning = on;
+        self.last_tick = None;
+    }
+
+    fn active(&self) -> bool {
+        self.glide.is_some() || self.spinning
+    }
+
+    /// Moves `cam` on to `now`. Returns whether it moved.
+    fn tick(&mut self, cam: &mut ViewCamera, now: Instant) -> bool {
+        if !self.active() {
+            self.last_tick = None;
+            return false;
+        }
+        // A stalled frame shouldn't make the spin jump.
+        let dt = self.last_tick.map_or(0.0, |t| now.saturating_duration_since(t).as_secs_f32().min(0.1));
+        self.last_tick = Some(now);
+        if let Some(glide) = &mut self.glide {
+            if !glide.advance(cam, dt) {
+                self.glide = None;
+            }
+            return true;
+        }
+        // The camera turns one way, so the model seems to turn the other (counterclockwise from above).
+        cam.spin(-TURNTABLE_SPEED * dt);
+        dt > 0.0
+    }
 }
 
 impl SceneLayer {
@@ -191,7 +248,7 @@ impl PainterApp {
                 if let Some(cam) = &blend_camera {
                     scene.camera = self.blend_view(&scene, cam);
                 }
-                self.scenes.insert(id, SceneLayer { scene, revision: 0, commit_at: None, blend_camera: blend_camera.clone() });
+                self.scenes.insert(id, SceneLayer { scene, revision: 0, commit_at: None, blend_camera: blend_camera.clone(), motion: CameraMotion::default() });
                 self.scene_changed(id);
                 self.tool = Tool::Scene3D;
                 self.recomposite = true;
@@ -306,7 +363,7 @@ impl PainterApp {
         self.doc.add_layer(Layer::raster(id, "3D Perspective".to_string()));
         self.doc.active = id;
         let scene = Scene3D { camera, ..Scene3D::default() };
-        self.scenes.insert(id, SceneLayer { scene, revision: 0, commit_at: None, blend_camera: None });
+        self.scenes.insert(id, SceneLayer { scene, revision: 0, commit_at: None, blend_camera: None, motion: CameraMotion::default() });
         self.scene_changed(id);
         self.recomposite = true;
         Ok(id)
@@ -402,6 +459,44 @@ impl PainterApp {
         }
     }
 
+    /// Glides layer `id`'s camera to a preset view.
+    pub(crate) fn glide_to_view(&mut self, id: LayerId, preset: ViewPreset) {
+        if let Some(layer) = self.scenes.get_mut(&id) {
+            let mut to = layer.scene.camera.clone();
+            to.set_view(preset);
+            layer.motion.glide(&layer.scene.camera, &to);
+        }
+    }
+
+    /// Glides layer `id`'s camera to frame everything. Returns false when the scene is empty.
+    fn glide_to_frame(&mut self, id: LayerId) -> bool {
+        let Some(layer) = self.scenes.get_mut(&id) else { return false };
+        let Some(bounds) = layer.scene.bounds() else { return false };
+        let mut to = layer.scene.camera.clone();
+        to.frame(&bounds);
+        layer.motion.glide(&layer.scene.camera, &to);
+        true
+    }
+
+    /// Moves cameras that glide or spin by themselves, asking for the next frame while they do.
+    pub(crate) fn animate_scenes(&mut self, ctx: &egui::Context) {
+        let now = Instant::now();
+        let mut moved = Vec::new();
+        let mut active = false;
+        for (id, layer) in &mut self.scenes {
+            if layer.motion.tick(&mut layer.scene.camera, now) {
+                moved.push(*id);
+            }
+            active |= layer.motion.active();
+        }
+        for id in moved {
+            self.scene_changed(id);
+        }
+        if active {
+            ctx.request_repaint();
+        }
+    }
+
     /// Asks for frames while a commit is pending.
     pub(crate) fn scene_repaint(&self, ctx: &egui::Context) {
         if self.scenes.values().any(|l| l.commit_at.is_some()) {
@@ -425,7 +520,7 @@ impl PainterApp {
             match Scene3D::from_bytes(bytes) {
                 Ok(scene) => {
                     self.scene_revision += 1;
-                    self.scenes.insert(id, SceneLayer { scene, revision: self.scene_revision, commit_at: None, blend_camera: None });
+                    self.scenes.insert(id, SceneLayer { scene, revision: self.scene_revision, commit_at: None, blend_camera: None, motion: CameraMotion::default() });
                 }
                 Err(err) => failed.push(format!("layer {}: {err}", id.0)),
             }
@@ -493,6 +588,7 @@ impl PainterApp {
             changed = true;
         }
         if changed {
+            layer.motion.stop_glide();
             self.scene_changed(id);
         }
     }
@@ -527,23 +623,26 @@ impl PainterApp {
         }
         let toggle = pressed(Key::Num5, Modifiers::NONE);
         let frame = pressed(Key::Home, Modifiers::NONE) || pressed(Key::Period, Modifiers::NONE);
+        let spin = pressed(Key::T, Modifiers::NONE);
         let Some(layer) = self.scenes.get_mut(&id) else {
             return;
         };
         let mut changed = false;
-        if let Some(v) = view {
-            layer.scene.camera.set_view(v);
-            changed = true;
-        }
         if toggle {
             layer.scene.camera.toggle_projection();
             changed = true;
         }
+        if spin {
+            let on = !layer.motion.spinning;
+            layer.motion.set_spinning(on);
+            self.status = tr(if on { "Turntable spin on (T)" } else { "Turntable spin off (T)" }).into();
+        }
+        // Views glide there; the glide redraws as it goes.
+        if let Some(v) = view {
+            self.glide_to_view(id, v);
+        }
         if frame {
-            if let Some(b) = layer.scene.bounds() {
-                layer.scene.camera.frame(&b);
-                changed = true;
-            }
+            self.glide_to_frame(id);
         }
         if changed {
             self.scene_changed(id);
@@ -734,12 +833,7 @@ impl PainterApp {
             use crate::icons::{icon_button, Icon};
             add_model = icon_button(ui, Icon::Add, 16.0, false, "Add a model to this layer (.blend or .obj)").clicked();
             if icon_button(ui, Icon::ZoomFit, 16.0, false, "Frame everything (Home or .)").clicked() {
-                if let Some(layer) = self.scenes.get_mut(&id) {
-                    if let Some(b) = layer.scene.bounds() {
-                        layer.scene.camera.frame(&b);
-                        changed = true;
-                    }
-                }
+                self.glide_to_frame(id);
             }
             flatten = icon_button(ui, Icon::MergeDown, 16.0, false, "Flatten to pixels: keep the current render as a plain raster layer").clicked();
             ui.separator();
@@ -862,8 +956,9 @@ impl PainterApp {
                     ("Bottom", ViewPreset::Bottom, "Ctrl+7"),
                 ] {
                     if ui.small_button(label).on_hover_text(key).clicked() {
-                        cam.set_view(view);
-                        changed = true;
+                        let mut to = cam.clone();
+                        to.set_view(view);
+                        layer.motion.glide(cam, &to);
                     }
                 }
             });
@@ -872,6 +967,10 @@ impl PainterApp {
                 ui.selectable_value(&mut cam.orbit_style, OrbitStyle::Turntable, tr("Turntable"));
                 ui.selectable_value(&mut cam.orbit_style, OrbitStyle::Trackball, tr("Trackball"));
             });
+            let mut spinning = layer.motion.spinning;
+            if ui.checkbox(&mut spinning, tr("Turntable spin")).on_hover_text(tr("Slowly turn the view around the model, 15° a second (T)")).changed() {
+                layer.motion.set_spinning(spinning);
+            }
             ui.horizontal_wrapped(|ui| {
                 if let Some(name) = &blend_camera_name {
                     blend_view = ui.button(tr("Blender Camera")).on_hover_text(format!("Back to the view through camera {name}")).clicked();
@@ -1046,7 +1145,7 @@ pub(crate) fn snapshot(scenes: &HashMap<LayerId, SceneLayer>) -> SceneSnapshot {
 pub(crate) fn restore(scenes: &mut HashMap<LayerId, SceneLayer>, snapshot: SceneSnapshot) {
     scenes.clear();
     for (id, scene) in snapshot {
-        scenes.insert(id, SceneLayer { scene, revision: 0, commit_at: None, blend_camera: None });
+        scenes.insert(id, SceneLayer { scene, revision: 0, commit_at: None, blend_camera: None, motion: CameraMotion::default() });
     }
 }
 
@@ -1090,5 +1189,40 @@ mod placement_tests {
         // Above the horizon: in front of the camera, still on the ground.
         let (sky, _, _) = ground_placement(&camera, &person, [800.0, 100.0], w, h);
         assert!(sky.z.abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod motion_tests {
+    use super::*;
+
+    #[test]
+    fn glides_land_on_the_view_and_pause_the_spin() {
+        let start = Instant::now();
+        let mut cam = ViewCamera::default();
+        let mut to = cam.clone();
+        to.set_view(ViewPreset::Top);
+        let mut motion = CameraMotion::default();
+        motion.set_spinning(true);
+        motion.glide(&cam, &to);
+        motion.last_tick = Some(start);
+        // Frames at 60 Hz: still gliding a few frames in, there after 0.18 s.
+        for k in 1..=4 {
+            assert!(motion.tick(&mut cam, start + Duration::from_millis(16 * k)));
+        }
+        assert!(motion.glide.is_some() && cam.rotation != to.rotation);
+        for k in 5..=12 {
+            motion.tick(&mut cam, start + Duration::from_millis(16 * k));
+        }
+        assert!(motion.glide.is_none());
+        assert_eq!(cam, to, "exactly on the view, the spin waited");
+        // Then the spin carries on around Z, 15° a second.
+        assert!(motion.tick(&mut cam, start + Duration::from_millis(192 + 100)));
+        let f = cam.forward();
+        assert!(f.z < -0.999, "top view stays top: {f:?}");
+        let turned = cam.up().dot(to.up()).clamp(-1.0, 1.0).acos().to_degrees();
+        assert!((turned - 1.5).abs() < 0.05, "{turned}°");
+        motion.set_spinning(false);
+        assert!(!motion.tick(&mut cam, start + Duration::from_secs(1)));
     }
 }
