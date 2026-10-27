@@ -19,6 +19,8 @@ struct View {
     hidden: vec4<f32>,
     inks: vec4<f32>,
     ink_view: vec4<f32>,
+    // The canvas rectangle the composite texture covers: origin xy, size zw (canvas px).
+    region: vec4<f32>,
 };
 
 @group(0) @binding(0) var canvas: texture_2d<f32>;
@@ -64,7 +66,10 @@ fn selected(p: vec2<i32>) -> bool {
 
 @fragment
 fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
-    let color = textureSample(canvas, canvas_sampler, input.uv);
+    // Low-VRAM profiles composite only the visible part; the rest shows as empty.
+    let at = (input.uv * view.doc_size - view.region.xy) / view.region.zw;
+    let inside = all(at >= vec2<f32>(0.0)) && all(at <= vec2<f32>(1.0));
+    let color = select(vec4<f32>(0.0), textureSample(canvas, canvas_sampler, at), inside);
     let cell = floor(input.uv * view.doc_size / view.checker);
     let odd = (i32(cell.x) + i32(cell.y)) & 1;
     let checker = select(1.0, 0.82, odd == 1);

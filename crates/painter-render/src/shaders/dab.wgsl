@@ -1,4 +1,5 @@
-// Instanced brush dabs drawn into the stroke texture (canvas-sized, premultiplied).
+// Instanced brush dabs drawn into the stroke texture (premultiplied), which covers
+// the canvas or, for low-VRAM profiles, the rectangle at `origin`.
 // Blending is premultiplied source-over, so each dab does
 //   dst = color·a + dst·(1 − a)
 // exactly like painter_core::raster::stamp_dab. `coverage`, `ellipse_coverage`
@@ -6,11 +7,13 @@
 // come from painter_core::DabTip, computed on the CPU.
 
 struct DabParams {
+    // Size of the stroke texture in pixels.
     canvas_size: vec2<f32>,
     hardness: f32,
     aa: f32,
     color: vec4<f32>,
-    _reserved: f32,
+    // 1: dither coverage by ±½ of an 8-bit step (Rgba8Unorm stroke targets).
+    dither: f32,
     // 2 sampled; otherwise round: a disc or an ellipse by the dab's flatness
     // (painter_core::DabTip::kind_for).
     kind: u32,
@@ -25,7 +28,9 @@ struct DabParams {
     // Dual tip (painter_core::DualTip): diameter relative to the dab.
     dual_scale: f32,
     has_dual: u32,
-    _pad: vec4<f32>,
+    // Canvas position of the stroke texture's top-left pixel.
+    origin: vec2<f32>,
+    _pad: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> params: DabParams;
@@ -61,17 +66,19 @@ struct VertexOut {
     @location(6) @interpolate(flat) flatness: f32,
     // -1 mirrors the tip left-right, else 1.
     @location(7) @interpolate(flat) mirror: f32,
+    // The dab's index in the draw, varying the dither from dab to dab.
+    @location(8) @interpolate(flat) seed: u32,
 };
 
 @vertex
-fn vs_main(@builtin(vertex_index) index: u32, dab: DabIn) -> VertexOut {
+fn vs_main(@builtin(vertex_index) index: u32, @builtin(instance_index) instance: u32, dab: DabIn) -> VertexOut {
     var corners = array<vec2<f32>, 6>(
         vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(-1.0, 1.0),
         vec2<f32>(-1.0, 1.0), vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0),
     );
     // One extra pixel so every pixel centre with non-zero coverage is rasterised.
     let reach = dab.reach + 1.0;
-    let p = dab.center + corners[index] * reach;
+    let p = dab.center + corners[index] * reach - params.origin;
     var out: VertexOut;
     out.position = vec4<f32>(p.x / params.canvas_size.x * 2.0 - 1.0, 1.0 - p.y / params.canvas_size.y * 2.0, 0.0, 1.0);
     out.center = dab.center;
@@ -82,6 +89,7 @@ fn vs_main(@builtin(vertex_index) index: u32, dab: DabIn) -> VertexOut {
     out.rotation = dab.rotation;
     out.flatness = abs(dab.flatness);
     out.mirror = select(1.0, -1.0, dab.flatness < 0.0);
+    out.seed = instance;
     return out;
 }
 
@@ -191,10 +199,22 @@ fn texture_factor(p: vec2<f32>) -> f32 {
     return 1.0 - params.texture_density * (1.0 - t);
 }
 
+// Uniform noise in [0, 1) per pixel and dab (PCG-style integer hash).
+fn hash(v: vec3<u32>) -> f32 {
+    var h = v.x * 1664525u + v.y * 1013904223u + v.z * 2654435769u;
+    h = h ^ (h >> 16u);
+    h = h * 2246822519u;
+    h = h ^ (h >> 13u);
+    h = h * 3266489917u;
+    h = h ^ (h >> 16u);
+    return f32(h >> 8u) / 16777216.0;
+}
+
 @fragment
 fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     // `position.xy` is the pixel centre, matching the CPU's `px + 0.5`.
-    let delta = input.position.xy - input.center;
+    let at = input.position.xy + params.origin;
+    let delta = at - input.center;
     var cov = 0.0;
     if (params.kind != 2u && input.flatness >= 1.0) {
         cov = coverage(length(delta), input.radius, params.hardness, params.aa);
@@ -215,11 +235,18 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     }
     // Paper texture, fixed to the canvas.
     if (params.has_texture != 0u && cov > 0.0) {
-        cov = cov * texture_factor(input.position.xy);
+        cov = cov * texture_factor(at);
     }
-    let a = cov * input.alpha;
+    var a = cov * input.alpha;
     if (a <= 0.0) {
         discard;
+    }
+    // 8-bit targets round every blend: ±½ step of noise per pixel and dab turns
+    // that rounding into noise rather than a fixed bias. Alpha is also the blend
+    // factor, so very faint, heavily overlapping dabs still build up a little
+    // less than in the float target.
+    if (params.dither > 0.0) {
+        a = clamp(a + (hash(vec3<u32>(vec2<u32>(at), input.seed)) - 0.5) / 255.0, 0.0, 1.0);
     }
     return vec4<f32>(params.color.rgb * a, a);
 }

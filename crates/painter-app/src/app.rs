@@ -327,7 +327,13 @@ impl PainterApp {
         crate::text_tool::install_symbol_fallback(&cc.egui_ctx);
         let gpu_ready = match &cc.wgpu_render_state {
             Some(rs) => {
-                let canvas = GpuCanvas::new(&rs.device, rs.target_format);
+                // PAINTER_LOW_VRAM=1 (or `8bit`, also halving stroke targets) for GPUs with little video memory.
+                let profile = match std::env::var("PAINTER_LOW_VRAM").as_deref() {
+                    Ok("8bit") => painter_render::RenderProfile { low_precision_strokes: true, ..painter_render::RenderProfile::low_vram() },
+                    Ok(v) if !v.is_empty() && v != "0" => painter_render::RenderProfile::low_vram(),
+                    _ => painter_render::RenderProfile::default(),
+                };
+                let canvas = GpuCanvas::with_profile(&rs.device, rs.target_format, profile);
                 rs.renderer.write().callback_resources.insert(canvas);
                 true
             }

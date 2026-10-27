@@ -4,7 +4,8 @@
 pub(crate) const CANVAS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 /// Stroke accumulation needs more than 8 bits, or faint dabs stall (matches the CPU's f32 buffer).
 pub(crate) const STROKE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
-
+/// Low-VRAM stroke accumulation: half the bytes of [`STROKE_FORMAT`], dithered so faint dabs still build up.
+pub(crate) const STROKE_FORMAT_8BIT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 pub(crate) const TARGET_USAGE: wgpu::TextureUsages = wgpu::TextureUsages::TEXTURE_BINDING
     .union(wgpu::TextureUsages::RENDER_ATTACHMENT)
@@ -45,6 +46,70 @@ impl Target {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         Self { texture, view }
     }
+
+    /// GPU bytes held by the texture's pixels.
+    pub fn bytes(&self) -> u64 {
+        let texel = self.texture.format().block_copy_size(None).unwrap_or(4) as u64;
+        self.texture.width() as u64 * self.texture.height() as u64 * texel
+    }
+}
+
+/// A rectangle of canvas pixels: where an intermediate target sits on the canvas.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Region {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Region {
+    /// The whole canvas.
+    pub fn full((width, height): (u32, u32)) -> Self {
+        Self { x: 0, y: 0, width, height }
+    }
+
+    pub fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    pub fn origin(&self) -> [i32; 2] {
+        [self.x as i32, self.y as i32]
+    }
+
+    pub fn area(&self) -> u64 {
+        self.width as u64 * self.height as u64
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.width == 0 || self.height == 0
+    }
+
+    pub fn contains(&self, other: &Region) -> bool {
+        other.x >= self.x
+            && other.y >= self.y
+            && other.x + other.width <= self.x + self.width
+            && other.y + other.height <= self.y + self.height
+    }
+
+    pub fn union(&self, other: &Region) -> Region {
+        let (x, y) = (self.x.min(other.x), self.y.min(other.y));
+        let right = (self.x + self.width).max(other.x + other.width);
+        let bottom = (self.y + self.height).max(other.y + other.height);
+        Region { x, y, width: right - x, height: bottom - y }
+    }
+
+    /// The canvas pixels touched by `[min_x, min_y, max_x, max_y]` (canvas
+    /// coordinates, possibly fractional or off-canvas) grown by `margin`, snapped
+    /// outwards to a `snap`-pixel grid and clipped to the canvas. `None` when
+    /// nothing of it is on the canvas.
+    pub fn covering(bounds: [f32; 4], margin: f32, snap: u32, (width, height): (u32, u32)) -> Option<Region> {
+        let lo = |v: f32, max: u32| ((v - margin).floor().max(0.0) as u32 / snap * snap).min(max);
+        let hi = |v: f32, max: u32| ((v + margin).ceil().max(0.0) as u32).div_ceil(snap).saturating_mul(snap).min(max);
+        let (x0, y0) = (lo(bounds[0], width), lo(bounds[1], height));
+        let (x1, y1) = (hi(bounds[2], width), hi(bounds[3], height));
+        (x1 > x0 && y1 > y0).then(|| Region { x: x0, y: y0, width: x1 - x0, height: y1 - y0 })
+    }
 }
 
 pub(crate) fn begin_pass<'e>(
@@ -71,6 +136,34 @@ pub(crate) fn copy_texture(encoder: &mut wgpu::CommandEncoder, src: &Target, dst
         src.texture.as_image_copy(),
         dst.texture.as_image_copy(),
         wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+    );
+}
+
+/// Copies the pixels of canvas rectangle `area` from `src` (placed at `src_at`)
+/// to `dst` (placed at `dst_at`); `area` must lie inside both.
+pub(crate) fn copy_region(
+    encoder: &mut wgpu::CommandEncoder,
+    src: &Target,
+    src_at: &Region,
+    dst: &Target,
+    dst_at: &Region,
+    area: &Region,
+) {
+    let origin = |at: &Region| wgpu::Origin3d { x: area.x - at.x, y: area.y - at.y, z: 0 };
+    encoder.copy_texture_to_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &src.texture,
+            mip_level: 0,
+            origin: origin(src_at),
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyTextureInfo {
+            texture: &dst.texture,
+            mip_level: 0,
+            origin: origin(dst_at),
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::Extent3d { width: area.width, height: area.height, depth_or_array_layers: 1 },
     );
 }
 
