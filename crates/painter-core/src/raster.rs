@@ -92,6 +92,44 @@ fn sampled_coverage(bitmap: &TipBitmap, x: f32, y: f32, radius: f32, level: u32)
     bitmap.sample(level, fx * w as f32 - 0.5, fy * h as f32 - 0.5)
 }
 
+/// Relative slack on the squared-distance bounds, far wider than the few ulps by
+/// which `dx² + dy²` and `hypot` can disagree, so the fast paths never change a pixel.
+const BOUND_SLACK: f32 = 1e-3;
+
+/// Squared distances from the dab centre that classify a pixel without evaluating its tip.
+#[derive(Clone, Copy, Debug)]
+struct DabBounds {
+    /// Beyond this the tip's coverage is exactly zero.
+    outer2: f32,
+    /// Within this a disc's coverage is exactly one (negative when there is no such core).
+    full2: f32,
+}
+
+impl DabBounds {
+    /// Bounds for a round tip (disc or ellipse) of `radius` with `aa` px of anti-aliasing.
+    /// Coverage vanishes past `radius + aa/2`: for the ellipse that holds because its edge
+    /// distance is never below the distance to the radius circle, and flattening only
+    /// pushes tip space outwards. The solid core ends at the hardness falloff or where the
+    /// anti-aliased edge starts, whichever comes first.
+    fn round(radius: f32, hardness: f32, aa: f32) -> Self {
+        let aa = aa.max(0.0);
+        let outer = (radius + 0.5 * aa) * (1.0 + BOUND_SLACK) + BOUND_SLACK;
+        let full = (radius * hardness.clamp(0.0, 1.0)).min(radius - 0.5 * aa) * (1.0 - BOUND_SLACK) - BOUND_SLACK;
+        Self { outer2: outer * outer, full2: if full > 0.0 { full * full } else { -1.0 } }
+    }
+
+    /// Bounds for a sampled tip: the bitmap rectangle at `level` plus its half texel of
+    /// bilinear bleed, measured in tip space, which is never nearer than canvas space.
+    fn sampled(bitmap: &TipBitmap, radius: f32, level: u32) -> Self {
+        let aspect = bitmap.aspect();
+        let (w, h) = bitmap.level_size(level);
+        let ex = radius * aspect[0] * (1.0 + 1.0 / w as f32);
+        let ey = radius * aspect[1] * (1.0 + 1.0 / h as f32);
+        let outer = ex.hypot(ey) * (1.0 + BOUND_SLACK) + BOUND_SLACK;
+        Self { outer2: outer * outer, full2: -1.0 }
+    }
+}
+
 /// Sparse premultiplied RGBA f32 tiles holding one stroke.
 #[derive(Default, Debug)]
 pub struct StrokeBuffer {
@@ -141,6 +179,10 @@ pub fn stamp_dab(
     let reach = tip.reach(radius, aa, level);
     let ([cos, sin], flatness) = (tip.rotation(dab.angle), tip.flatness_for(dab.thickness));
     let kind = tip.kind_for(flatness);
+    let bounds = match tip.bitmap() {
+        Some(bitmap) => DabBounds::sampled(bitmap, radius, level),
+        None => DabBounds::round(radius, settings.hardness, aa),
+    };
     let dual = settings.dual.as_ref().map(|d| (d, d.radius(radius), d.mip_level(radius)));
     let x0 = ((dab.x - reach).floor() as i32).max(0);
     let y0 = ((dab.y - reach).floor() as i32).max(0);
@@ -160,8 +202,17 @@ pub fn stamp_dab(
             for py in y0.max(oy)..=y1.min(oy + last) {
                 for px in x0.max(ox)..=x1.min(ox + last) {
                     let (dx, dy) = (px as f32 + 0.5 - dab.x, py as f32 + 0.5 - dab.y);
+                    // Squared distance first: the square's corners and a disc's solid core need no sqrt.
+                    let d2 = dx * dx + dy * dy;
+                    if d2 > bounds.outer2 {
+                        continue;
+                    }
                     let mut cov = if kind == TipKind::Disc {
-                        coverage(dx.hypot(dy), radius, settings.hardness, aa)
+                        if d2 <= bounds.full2 {
+                            1.0
+                        } else {
+                            coverage(dx.hypot(dy), radius, settings.hardness, aa)
+                        }
                     } else {
                         // Into tip space: undo the rotation, then the flattening.
                         let x = (cos * dx - sin * dy) * if dab.mirror { -1.0 } else { 1.0 };
@@ -410,6 +461,56 @@ mod tests {
         assert_eq!(background.dirty, dirty);
         for coord in dirty {
             assert_eq!(background.buffer.get(coord), inline.get(coord));
+        }
+    }
+
+    #[test]
+    fn squared_distance_bounds_never_change_coverage() {
+        for radius in [0.5, 0.75, 1.0, 2.3, 5.0, 17.5, 64.0, 300.0] {
+            for hardness in [0.0, 0.3, 0.8, 1.0] {
+                for aa in [0.0, 0.5, 1.0, 2.0] {
+                    let bounds = DabBounds::round(radius, hardness, aa);
+                    let reach = (radius + aa).ceil() as i32 + 1;
+                    for (ox, oy) in [(0.5, 0.5), (0.0, 0.0), (0.37, 0.81)] {
+                        for py in -reach..=reach {
+                            for px in -reach..=reach {
+                                let (dx, dy) = (px as f32 + ox, py as f32 + oy);
+                                let d2 = dx * dx + dy * dy;
+                                let exact = coverage(dx.hypot(dy), radius, hardness, aa);
+                                if d2 > bounds.outer2 {
+                                    assert_eq!(exact, 0.0, "r {radius} h {hardness} aa {aa} at ({dx}, {dy})");
+                                    for flatness in [0.99, 0.5, 0.01] {
+                                        let ellipse = ellipse_coverage(dx, dy / flatness, radius, flatness, hardness, aa);
+                                        assert_eq!(ellipse, 0.0, "ellipse r {radius} f {flatness} at ({dx}, {dy})");
+                                    }
+                                }
+                                if d2 <= bounds.full2 {
+                                    assert_eq!(exact, 1.0, "r {radius} h {hardness} aa {aa} at ({dx}, {dy})");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sampled_bounds_contain_the_bitmap() {
+        let bitmap = TipBitmap::new(5, 2, vec![255; 10]).unwrap();
+        for radius in [0.5, 1.0, 4.0, 9.0] {
+            for level in 0..bitmap.level_count() {
+                let bounds = DabBounds::sampled(&bitmap, radius, level);
+                let reach = (2.0 * radius).ceil() as i32 + 2;
+                for py in -reach..=reach {
+                    for px in -reach..=reach {
+                        let (x, y) = (px as f32 + 0.5, py as f32 + 0.5);
+                        if x * x + y * y > bounds.outer2 {
+                            assert_eq!(sampled_coverage(&bitmap, x, y, radius, level), 0.0, "r {radius} l {level} at ({x}, {y})");
+                        }
+                    }
+                }
+            }
         }
     }
 
