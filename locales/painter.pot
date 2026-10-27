@@ -4048,47 +4048,71 @@ msgstr ""
 msgid "Esc"
 msgstr ""
 
-#: crates/painter-app/src/updater.rs:501
+#: crates/painter-app/src/updater.rs:576
 msgid "Updates"
 msgstr ""
 
-#: crates/painter-app/src/updater.rs:514
+#: crates/painter-app/src/updater.rs:589
 msgid "Looking for a new version…"
 msgstr ""
 
-#: crates/painter-app/src/updater.rs:518
+#: crates/painter-app/src/updater.rs:594
 msgid "It's the latest version."
 msgstr ""
 
-#: crates/painter-app/src/updater.rs:539
+#: crates/painter-app/src/updater.rs:595
+msgid "The preview build is up to date."
+msgstr ""
+
+#: crates/painter-app/src/updater.rs:601
+msgid "New preview build:"
+msgstr ""
+
+#: crates/painter-app/src/updater.rs:602
+msgid "Rolling preview builds contain experimental, in-development features."
+msgstr ""
+
+#: crates/painter-app/src/updater.rs:623
 msgid "Later"
 msgstr ""
 
-#: crates/painter-app/src/updater.rs:542
+#: crates/painter-app/src/updater.rs:626
 msgid "Skip this version"
 msgstr ""
 
-#: crates/painter-app/src/updater.rs:547
+#: crates/painter-app/src/updater.rs:631
 msgid "The new APK downloads in the browser: open it to install over this one."
 msgstr ""
 
-#: crates/painter-app/src/updater.rs:549
+#: crates/painter-app/src/updater.rs:633
 msgid "Sideload the new IPA as you did this one (AltStore, Sideloadly…)."
 msgstr ""
 
-#: crates/painter-app/src/updater.rs:560
+#: crates/painter-app/src/updater.rs:644
 msgid "It starts when Painter closes (you're asked about unsaved documents first)."
 msgstr ""
 
-#: crates/painter-app/src/updater.rs:561
+#: crates/painter-app/src/updater.rs:645
 msgid "Restart now"
 msgstr ""
 
-#: crates/painter-app/src/updater.rs:567
+#: crates/painter-app/src/updater.rs:651
 msgid "Open the website"
 msgstr ""
 
-#: crates/painter-app/src/updater.rs:574
+#: crates/painter-app/src/updater.rs:658
+msgid "Update channel:"
+msgstr ""
+
+#: crates/painter-app/src/updater.rs:662 crates/painter-app/src/updater.rs:666
+msgid "Stable (Recommended)"
+msgstr ""
+
+#: crates/painter-app/src/updater.rs:663 crates/painter-app/src/updater.rs:667
+msgid "Rolling / Preview (Experimental)"
+msgstr ""
+
+#: crates/painter-app/src/updater.rs:675
 msgid "Check for updates once a day"
 msgstr ""
 

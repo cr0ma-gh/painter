@@ -26,7 +26,9 @@ use serde::{Deserialize, Serialize};
 use crate::app::PainterApp;
 
 const LATEST: &str = "https://api.github.com/repos/cr0ma-gh/painter/releases/latest";
+const ROLLING: &str = "https://api.github.com/repos/cr0ma-gh/painter/releases/tags/rolling";
 const RELEASES: &str = "https://github.com/cr0ma-gh/painter/releases/latest";
+const RELEASES_ROLLING: &str = "https://github.com/cr0ma-gh/painter/releases/tag/rolling";
 /// Automatic checks: at most this often.
 const CHECK_EVERY: Duration = Duration::from_secs(24 * 3600);
 
@@ -56,28 +58,63 @@ pub(crate) struct Asset {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Release {
-    /// Without the leading "v".
+    /// Without the leading "v", or the preview title.
     pub version: String,
     pub notes: String,
     pub page: String,
     pub asset: Option<Asset>,
+    pub published_at: String,
+    pub is_rolling: bool,
 }
 
-/// The latest release from GitHub's JSON, with this platform's file.
+impl Release {
+    pub(crate) fn unique_id(&self) -> &str {
+        if !self.published_at.is_empty() {
+            &self.published_at
+        } else if let Some(asset) = &self.asset {
+            if let Some(sha) = &asset.sha256 {
+                sha
+            } else {
+                &asset.url
+            }
+        } else {
+            &self.version
+        }
+    }
+}
+
+/// The release from GitHub's JSON, with this platform's file.
 pub(crate) fn parse_release(json: &[u8], wanted: &str) -> Result<Release, String> {
     let v: serde_json::Value = serde_json::from_slice(json).map_err(|e| format!("GitHub's answer: {e}"))?;
     let tag = v["tag_name"].as_str().ok_or("no release found")?;
+    let is_rolling = tag.eq_ignore_ascii_case("rolling");
     let asset = v["assets"].as_array().into_iter().flatten().find(|a| a["name"].as_str() == Some(wanted)).map(|a| Asset {
         name: wanted.to_string(),
         url: a["browser_download_url"].as_str().unwrap_or_default().to_string(),
         size: a["size"].as_u64().unwrap_or(0),
         sha256: a["digest"].as_str().and_then(|d| d.strip_prefix("sha256:")).map(str::to_ascii_lowercase),
     });
+    let published_at = v["published_at"].as_str().unwrap_or_default().to_string();
+    let name = v["name"].as_str().unwrap_or_default().to_string();
+    let version = if is_rolling {
+        if !name.is_empty() {
+            name
+        } else if published_at.len() >= 10 {
+            format!("Rolling ({})", &published_at[..10])
+        } else {
+            "Rolling".to_string()
+        }
+    } else {
+        tag.trim_start_matches(['v', 'V']).to_string()
+    };
+    let default_page = if is_rolling { RELEASES_ROLLING } else { RELEASES };
     Ok(Release {
-        version: tag.trim_start_matches(['v', 'V']).to_string(),
+        version,
         notes: v["body"].as_str().unwrap_or_default().to_string(),
-        page: v["html_url"].as_str().unwrap_or(RELEASES).to_string(),
+        page: v["html_url"].as_str().unwrap_or(default_page).to_string(),
         asset,
+        published_at,
+        is_rolling,
     })
 }
 
@@ -346,20 +383,36 @@ pub(crate) fn clean_up_after_update() {
 
 // ---- state and window -------------------------------------------------------------------
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum UpdateChannel {
+    #[default]
+    Stable,
+    Rolling,
+}
+
 /// Kept between launches in the app's data folder.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct UpdateSettings {
     pub check_automatically: bool,
+    pub channel: UpdateChannel,
     /// Seconds since 1970 of the last check.
     pub last_check: u64,
     /// A version the user chose to skip.
     pub skipped: String,
+    /// Identifier (e.g. published timestamp or digest) of installed rolling release.
+    pub installed_rolling_id: String,
 }
 
 impl Default for UpdateSettings {
     fn default() -> Self {
-        Self { check_automatically: true, last_check: 0, skipped: String::new() }
+        Self {
+            check_automatically: true,
+            channel: UpdateChannel::Stable,
+            last_check: 0,
+            skipped: String::new(),
+            installed_rolling_id: String::new(),
+        }
     }
 }
 
@@ -421,8 +474,13 @@ impl Updater {
             return;
         }
         let (tx, rx) = channel();
+        let channel_type = self.settings.channel;
         std::thread::spawn(move || {
-            let result = get(LATEST).and_then(|json| parse_release(&json, asset_name()));
+            let endpoint = match channel_type {
+                UpdateChannel::Stable => LATEST,
+                UpdateChannel::Rolling => ROLLING,
+            };
+            let result = get(endpoint).and_then(|json| parse_release(&json, asset_name()));
             let _ = tx.send(result);
             #[cfg(target_os = "android")]
             crate::android::detach_thread();
@@ -451,14 +509,22 @@ impl PainterApp {
                 let asked = *asked;
                 if let Ok(result) = rx.try_recv() {
                     u.state = match result {
-                        Ok(r) if newer(&r.version, crate::welcome::VERSION) => {
-                            // Skipped versions don't come up by themselves.
-                            if asked || r.version != u.settings.skipped {
-                                u.open = true;
+                        Ok(r) => {
+                            let is_newer = if r.is_rolling {
+                                u.settings.installed_rolling_id != r.unique_id()
+                            } else {
+                                newer(&r.version, crate::welcome::VERSION)
+                            };
+                            if is_newer {
+                                // Skipped versions don't come up by themselves.
+                                if asked || r.version != u.settings.skipped {
+                                    u.open = true;
+                                }
+                                UpdateState::Available(r)
+                            } else {
+                                UpdateState::UpToDate
                             }
-                            UpdateState::Available(r)
                         }
-                        Ok(_) => UpdateState::UpToDate,
                         Err(e) => UpdateState::Failed(e),
                     };
                     if !asked && !matches!(u.state, UpdateState::Available(_)) {
@@ -473,6 +539,10 @@ impl PainterApp {
                     let release = release.clone();
                     u.state = match result {
                         Ok(restart) => {
+                            if release.is_rolling {
+                                u.settings.installed_rolling_id = release.unique_id().to_string();
+                                u.save();
+                            }
                             u.restart = Some(restart);
                             UpdateState::Ready(release)
                         }
@@ -515,10 +585,19 @@ impl PainterApp {
                         });
                     }
                     UpdateState::UpToDate => {
-                        ui.label(egui::RichText::new(tr("It's the latest version.")).strong());
+                        let msg = match self.updater.settings.channel {
+                            UpdateChannel::Stable => tr("It's the latest version."),
+                            UpdateChannel::Rolling => tr("The preview build is up to date."),
+                        };
+                        ui.label(egui::RichText::new(msg).strong());
                     }
                     UpdateState::Available(r) => {
-                        ui.label(egui::RichText::new(format!("Painter {} is out.", r.version)).strong().size(16.0));
+                        if r.is_rolling {
+                            ui.label(egui::RichText::new(format!("{} {}", tr("New preview build:"), r.version)).strong().size(16.0));
+                            ui.label(egui::RichText::new(tr("Rolling preview builds contain experimental, in-development features.")).weak().small());
+                        } else {
+                            ui.label(egui::RichText::new(format!("Painter {} is out.", r.version)).strong().size(16.0));
+                        }
                         if !r.notes.trim().is_empty() {
                             egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
                                 ui.label(egui::RichText::new(r.notes.trim()).small());
@@ -570,6 +649,23 @@ impl PainterApp {
                     }
                 }
                 ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label(tr("Update channel:"));
+                    let prev = self.updater.settings.channel;
+                    egui::ComboBox::from_id_salt("updater_channel")
+                        .selected_text(match self.updater.settings.channel {
+                            UpdateChannel::Stable => tr("Stable (Recommended)"),
+                            UpdateChannel::Rolling => tr("Rolling / Preview (Experimental)"),
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.updater.settings.channel, UpdateChannel::Stable, tr("Stable (Recommended)"));
+                            ui.selectable_value(&mut self.updater.settings.channel, UpdateChannel::Rolling, tr("Rolling / Preview (Experimental)"));
+                        });
+                    if self.updater.settings.channel != prev {
+                        self.updater.save();
+                        self.updater.check(true);
+                    }
+                });
                 let mut auto = self.updater.settings.check_automatically;
                 if ui.checkbox(&mut auto, tr("Check for updates once a day")).changed() {
                     self.updater.settings.check_automatically = auto;
@@ -587,7 +683,10 @@ impl PainterApp {
                 self.updater.open = false;
             }
             Some("restart") => self.quit_requested = true,
-            Some("website") => open_in_browser(ctx, RELEASES),
+            Some("website") => {
+                let url = if self.updater.settings.channel == UpdateChannel::Rolling { RELEASES_ROLLING } else { RELEASES };
+                open_in_browser(ctx, url);
+            }
             _ => {}
         }
         if !open {
@@ -661,6 +760,16 @@ mod tests {
         assert_eq!(mac.asset.unwrap().sha256.as_deref(), Some("ab"));
         assert!(parse_release(json, "nothing").unwrap().asset.is_none());
         assert!(parse_release(b"{}", "x").is_err());
+    }
+
+    #[test]
+    fn rolling_releases_are_parsed() {
+        let json = br#"{"tag_name":"rolling","name":"Painter Rolling Preview (2026-10-27)","html_url":"https://github.com/cr0ma-gh/painter/releases/tag/rolling","published_at":"2026-10-27T12:00:00Z","body":"Rolling notes",
+            "assets":[{"name":"Painter-windows-x86_64.exe","size":20,"browser_download_url":"https://x/win"}]}"#;
+        let r = parse_release(json, "Painter-windows-x86_64.exe").unwrap();
+        assert!(r.is_rolling);
+        assert_eq!(r.version, "Painter Rolling Preview (2026-10-27)");
+        assert_eq!(r.unique_id(), "2026-10-27T12:00:00Z");
     }
 }
 

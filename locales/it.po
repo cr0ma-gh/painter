@@ -4050,47 +4050,71 @@ msgstr "Invio"
 msgid "Esc"
 msgstr "Esc"
 
-#: crates/painter-app/src/updater.rs:501
+#: crates/painter-app/src/updater.rs:576
 msgid "Updates"
 msgstr "Aggiornamenti"
 
-#: crates/painter-app/src/updater.rs:514
+#: crates/painter-app/src/updater.rs:589
 msgid "Looking for a new version…"
 msgstr "Ricerca di una nuova versione…"
 
-#: crates/painter-app/src/updater.rs:518
+#: crates/painter-app/src/updater.rs:594
 msgid "It's the latest version."
 msgstr "È l'ultima versione."
 
-#: crates/painter-app/src/updater.rs:539
+#: crates/painter-app/src/updater.rs:595
+msgid "The preview build is up to date."
+msgstr "La versione di anteprima è aggiornata."
+
+#: crates/painter-app/src/updater.rs:601
+msgid "New preview build:"
+msgstr "Nuova versione di anteprima:"
+
+#: crates/painter-app/src/updater.rs:602
+msgid "Rolling preview builds contain experimental, in-development features."
+msgstr "Le build rolling contengono funzionalità sperimentali e in fase di sviluppo."
+
+#: crates/painter-app/src/updater.rs:623
 msgid "Later"
 msgstr "Più tardi"
 
-#: crates/painter-app/src/updater.rs:542
+#: crates/painter-app/src/updater.rs:626
 msgid "Skip this version"
 msgstr "Salta questa versione"
 
-#: crates/painter-app/src/updater.rs:547
+#: crates/painter-app/src/updater.rs:631
 msgid "The new APK downloads in the browser: open it to install over this one."
 msgstr "Il nuovo APK si scarica nel browser: aprilo per installarlo sopra questo."
 
-#: crates/painter-app/src/updater.rs:549
+#: crates/painter-app/src/updater.rs:633
 msgid "Sideload the new IPA as you did this one (AltStore, Sideloadly…)."
 msgstr "Installa il nuovo IPA come hai fatto con questo (AltStore, Sideloadly…)."
 
-#: crates/painter-app/src/updater.rs:560
+#: crates/painter-app/src/updater.rs:644
 msgid "It starts when Painter closes (you're asked about unsaved documents first)."
 msgstr "Parte quando Painter si chiude (prima ti viene chiesto dei documenti non salvati)."
 
-#: crates/painter-app/src/updater.rs:561
+#: crates/painter-app/src/updater.rs:645
 msgid "Restart now"
 msgstr "Riavvia ora"
 
-#: crates/painter-app/src/updater.rs:567
+#: crates/painter-app/src/updater.rs:651
 msgid "Open the website"
 msgstr "Apri il sito"
 
-#: crates/painter-app/src/updater.rs:574
+#: crates/painter-app/src/updater.rs:658
+msgid "Update channel:"
+msgstr "Canale di aggiornamento:"
+
+#: crates/painter-app/src/updater.rs:662 crates/painter-app/src/updater.rs:666
+msgid "Stable (Recommended)"
+msgstr "Stabile (Consigliato)"
+
+#: crates/painter-app/src/updater.rs:663 crates/painter-app/src/updater.rs:667
+msgid "Rolling / Preview (Experimental)"
+msgstr "Rolling / Anteprima (Sperimentale)"
+
+#: crates/painter-app/src/updater.rs:675
 msgid "Check for updates once a day"
 msgstr "Controlla gli aggiornamenti una volta al giorno"
 
