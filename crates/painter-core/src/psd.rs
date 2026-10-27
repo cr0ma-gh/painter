@@ -601,9 +601,27 @@ struct ReadRecord {
     section: Option<(u32, Option<[u8; 4]>)>,
 }
 
+/// Largest layer or mask extent accepted on either axis: layers may hang off
+/// the canvas, but nothing legitimate spans more than twice the biggest canvas.
+const MAX_LAYER_EXTENT: usize = MAX_CANVAS_SIZE as usize * 2;
+
+/// Size of a `[top, left, bottom, right]` record rect; inverted rects are
+/// empty, oversized ones are rejected before anything is allocated for them.
+fn rect_size([top, left, bottom, right]: [i32; 4]) -> Result<(usize, usize), PsdError> {
+    let w = (i64::from(right) - i64::from(left)).max(0) as u64;
+    let h = (i64::from(bottom) - i64::from(top)).max(0) as u64;
+    if w > MAX_LAYER_EXTENT as u64 || h > MAX_LAYER_EXTENT as u64 {
+        return Err(PsdError::Corrupt("layer rect too large"));
+    }
+    Ok((w as usize, h as usize))
+}
+
 /// Decodes one channel of `width × height`; returns `None` for an empty rect.
 fn read_channel(r: &mut Reader<'_>, len: u32, width: usize, height: usize) -> Result<Option<Vec<u8>>, PsdError> {
     let blob = r.take(len as usize)?;
+    if width > MAX_LAYER_EXTENT || height > MAX_LAYER_EXTENT {
+        return Err(PsdError::Corrupt("channel too large"));
+    }
     if width * height == 0 || blob.len() < 2 {
         return Ok(None);
     }
@@ -792,8 +810,8 @@ fn read_layers(r: &mut Reader<'_>, canvas: (u32, u32), doc: &mut Document) -> Re
     // Channel image data follows the records, in record order.
     let mut stack: Vec<Vec<Layer>> = vec![Vec::new()];
     for record in records {
-        let [top, left, bottom, right] = record.rect;
-        let (w, h) = ((right - left).max(0) as usize, (bottom - top).max(0) as usize);
+        let [top, left, _, _] = record.rect;
+        let (w, h) = rect_size(record.rect)?;
         let mut planes: [Option<Vec<u8>>; 4] = [None, None, None, None];
         let mut mask_plane = None;
         for &(id, len) in &record.channels {
@@ -801,7 +819,7 @@ fn read_layers(r: &mut Reader<'_>, canvas: (u32, u32), doc: &mut Document) -> Re
                 -1..=2 => planes[(id + 1) as usize] = read_channel(r, len, w, h)?,
                 -2 => {
                     let (mrect, _) = record.mask.unwrap_or(([0; 4], 255));
-                    let (mw, mh) = ((mrect[3] - mrect[1]).max(0) as usize, (mrect[2] - mrect[0]).max(0) as usize);
+                    let (mw, mh) = rect_size(mrect)?;
                     mask_plane = read_channel(r, len, mw, mh)?;
                 }
                 _ => {
@@ -996,6 +1014,45 @@ mod tests {
         let flat = read(&bytes).unwrap();
         assert_eq!(flat.layers.len(), 1);
         assert_eq!(flat.layers[0].tiles().unwrap().pixel(3, 2), [255, 255, 255, 255]);
+    }
+
+    /// Overwrites the first layer record's `[top, left, bottom, right]`.
+    fn patch_first_rect(bytes: &mut [u8], rect: [i32; 4]) {
+        let resources = u32::from_be_bytes(bytes[30..34].try_into().unwrap()) as usize;
+        // Section length, layer info length, then the layer count.
+        let at = 26 + 4 + 4 + resources + 4 + 4 + 2;
+        for (i, v) in rect.iter().enumerate() {
+            bytes[at + i * 4..at + i * 4 + 4].copy_from_slice(&v.to_be_bytes());
+        }
+    }
+
+    #[test]
+    fn oversized_layer_rects_are_rejected_without_panicking() {
+        let doc = Document::new(8, 4);
+        let bytes = write(&doc);
+        let rects = [
+            [0, -1_000_000_000, 4, 1_000_000_000],
+            [-1_000_000_000, 0, 1_000_000_000, 8],
+            [i32::MIN, i32::MIN, i32::MAX, i32::MAX],
+            [0, 0, 4, MAX_LAYER_EXTENT as i32 + 1],
+        ];
+        for rect in rects {
+            let mut bad = bytes.clone();
+            patch_first_rect(&mut bad, rect);
+            assert!(matches!(read(&bad), Err(PsdError::Corrupt(_))), "{rect:?}");
+        }
+        // Inverted rects stay empty layers rather than errors.
+        let mut inverted = bytes.clone();
+        patch_first_rect(&mut inverted, [4, 8, 0, 0]);
+        assert!(read(&inverted).is_ok());
+    }
+
+    #[test]
+    fn oversized_channels_are_rejected_before_allocating() {
+        let blob = [0u8, 1, 0, 0];
+        let mut r = Reader { data: &blob, pos: 0 };
+        let err = read_channel(&mut r, blob.len() as u32, 1, usize::MAX / 2 + 1);
+        assert!(matches!(err, Err(PsdError::Corrupt(_))));
     }
 
     #[test]
