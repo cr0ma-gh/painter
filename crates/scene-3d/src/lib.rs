@@ -2,7 +2,7 @@
 //!
 //! - [`mesh`]: GPU-ready meshes (interleaved vertices, `u32` triangles,
 //!   bounds) and an OBJ reader.
-//! - [`blend_loader`]: `.blend` reading (Blender 3.4 – 5.x, plain or zstd):
+//! - [`blend_loader`]: `.blend` reading (Blender 2.80 – 5.x, plain, gzip or zstd):
 //!   blocks, the SDNA struct catalogue, mesh objects with their transforms.
 //! - [`gltf`], [`fbx`]: glTF / GLB and binary FBX models, through [`import`]
 //!   (Y-up to Z-up, transforms baked, objects centred).

@@ -11,12 +11,16 @@
 //!   struct index, the block's address when it was saved (pointers in other
 //!   blocks refer to it), the length and element count. Format 1 uses 32-byte
 //!   block headers with 64-bit lengths; legacy files 20 or 24 bytes.
-//! - **Compression**: files saved compressed are zstd streams (Blender 3+).
+//! - **Compression**: files saved compressed are zstd streams (Blender 3+)
+//!   or gzip streams (older versions).
 //!
 //! Meshes are read from the generic attribute layers (Blender 3.4+ /
 //! 4.x / 5.x): the `position` float3 vertex attribute, `.corner_vert` per
 //! face corner and `face_offset_indices`; UVs from the float2 corner
-//! attribute. Objects give their name, mesh and location / rotation / scale.
+//! attribute. Older files (Blender 2.80–3.3) keep struct arrays instead:
+//! `MVert::co`, `MLoop::v`, `MPoly::loopstart` / `totloop` and `MLoopUV::uv`;
+//! each part falls back to them when its generic attribute is missing.
+//! Objects give their name, mesh and location / rotation / scale.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -148,7 +152,10 @@ impl BlendFile {
         let bytes = if raw.starts_with(&[0x28, 0xB5, 0x2F, 0xFD]) {
             zstd::decode_all(&raw[..]).map_err(|e| corrupt(format!("zstd: {e}")))?
         } else if raw.starts_with(&[0x1F, 0x8B]) {
-            return Err(BlendError::Unsupported("gzip-compressed (pre-3.0) files; re-save from Blender".into()));
+            // Compressed files before Blender 3.0.
+            let mut out = Vec::new();
+            std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(&raw[..]), &mut out).map_err(|e| corrupt(format!("gzip: {e}")))?;
+            out
         } else {
             raw
         };
@@ -591,12 +598,21 @@ pub fn load_camera(file: &BlendFile) -> Option<BlendCamera> {
 /// A named attribute array of one mesh domain.
 struct Layer<'a> {
     name: String,
+    /// `CustomDataLayer::type` (e.g. [`CD_MVERT`]); -1 for Blender 5 attributes.
+    kind: i32,
     data: &'a [u8],
 }
 
 /// Mesh attribute domains, as stored in Blender 5's `Attribute::domain`.
 const DOMAIN_POINT: i8 = 0;
 const DOMAIN_CORNER: i8 = 3;
+
+/// `CustomDataLayer::type` of the struct arrays meshes kept before the
+/// generic attributes (Blender 2.80–3.3; some lingered until 3.5).
+const CD_MVERT: i32 = 0;
+const CD_MLOOPUV: i32 = 16;
+const CD_MPOLY: i32 = 25;
+const CD_MLOOP: i32 = 26;
 
 /// The named layers of a `CustomData` (one mesh domain; Blender 3.4–4.x).
 fn custom_data_layers<'a>(file: &'a BlendFile, custom_data: Option<StructView<'a>>) -> Vec<Layer<'a>> {
@@ -610,7 +626,7 @@ fn custom_data_layers<'a>(file: &'a BlendFile, custom_data: Option<StructView<'a
             let data = file.data(block).get(i * stride..(i + 1) * stride)?;
             let layer = file.view("CustomDataLayer", data);
             let payload = layer.pointer("data").and_then(|p| file.block_at(p)).map(|b| file.data(b))?;
-            Some(Layer { name: layer.string("name").unwrap_or_default(), data: payload })
+            Some(Layer { name: layer.string("name").unwrap_or_default(), kind: layer.i32("type").unwrap_or(-1), data: payload })
         })
         .collect()
 }
@@ -638,10 +654,24 @@ fn storage_layers<'a>(file: &'a BlendFile, storage: Option<StructView<'a>>, doma
             }
             let array = file.view("AttributeArray", file.data(holder));
             let payload = file.block_at(array.pointer("data")?).map(|b| file.data(b))?;
-            Some(Layer { name, data: payload })
+            Some(Layer { name, kind: -1, data: payload })
         })
         .collect()
 }
+
+/// A pre-3.4 struct array of a mesh: the `CustomData` layer of `kind`, else
+/// the `Mesh` pointer field naming the same data.
+fn legacy_array<'a>(file: &'a BlendFile, me: &StructView<'a>, layers: &[Layer<'a>], kind: i32, pointer: &str) -> Option<&'a [u8]> {
+    layers.iter().find(|l| l.kind == kind).map(|l| l.data).or_else(|| me.pointer(pointer).and_then(|p| file.block_at(p)).map(|b| file.data(b)))
+}
+
+/// The elements of a saved array of `struct_name` structs.
+fn struct_array<'a>(file: &'a BlendFile, struct_name: &'a str, data: &'a [u8]) -> impl Iterator<Item = StructView<'a>> + 'a {
+    let size = file.sdna.struct_by_name(struct_name).and_then(|s| file.sdna.type_sizes.get(s.type_index)).copied().unwrap_or(0);
+    let chunks = if size == 0 { data[..0].chunks_exact(1) } else { data.chunks_exact(size) };
+    chunks.map(move |c| file.view(struct_name, c))
+}
+
 fn read_mesh(file: &BlendFile, block: &Block) -> Result<Mesh, BlendError> {
     let me = file.view("Mesh", file.data(block));
     let name = me.nested("id").and_then(|id| id.string("name")).unwrap_or_default();
@@ -656,30 +686,59 @@ fn read_mesh(file: &BlendFile, block: &Block) -> Result<Mesh, BlendError> {
     if let Some(f) = me.first_of(&["corner_data", "ldata"]) {
         corners.extend(custom_data_layers(file, me.nested(f)));
     }
-    let positions = verts.iter().find(|l| l.name == "position").ok_or_else(|| {
-        BlendError::Unsupported(format!("mesh {name} has no position attribute (files older than Blender 3.4)"))
-    })?;
-    let corner_vert = corners.iter().find(|l| l.name == ".corner_vert").ok_or_else(|| corrupt(format!("mesh {name}: no .corner_vert")))?;
+    let count = |names: &[&str]| me.first_of(names).and_then(|f| me.i32(f)).unwrap_or(0).max(0) as usize;
     let floats = |b: &[u8]| b.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect::<Vec<f32>>();
     let ints = |b: &[u8]| b.as_chunks::<4>().0.iter().map(|c| i32::from_le_bytes(*c)).collect::<Vec<i32>>();
-    let positions: Vec<[f32; 3]> = floats(positions.data).as_chunks::<3>().0.to_vec();
-    let corner_vert = ints(corner_vert.data);
-    // Face corner ranges: offsets[i]..offsets[i + 1]. A mesh of only loose edges has none.
-    let faces_num = me.first_of(&["faces_num", "totpoly"]).and_then(|f| me.i32(f)).unwrap_or(0).max(0) as usize;
-    let offsets_field = me.first_of(&["face_offset_indices", "poly_offset_indices"]).unwrap_or("face_offset_indices");
-    let offsets: Vec<i32> = match me.pointer(offsets_field).and_then(|p| file.block_at(p)) {
-        Some(b) => ints(file.data(b)),
-        None if faces_num == 0 => vec![0],
-        None => return Err(corrupt(format!("mesh {name}: no face offsets"))),
+    // Each part from its generic attribute, else from the pre-3.4 struct array.
+    let positions: Vec<[f32; 3]> = if let Some(l) = verts.iter().find(|l| l.name == "position") {
+        floats(l.data).as_chunks::<3>().0.to_vec()
+    } else if let Some(data) = legacy_array(file, &me, &verts, CD_MVERT, "mvert") {
+        struct_array(file, "MVert", data).map(|v| v.f32s("co").unwrap_or([0.0; 3])).collect()
+    } else if count(&["verts_num", "totvert"]) == 0 {
+        Vec::new()
+    } else {
+        return Err(corrupt(format!("mesh {name}: no vertex positions")));
     };
-    // The active UV map is the first float2 corner layer not starting with '.'.
-    let uvs: Option<Vec<[f32; 2]>> = corners
-        .iter()
-        .find(|l| !l.name.starts_with('.') && l.data.len() == corner_vert.len() * 8)
-        .map(|l| floats(l.data).as_chunks::<2>().0.to_vec());
+    let corner_vert: Vec<i32> = if let Some(l) = corners.iter().find(|l| l.name == ".corner_vert") {
+        ints(l.data)
+    } else if let Some(data) = legacy_array(file, &me, &corners, CD_MLOOP, "mloop") {
+        struct_array(file, "MLoop", data).map(|l| l.i32("v").unwrap_or(-1)).collect()
+    } else if count(&["corners_num", "totloop"]) == 0 {
+        Vec::new()
+    } else {
+        return Err(corrupt(format!("mesh {name}: no .corner_vert")));
+    };
+    // Face corner ranges. A mesh of only loose edges has none.
+    let faces_num = count(&["faces_num", "totpoly"]);
+    let offsets_field = me.first_of(&["face_offset_indices", "poly_offset_indices"]).unwrap_or("face_offset_indices");
+    let polys = me.first_of(&["face_data", "pdata"]).map(|f| custom_data_layers(file, me.nested(f))).unwrap_or_default();
+    let ranges: Vec<(usize, usize)> = if let Some(b) = me.pointer(offsets_field).and_then(|p| file.block_at(p)) {
+        // offsets[i]..offsets[i + 1]
+        ints(file.data(b)).windows(2).map(|w| (w[0].max(0) as usize, w[1].max(0) as usize)).collect()
+    } else if let Some(data) = legacy_array(file, &me, &polys, CD_MPOLY, "mpoly") {
+        struct_array(file, "MPoly", data)
+            .map(|p| {
+                let start = p.i32("loopstart").unwrap_or(0).max(0) as usize;
+                (start, start.saturating_add(p.i32("totloop").unwrap_or(0).max(0) as usize))
+            })
+            .collect()
+    } else if faces_num == 0 {
+        Vec::new()
+    } else {
+        return Err(corrupt(format!("mesh {name}: no face offsets")));
+    };
+    // The active UV map: the first MLoopUV layer of older files, else the
+    // first float2 corner layer not starting with '.' (MLoop arrays are 8 bytes too).
+    let uvs: Option<Vec<[f32; 2]>> = legacy_array(file, &me, &corners, CD_MLOOPUV, "mloopuv")
+        .map(|data| struct_array(file, "MLoopUV", data).map(|uv| uv.f32s("uv").unwrap_or([0.0; 2])).collect())
+        .or_else(|| {
+            corners
+                .iter()
+                .find(|l| l.kind != CD_MLOOP && !l.name.starts_with('.') && l.data.len() == corner_vert.len() * 8)
+                .map(|l| floats(l.data).as_chunks::<2>().0.to_vec())
+        });
     let mut faces = Vec::with_capacity(faces_num);
-    for f in 0..faces_num.min(offsets.len().saturating_sub(1)) {
-        let (a, b) = (offsets[f] as usize, offsets[f + 1] as usize);
+    for &(a, b) in ranges.iter().take(faces_num) {
         if a < b && b <= corner_vert.len() {
             faces.push((a..b).collect::<Vec<usize>>());
         }
@@ -690,4 +749,211 @@ fn read_mesh(file: &BlendFile, block: &Block) -> Result<Mesh, BlendError> {
         uv: uvs.as_ref().and_then(|u| u.get(corner)).copied().unwrap_or([0.0; 2]),
     };
     Ok(Mesh::from_polygons(name.get(2..).unwrap_or(&name), &faces, vertex))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Struct layouts as Blender 2.80–3.3 saved them (trimmed to what the reader needs).
+    const STRUCTS: &[(&str, &[(&str, &str)])] = &[
+        ("ID", &[("char", "name[66]"), ("char", "_pad[6]")]),
+        ("MVert", &[("float", "co[3]"), ("short", "no[3]"), ("char", "flag"), ("char", "bweight")]),
+        ("MLoop", &[("int", "v"), ("int", "e")]),
+        ("MPoly", &[("int", "loopstart"), ("int", "totloop"), ("short", "mat_nr"), ("char", "flag"), ("char", "_pad")]),
+        ("MLoopUV", &[("float", "uv[2]"), ("int", "flag")]),
+        ("CustomDataLayer", &[("int", "type"), ("int", "offset"), ("int", "flag"), ("int", "active"), ("char", "name[64]"), ("char", "*data")]),
+        ("CustomData", &[("CustomDataLayer", "*layers"), ("int", "totlayer"), ("int", "maxlayer")]),
+        (
+            "Mesh",
+            &[
+                ("ID", "id"),
+                ("MVert", "*mvert"),
+                ("MLoop", "*mloop"),
+                ("MPoly", "*mpoly"),
+                ("MLoopUV", "*mloopuv"),
+                ("CustomData", "vdata"),
+                ("CustomData", "ldata"),
+                ("CustomData", "pdata"),
+                ("int", "totvert"),
+                ("int", "totloop"),
+                ("int", "totpoly"),
+                ("int", "_pad"),
+            ],
+        ),
+        ("Object", &[("ID", "id"), ("char", "*data"), ("float", "loc[3]"), ("int", "_pad")]),
+    ];
+    const TYPES: &[(&str, u16)] = &[
+        ("char", 1),
+        ("short", 2),
+        ("int", 4),
+        ("float", 4),
+        ("ID", 72),
+        ("MVert", 20),
+        ("MLoop", 8),
+        ("MPoly", 12),
+        ("MLoopUV", 12),
+        ("CustomDataLayer", 88),
+        ("CustomData", 16),
+        ("Mesh", 168),
+        ("Object", 96),
+    ];
+
+    /// The DNA1 block for [`STRUCTS`].
+    fn dna() -> Vec<u8> {
+        let type_index = |t: &str| TYPES.iter().position(|(n, _)| *n == t).unwrap() as u16;
+        let mut names: Vec<&str> = Vec::new();
+        for (_, fields) in STRUCTS {
+            for (_, n) in fields.iter() {
+                if !names.contains(n) {
+                    names.push(n);
+                }
+            }
+        }
+        let align = |b: &mut Vec<u8>| b.resize(b.len().next_multiple_of(4), 0);
+        let mut b = b"SDNANAME".to_vec();
+        b.extend((names.len() as u32).to_le_bytes());
+        names.iter().for_each(|n| b.extend(n.bytes().chain([0])));
+        align(&mut b);
+        b.extend(b"TYPE");
+        b.extend((TYPES.len() as u32).to_le_bytes());
+        TYPES.iter().for_each(|(n, _)| b.extend(n.bytes().chain([0])));
+        align(&mut b);
+        b.extend(b"TLEN");
+        TYPES.iter().for_each(|(_, s)| b.extend(s.to_le_bytes()));
+        align(&mut b);
+        b.extend(b"STRC");
+        b.extend((STRUCTS.len() as u32).to_le_bytes());
+        for (name, fields) in STRUCTS {
+            b.extend(type_index(name).to_le_bytes());
+            b.extend((fields.len() as u16).to_le_bytes());
+            for (ty, n) in fields.iter() {
+                b.extend(type_index(ty).to_le_bytes());
+                b.extend((names.iter().position(|x| x == n).unwrap() as u16).to_le_bytes());
+            }
+        }
+        b
+    }
+
+    /// One struct instance with `fields` (nested ones as `outer.inner`) set.
+    fn fill(sdna: &Sdna, name: &str, fields: &[(&str, Vec<u8>)]) -> Vec<u8> {
+        let mut out = vec![0; sdna.type_sizes[sdna.struct_by_name(name).unwrap().type_index]];
+        for (path, bytes) in fields {
+            let (mut ty, mut at) = (name, 0);
+            for part in path.split('.') {
+                let f = sdna.field(ty, part).unwrap_or_else(|| panic!("{ty}.{part}"));
+                at += f.offset;
+                ty = &sdna.types[f.type_index];
+            }
+            out[at..at + bytes.len()].copy_from_slice(bytes);
+        }
+        out
+    }
+
+    fn floats(values: &[f32]) -> Vec<u8> {
+        values.iter().flat_map(|v| v.to_le_bytes()).collect()
+    }
+
+    /// A 2.93-style file: a quad and a triangle sharing an edge, as MVert /
+    /// MLoop / MPoly / MLoopUV arrays reached through `CustomData` layers
+    /// (`through_layers`) or only through the `Mesh` pointers.
+    fn legacy_file(through_layers: bool) -> Vec<u8> {
+        let sdna = parse_sdna(&dna(), 8).unwrap();
+        let int = |v: i32| v.to_le_bytes().to_vec();
+        let ptr = |a: u64| a.to_le_bytes().to_vec();
+        let positions = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 2.0]];
+        let loops = [0, 1, 2, 3, 0, 1, 4];
+        let polys = [(0, 4), (4, 3)];
+        let mvert: Vec<u8> = positions.iter().flat_map(|co| fill(&sdna, "MVert", &[("co", floats(co))])).collect();
+        let mloop: Vec<u8> = loops.iter().flat_map(|&v| fill(&sdna, "MLoop", &[("v", int(v))])).collect();
+        let mpoly: Vec<u8> = polys.iter().flat_map(|&(s, n)| fill(&sdna, "MPoly", &[("loopstart", int(s)), ("totloop", int(n))])).collect();
+        let mloopuv: Vec<u8> = (0..loops.len()).flat_map(|c| fill(&sdna, "MLoopUV", &[("uv", floats(&[c as f32 * 0.1, 0.5]))])).collect();
+        let (mvert_at, mloop_at, mpoly_at, uv_at) = (0x100, 0x200, 0x300, 0x400);
+        let layer = |kind: i32, data: u64| fill(&sdna, "CustomDataLayer", &[("type", int(kind)), ("data", ptr(data))]);
+
+        let mut mesh = vec![
+            ("id.name", b"MELegacy\0".to_vec()),
+            ("totvert", int(positions.len() as i32)),
+            ("totloop", int(loops.len() as i32)),
+            ("totpoly", int(polys.len() as i32)),
+        ];
+        let mut blocks: Vec<(&[u8; 4], &str, u64, Vec<u8>)> = vec![
+            (b"DATA", "MVert", mvert_at, mvert),
+            (b"DATA", "MLoop", mloop_at, mloop),
+            (b"DATA", "MPoly", mpoly_at, mpoly),
+            (b"DATA", "MLoopUV", uv_at, mloopuv),
+        ];
+        if through_layers {
+            for (layers_field, count_field, at, layers) in [
+                ("vdata.layers", "vdata.totlayer", 0x500, vec![layer(CD_MVERT, mvert_at)]),
+                // MLoop is 8 bytes per corner like a float2 UV map; it must not be taken for one.
+                ("ldata.layers", "ldata.totlayer", 0x600, vec![layer(CD_MLOOP, mloop_at), layer(CD_MLOOPUV, uv_at)]),
+                ("pdata.layers", "pdata.totlayer", 0x700, vec![layer(CD_MPOLY, mpoly_at)]),
+            ] {
+                mesh.push((layers_field, ptr(at)));
+                mesh.push((count_field, int(layers.len() as i32)));
+                blocks.push((b"DATA", "CustomDataLayer", at, layers.concat()));
+            }
+        } else {
+            mesh.extend([("mvert", ptr(mvert_at)), ("mloop", ptr(mloop_at)), ("mpoly", ptr(mpoly_at)), ("mloopuv", ptr(uv_at))]);
+        }
+        blocks.push((b"ME\0\0", "Mesh", 0x800, fill(&sdna, "Mesh", &mesh)));
+        blocks.push((b"OB\0\0", "Object", 0x900, fill(&sdna, "Object", &[("id.name", b"OBLegacy\0".to_vec()), ("data", ptr(0x800))])));
+
+        // 64-bit little-endian, 24-byte block headers.
+        let mut out = b"BLENDER-v293".to_vec();
+        let mut block = |code: &[u8; 4], sdna_index: usize, old: u64, data: &[u8], count: usize| {
+            out.extend(code);
+            out.extend((data.len() as u32).to_le_bytes());
+            out.extend(old.to_le_bytes());
+            out.extend((sdna_index as u32).to_le_bytes());
+            out.extend((count as u32).to_le_bytes());
+            out.extend(data);
+        };
+        for (code, ty, old, data) in &blocks {
+            let index = STRUCTS.iter().position(|(n, _)| n == ty).unwrap();
+            block(code, index, *old, data, data.len() / sdna.type_sizes[sdna.structs[index].type_index]);
+        }
+        block(b"DNA1", 0, 0, &dna(), 1);
+        block(b"ENDB", 0, 0, &[], 0);
+        out
+    }
+
+    fn check(mesh: &Mesh) {
+        assert_eq!(mesh.name, "Legacy");
+        // Each face corner becomes a vertex; a quad and a triangle give three triangles.
+        assert_eq!(mesh.vertices.len(), 7);
+        assert_eq!(mesh.indices, vec![0, 1, 2, 0, 2, 3, 4, 5, 6]);
+        assert_eq!(mesh.bounds.min.to_array(), [0.0, 0.0, 0.0]);
+        assert_eq!(mesh.bounds.max.to_array(), [1.0, 1.0, 2.0]);
+        assert_eq!(mesh.vertices[2].position, [1.0, 1.0, 0.0]);
+        assert_eq!(mesh.vertices[6].position, [0.0, 0.0, 2.0]);
+        assert_eq!(mesh.vertices[0].normal, [0.0, 0.0, 1.0]);
+        assert_eq!(mesh.vertices[4].normal, [0.0, -1.0, 0.0]);
+        assert_eq!(mesh.vertices[3].uv, [3.0 * 0.1, 0.5]);
+        assert_eq!(mesh.vertices[6].uv, [6.0 * 0.1, 0.5]);
+    }
+
+    #[test]
+    fn legacy_mesh_through_custom_data_layers() {
+        let objects = load_objects(&BlendFile::parse(legacy_file(true)).unwrap()).unwrap();
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].name, "Legacy");
+        check(objects[0].mesh.as_ref().unwrap());
+    }
+
+    #[test]
+    fn legacy_mesh_through_mesh_pointers() {
+        let objects = load_objects(&BlendFile::parse(legacy_file(false)).unwrap()).unwrap();
+        check(objects[0].mesh.as_ref().unwrap());
+    }
+
+    #[test]
+    fn gzip_compressed_file() {
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        std::io::Write::write_all(&mut gz, &legacy_file(true)).unwrap();
+        let file = BlendFile::parse(gz.finish().unwrap()).unwrap();
+        assert_eq!(file.version, 293);
+        check(load_objects(&file).unwrap()[0].mesh.as_ref().unwrap());
+    }
 }
