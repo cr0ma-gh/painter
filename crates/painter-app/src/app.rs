@@ -15,7 +15,7 @@ use painter_core::{
     io, project, psd, selection, vector, BrushMode, BrushSettings, Dab, Document, Gradient, History, Layer, LayerId, LayerKind, Mask,
     SelectionOp, StrokeEngine, StrokePoint, TileCoord, TileStore, Tone, VectorStroke, TILE_SIZE,
 };
-use painter_render::{full_upload, plane_uploads, DabStyle, GpuCanvas, Plane, StrokePreview, Upload};
+use painter_render::{full_upload, live_planes, plane_uploads, DabStyle, GpuCanvas, Plane, StrokePreview, Upload};
 
 use crate::comic_ui::{ComicWizard, FrameTool};
 use crate::dialogs::{ScannerDialog, SvgExportDialog};
@@ -606,6 +606,8 @@ impl PainterApp {
     }
 
     pub(crate) fn checkpoint(&mut self) {
+        // The step keeps no tile the last edit erased whole.
+        self.prune_dead_tiles();
         // Named by the command being run, else by what the tool in hand changes.
         match self.next_label.take() {
             Some(label) => self.history.push_labelled(&self.doc, &label),
@@ -619,6 +621,18 @@ impl PainterApp {
         }
         self.push_comic_history(self.comic.clone());
         self.dirty = true;
+    }
+
+    /// Drops the tiles edited fully transparent since the last step (an
+    /// in-place filter or erase), freeing their RAM and GPU atlas slots.
+    pub(crate) fn prune_dead_tiles(&mut self) {
+        for plane in live_planes(&self.doc) {
+            let Some(tiles) = self.plane_tiles_mut(plane) else { continue };
+            let pruned = tiles.prune_unshared_transparent();
+            if !pruned.is_empty() {
+                self.upload_tiles(plane, pruned);
+            }
+        }
     }
 
     /// Opens doc in a new tab (or in place of an untouched blank one).
@@ -1662,6 +1676,7 @@ impl PainterApp {
         for (id, layer) in &self.scenes {
             extras.insert(crate::scene_ui::scene_entry(*id), layer.scene.to_bytes());
         }
+        self.prune_dead_tiles();
         // On a worker thread, from a copy: painting goes on meanwhile.
         self.recent.touch(&path, &self.doc);
         self.save_in_background(path, extras);

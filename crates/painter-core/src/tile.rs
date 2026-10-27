@@ -72,7 +72,15 @@ impl Tile {
 
     /// Premultiplied storage means alpha 0 implies colour 0, so alpha alone decides.
     pub fn is_transparent(&self) -> bool {
-        self.data.as_chunks::<4>().0.iter().all(|p| p[3] == 0)
+        // The alpha bytes of two pixels read as one little-endian u64.
+        const ALPHA: u64 = u64::from_le_bytes([0, 0, 0, 0xFF, 0, 0, 0, 0xFF]);
+        // A row at a time: OR-ing its words has no branch (so it vectorises),
+        // and the row test still stops early on the first painted row.
+        self.data
+            .as_chunks::<{ TILE_SIZE as usize * 4 }>()
+            .0
+            .iter()
+            .all(|row| row.as_chunks::<8>().0.iter().fold(0, |acc, w| acc | u64::from_le_bytes(*w)) & ALPHA == 0)
     }
 }
 
@@ -137,6 +145,34 @@ impl TileStore {
     /// Stores `tile` as is, transparent or not (the history paging a step back in).
     pub(crate) fn put_shared(&mut self, coord: TileCoord, tile: Arc<Tile>) {
         self.tiles.insert(coord, tile);
+    }
+
+    /// Drops every fully transparent tile (left behind by in-place edits
+    /// through [`TileStore::get_or_create_mut`] that erased all their pixels),
+    /// so it takes neither RAM nor a GPU atlas slot. Returns the coordinates
+    /// dropped, for the caller to free on the GPU.
+    pub fn prune_transparent(&mut self) -> Vec<TileCoord> {
+        self.prune_where(|_| true)
+    }
+
+    /// [`TileStore::prune_transparent`] limited to the tiles no clone of the
+    /// store shares: those written since the last snapshot. A tile still
+    /// shared was there when that snapshot was taken (and pruned then), so
+    /// this skips scanning an unchanged layer.
+    pub fn prune_unshared_transparent(&mut self) -> Vec<TileCoord> {
+        self.prune_where(|t| Arc::strong_count(t) == 1)
+    }
+
+    fn prune_where(&mut self, check: impl Fn(&Arc<Tile>) -> bool) -> Vec<TileCoord> {
+        let mut pruned = Vec::new();
+        self.tiles.retain(|c, t| {
+            let dead = check(t) && t.is_transparent();
+            if dead {
+                pruned.push(*c);
+            }
+            !dead
+        });
+        pruned
     }
 
     pub fn remove(&mut self, coord: TileCoord) -> Option<Arc<Tile>> {
@@ -245,6 +281,49 @@ mod tests {
         assert!(store.is_empty());
         store.get_or_create_mut(TileCoord::new(0, 0)).set_pixel(3, 4, [10, 20, 30, 255]);
         assert_eq!(store.pixel(3, 4), [10, 20, 30, 255]);
+    }
+
+    #[test]
+    fn transparency_reads_only_alpha() {
+        let mut tile = Tile::empty();
+        tile.bytes_mut().fill(0x7F);
+        for i in (3..TILE_BYTES).step_by(4) {
+            tile.bytes_mut()[i] = 0;
+        }
+        assert!(tile.is_transparent());
+        for (x, y) in [(0, 0), (1, 0), (63, 17), (63, 63)] {
+            let mut t = Tile::empty();
+            t.set_pixel(x, y, [0, 0, 0, 1]);
+            assert!(!t.is_transparent(), "alpha at ({x}, {y})");
+        }
+    }
+
+    #[test]
+    fn erased_tiles_are_pruned() {
+        let mut store = TileStore::new();
+        let tile = store.get_or_create_mut(TileCoord::new(2, -1));
+        tile.set_pixel(5, 6, [40, 50, 60, 255]);
+        tile.set_pixel(5, 6, [0; 4]);
+        store.get_or_create_mut(TileCoord::new(0, 0)).set_pixel(0, 0, [1, 1, 1, 255]);
+        assert_eq!(store.len(), 2);
+        assert_eq!(store.prune_transparent(), vec![TileCoord::new(2, -1)]);
+        assert_eq!(store.len(), 1);
+        store.get_or_create_mut(TileCoord::new(0, 0)).set_pixel(0, 0, [0; 4]);
+        store.prune_transparent();
+        assert_eq!(store.len(), 0);
+    }
+
+    #[test]
+    fn pruning_unshared_skips_snapshot_tiles() {
+        let mut store = TileStore::new();
+        store.put_shared(TileCoord::new(0, 0), Arc::new(Tile::empty()));
+        let snapshot = store.clone();
+        store.get_or_create_mut(TileCoord::new(1, 0));
+        assert_eq!(store.prune_unshared_transparent(), vec![TileCoord::new(1, 0)]);
+        assert_eq!(store.len(), 1, "the tile the snapshot shares is left alone");
+        drop(snapshot);
+        assert_eq!(store.prune_unshared_transparent(), vec![TileCoord::new(0, 0)]);
+        assert!(store.is_empty());
     }
 
     #[test]
