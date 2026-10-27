@@ -317,9 +317,23 @@ pub struct Chrome {
     /// Layer thumbnails in the Layers panel: 0 none, 1 small, 2 large.
     #[serde(default = "one")]
     pub layer_thumbs: u8,
+    /// What each layer thumbnail frames: the layer's content or the whole canvas.
+    #[serde(default)]
+    pub layer_thumb_mode: LayerThumbMode,
     /// The interface language ("it", "en"…); empty: the system's.
     #[serde(default)]
     pub language: LangCode,
+}
+
+/// What a layer thumbnail in the Layers panel frames, as Clip Studio's
+/// "layer area only" versus "whole canvas".
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LayerThumbMode {
+    /// Only the area the layer has content in, enlarged to fill the thumbnail.
+    #[default]
+    Content,
+    /// The whole canvas, in its shape.
+    Canvas,
 }
 
 /// A short language code ("it", "pt-BR"), kept as a string in settings.
@@ -377,7 +391,7 @@ pub const UI_SCALE_RANGE: (f32, f32) = (0.5, 3.0);
 
 impl Default for Chrome {
     fn default() -> Self {
-        Self { menu_bar: true, toolbar: true, workspace_tabs: true, status_bar: true, zen: false, ui_scale: 1.0, ruler_bar: false, ruler_bar_mm: false, brush_crosshair: true, clock: true, layer_thumbs: 1, language: LangCode::default() }
+        Self { menu_bar: true, toolbar: true, workspace_tabs: true, status_bar: true, zen: false, ui_scale: 1.0, ruler_bar: false, ruler_bar_mm: false, brush_crosshair: true, clock: true, layer_thumbs: 1, layer_thumb_mode: LayerThumbMode::Content, language: LangCode::default() }
     }
 }
 

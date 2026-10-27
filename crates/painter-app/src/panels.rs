@@ -1244,6 +1244,18 @@ impl PainterApp {
                 if icon_button(ui, Icon::Template, 16.0, now > 0, sizes[now]).clicked() {
                     self.ws.chrome.layer_thumbs = ((now + 1) % 3) as u8;
                 }
+                // What the thumbnails frame: the layer's content, or the whole canvas.
+                if now > 0 {
+                    use ui_workspace::LayerThumbMode as M;
+                    let mode = self.ws.chrome.layer_thumb_mode;
+                    let (icon, hint, next) = match mode {
+                        M::Content => (Icon::ZoomFit, tr("Thumbnails: show layer content"), M::Canvas),
+                        M::Canvas => (Icon::ZoomOriginal, tr("Thumbnails: show entire canvas"), M::Content),
+                    };
+                    if icon_button(ui, icon, 16.0, mode == M::Content, hint).clicked() {
+                        self.ws.chrome.layer_thumb_mode = next;
+                    }
+                }
             });
         });
         // Comic pages: the panels, in stacking order, with their clip and border.
@@ -1402,7 +1414,7 @@ impl PainterApp {
                     LayerKind::Adjustment(_) => Icon::Curve,
                 };
                 match (thumb_side, self.layer_thumbs.get(id)) {
-                    // The layer's thumbnail, in the canvas's shape, with a small badge for vector layers.
+                    // The layer's thumbnail (its content, or the canvas in its shape), with a small badge for vector layers.
                     (Some(side), Some(tex)) => {
                         let s = tex.size_vec2();
                         let fit = Vec2::new(s.x, s.y) * (side / s.x.max(s.y));

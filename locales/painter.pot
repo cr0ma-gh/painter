@@ -2476,6 +2476,14 @@ msgstr ""
 msgid "Thumbnails: large"
 msgstr ""
 
+#: crates/painter-app/src/panels.rs:1252
+msgid "Thumbnails: show layer content"
+msgstr ""
+
+#: crates/painter-app/src/panels.rs:1253
+msgid "Thumbnails: show entire canvas"
+msgstr ""
+
 #: crates/painter-app/src/panels.rs:1347
 msgid "Show / hide (all the selected layers, when this one is selected)"
 msgstr ""

@@ -2478,6 +2478,14 @@ msgstr "Miniature: piccole"
 msgid "Thumbnails: large"
 msgstr "Miniature: grandi"
 
+#: crates/painter-app/src/panels.rs:1252
+msgid "Thumbnails: show layer content"
+msgstr "Miniature: mostra il contenuto del livello"
+
+#: crates/painter-app/src/panels.rs:1253
+msgid "Thumbnails: show entire canvas"
+msgstr "Miniature: mostra l'intero canvas"
+
 #: crates/painter-app/src/panels.rs:1347
 msgid "Show / hide (all the selected layers, when this one is selected)"
 msgstr "Mostra / nascondi (tutti i livelli selezionati, quando questo è selezionato)"
