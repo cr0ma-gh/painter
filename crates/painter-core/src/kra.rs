@@ -24,12 +24,14 @@
 //! masks and clipping baked into the pixels (Krita has no clipping like
 //! Clip Studio's) and correction layers left out.
 
-use crate::blend::BlendMode;
+use std::sync::Arc;
+
+use crate::blend::{premultiply, BlendMode};
 use crate::document::Document;
 use crate::interchange::{self as ix, xml_escape};
 use crate::layer::{clip_targets, ClipTo, Folder, Layer, LayerId, LayerKind, Mask};
 use crate::ora::{clip_to_canvas, flat_pixels};
-use crate::tile::{TileCoord, TileStore, TILE_SIZE};
+use crate::tile::{Tile, TileCoord, TileStore, TILE_SIZE};
 use crate::zipfile::{ZipReader, ZipWriter};
 
 pub const MIMETYPE: &str = "application/x-krita";
@@ -416,6 +418,53 @@ pub fn save(doc: &Document, path: &std::path::Path) -> Result<Vec<String>, Strin
     Ok(warnings)
 }
 
+/// Copies a 64 × 64 tile of pixels whose top-left corner is at `(x, y)` into
+/// `store` a row span at a time, keeping only what falls in `0..w` × `0..h`.
+/// Pixels are written as is, transparent ones included.
+fn put_tile(store: &mut TileStore, x: i32, y: i32, pixels: &[u8], (w, h): (i32, i32)) {
+    let s = T as i32;
+    let (x0, y0, x1, y1) = (x.max(0), y.max(0), (x + s).min(w), (y + s).min(h));
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+    let (first, last) = (TileCoord::containing(x0, y0), TileCoord::containing(x1 - 1, y1 - 1));
+    for ty in first.y..=last.y {
+        for tx in first.x..=last.x {
+            let c = TileCoord::new(tx, ty);
+            let (ox, oy) = c.origin();
+            let (ax0, ax1) = (x0.max(ox), x1.min(ox + s));
+            let n = ((ax1 - ax0) * 4) as usize;
+            let dst = store.get_or_create_mut(c).bytes_mut();
+            for py in y0.max(oy)..y1.min(oy + s) {
+                let from = (((py - y) * s + ax0 - x) * 4) as usize;
+                let to = (((py - oy) * s + ax0 - ox) * 4) as usize;
+                dst[to..to + n].copy_from_slice(&pixels[from..from + n]);
+            }
+        }
+    }
+}
+
+/// Covers a `w` × `h` canvas with one pixel value: the inner tiles all share
+/// one allocation, the edge tiles get their own, cut to the canvas.
+fn fill_canvas(store: &mut TileStore, px: [u8; 4], (w, h): (i32, i32)) {
+    let s = T as i32;
+    let full = px.repeat(T * T);
+    let mut tile = Tile::empty();
+    tile.bytes_mut().copy_from_slice(&full);
+    let shared = Arc::new(tile);
+    for ty in 0..(h + s - 1) / s {
+        for tx in 0..(w + s - 1) / s {
+            let c = TileCoord::new(tx, ty);
+            let (ox, oy) = c.origin();
+            if ox + s <= w && oy + s <= h {
+                store.insert_shared(c, shared.clone());
+            } else {
+                put_tile(store, ox, oy, &full, (w, h));
+            }
+        }
+    }
+}
+
 struct Reader<'a> {
     zip: &'a ZipReader,
     dir: String,
@@ -452,27 +501,23 @@ impl Reader<'_> {
         let (ox, oy) = (num::<i32>(n, "x").unwrap_or(0), num::<i32>(n, "y").unwrap_or(0));
         let tiles = read_tiles(&data, space)?;
         let mut store = TileStore::new();
+        let (w, h) = (self.canvas.0 as i32, self.canvas.1 as i32);
+        let premultiplied = |rgba: &[u8]| -> Vec<u8> { rgba.as_chunks::<4>().0.iter().flat_map(|p| premultiply(*p)).collect() };
         // Outside its tiles a layer has its `.defaultpixel` (usually transparent).
         let default = self.data(&format!("{file}.defaultpixel")).filter(|d| d.len() == space.size()).map(|d| space.rgba(&d));
-        if let Some(fill) = default.filter(|p| p[3] != 0) {
-            let (w, h) = (self.canvas.0 as i32, self.canvas.1 as i32);
-            let mut canvas = fill.repeat((w * h) as usize);
-            for (x, y, rgba) in &tiles {
-                for (i, p) in rgba.as_chunks::<4>().0.iter().enumerate() {
-                    let (px, py) = (x + ox + (i % T) as i32, y + oy + (i / T) as i32);
-                    if px >= 0 && py >= 0 && px < w && py < h {
-                        let at = ((py * w + px) * 4) as usize;
-                        canvas[at..at + 4].copy_from_slice(p);
-                    }
-                }
+        // The fill is cut to the canvas; without one, whole tiles overlapping
+        // the canvas are kept (as `clip_to_canvas` does elsewhere).
+        let bounds = match default.filter(|p| p[3] != 0) {
+            Some(fill) => {
+                fill_canvas(&mut store, premultiply(fill), (w, h));
+                (w, h)
             }
-            ix::blit_rgba(&mut store, 0, 0, w as u32, h as u32, &canvas);
-            return Ok(store);
+            None => (self.canvas.0.div_ceil(TILE_SIZE) as i32 * T as i32, self.canvas.1.div_ceil(TILE_SIZE) as i32 * T as i32),
+        };
+        for (x, y, rgba) in &tiles {
+            put_tile(&mut store, x + ox, y + oy, &premultiplied(rgba), bounds);
         }
-        for (x, y, rgba) in tiles {
-            ix::blit_rgba(&mut store, x + ox, y + oy, TILE_SIZE, TILE_SIZE, &rgba);
-        }
-        clip_to_canvas(&mut store, self.canvas);
+        store.prune_transparent();
         Ok(store)
     }
 
@@ -485,32 +530,16 @@ impl Reader<'_> {
         let (ox, oy) = (num::<i32>(n, "x").unwrap_or(0), num::<i32>(n, "y").unwrap_or(0));
         let (w, h) = (self.canvas.0 as i32, self.canvas.1 as i32);
         let mut hide = TileStore::new();
-        let set = |hide: &mut TileStore, px: i32, py: i32, v: u8| {
-            if v != 0 && px >= 0 && py >= 0 && px < w && py < h {
-                let c = TileCoord::containing(px, py);
-                let (tx, ty) = c.origin();
-                hide.get_or_create_mut(c).set_pixel((px - tx) as u32, (py - ty) as u32, [v; 4]);
-            }
-        };
         let tiles = read_tiles(&data, Space::Alpha8)?;
         if default_shown != 255 {
             // Everything starts (partly) hidden; the file's tiles overwrite it below.
-            for py in 0..h {
-                for px in 0..w {
-                    set(&mut hide, px, py, 255 - default_shown);
-                }
-            }
+            fill_canvas(&mut hide, [255 - default_shown; 4], (w, h));
         }
         for (x, y, rgba) in tiles {
-            for (i, p) in rgba.as_chunks::<4>().0.iter().enumerate() {
-                let (px, py) = (x + ox + (i % T) as i32, y + oy + (i / T) as i32);
-                if px >= 0 && py >= 0 && px < w && py < h {
-                    let c = TileCoord::containing(px, py);
-                    let (tx, ty) = c.origin();
-                    hide.get_or_create_mut(c).set_pixel((px - tx) as u32, (py - ty) as u32, [255 - p[3]; 4]);
-                }
-            }
+            let hidden: Vec<u8> = rgba.as_chunks::<4>().0.iter().flat_map(|p| [255 - p[3]; 4]).collect();
+            put_tile(&mut hide, x + ox, y + oy, &hidden, (w, h));
         }
+        hide.prune_transparent();
         Ok(hide)
     }
 
@@ -802,5 +831,63 @@ mod tests {
         assert_eq!(crate::blend::unpremultiply(t.pixel(10, 10)), [255, 0, 0, 255]);
         assert_eq!(t.pixel(100, 10)[3], 0);
         assert_eq!(red.active_mask().unwrap().pixel(10, 10)[3], 255, "hidden");
+    }
+
+    #[test]
+    fn default_pixels_fill_large_canvases_by_whole_tiles() {
+        // 8000 × 6000 (not a multiple of 64), an opaque default pixel and a
+        // half-shown default mask with one offset tile straddling four tiles.
+        let (w, h) = (8000, 6000);
+        let mut zip = ZipWriter::new();
+        zip.add("mimetype", MIMETYPE.as_bytes(), false);
+        let main = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<DOC xmlns="http://www.calligra.org/DTD/krita" syntaxVersion="2.0">
+ <IMAGE name="img" width="{w}" height="{h}" colorspacename="RGBA">
+  <layers>
+   <layer nodetype="paintlayer" name="Paper" filename="layer2" x="10" y="20" colorspacename="RGBA">
+    <masks><mask nodetype="transparencymask" name="m" filename="mask1" x="30" y="40" visible="1"/></masks>
+   </layer>
+  </layers>
+ </IMAGE>
+</DOC>"#
+        );
+        zip.add("maindoc.xml", main.as_bytes(), true);
+        // A cleared tile and a blue one, both moved by the layer's offset.
+        let blue = [255u8, 0, 0, 255].repeat(T * T);
+        zip.add("img/layers/layer2", &write_tiles(&[(0, 0, vec![0; T * T * 4]), (7936, 5952, blue)]), true);
+        zip.add("img/layers/layer2.defaultpixel", &[0, 0, 255, 255], false);
+        let mut sel = format!("VERSION 2\nTILEWIDTH 64\nTILEHEIGHT 64\nPIXELSIZE 1\nDATA 1\n0,0,LZF,{}\n", T * T + 1).into_bytes();
+        sel.push(0);
+        sel.extend(std::iter::repeat_n(255, T * T));
+        zip.add("img/layers/mask1.pixelselection", &sel, true);
+        zip.add("img/layers/mask1.pixelselection.defaultpixel", &[128], false);
+        let start = std::time::Instant::now();
+        let (doc, warnings) = read(zip.finish()).unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert!(start.elapsed().as_secs() < 5, "took {:?}", start.elapsed());
+        let paper = doc.find(doc.rows_top_down()[0].0).unwrap();
+        let t = paper.tiles().unwrap();
+        let red = [255, 0, 0, 255];
+        assert_eq!(t.pixel(9, 19), red);
+        assert_eq!(t.pixel(10, 20)[3], 0, "cleared tile, offset");
+        assert_eq!(t.pixel(73, 83)[3], 0);
+        assert_eq!(t.pixel(74, 83), red);
+        assert_eq!(t.pixel(73, 84), red);
+        assert_eq!(t.pixel(7946, 5972), [0, 0, 255, 255], "blue tile, cut to the canvas");
+        assert_eq!(t.pixel(w - 1, h - 1), [0, 0, 255, 255]);
+        assert_eq!(t.pixel(7945, 5971), red);
+        assert_eq!(t.pixel(w, 0)[3], 0, "nothing past the canvas");
+        assert_eq!(t.pixel(0, h)[3], 0);
+        assert_eq!(t.len(), (w as usize).div_ceil(T) * (h as usize).div_ceil(T));
+        let shared = t.iter().filter(|(_, tile)| Arc::strong_count(tile) > 1).count();
+        assert!(shared > t.len() * 9 / 10, "inner tiles share one allocation");
+        let mask = paper.active_mask().unwrap();
+        assert_eq!(mask.pixel(0, 0)[3], 127, "default half shown");
+        assert_eq!(mask.pixel(w - 1, h - 1)[3], 127);
+        assert_eq!(mask.pixel(30, 40)[3], 0, "shown tile, offset");
+        assert_eq!(mask.pixel(93, 103)[3], 0);
+        assert_eq!(mask.pixel(94, 103)[3], 127);
+        assert_eq!(mask.pixel(w, 0)[3], 0, "nothing past the canvas");
     }
 }
