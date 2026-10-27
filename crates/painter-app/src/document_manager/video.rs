@@ -5,6 +5,8 @@
 //!   HEVC with its extension, WMV, AVI, MOV with the codecs installed…).
 //! - Elsewhere: the `ffmpeg` program when it's installed (on the PATH), which
 //!   plays nearly everything.
+//! - Android and iOS: not yet: apps there can't run other programs, so there
+//!   is no `ffmpeg` to call; opening a video says so (see [`PLAYBACK_SUPPORTED`]).
 //!
 //! Frames come scaled down to [`MAX_SIDE`] (a reference doesn't need more),
 //! as premultiplied RGBA.
@@ -19,6 +21,14 @@ pub(crate) const MAX_SIDE: u32 = 1280;
 
 /// Video files the board takes.
 pub(crate) const VIDEO_EXTENSIONS: [&str; 8] = ["mp4", "m4v", "mov", "webm", "mkv", "avi", "wmv", "mpg"];
+
+/// Whether this build can play videos. Android and iOS have no decoder yet
+/// (their sandboxes don't let the app run `ffmpeg`).
+pub(crate) const PLAYBACK_SUPPORTED: bool = !cfg!(any(target_os = "android", target_os = "ios"));
+
+/// What opening a video says where [`PLAYBACK_SUPPORTED`] is false.
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+pub(crate) const UNSUPPORTED_MESSAGE: &str = "video references can't play on this device yet";
 
 pub(crate) fn is_video_file(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| VIDEO_EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)))
@@ -45,6 +55,7 @@ enum Command {
 }
 
 /// The size `w`×`h` comes out at, longest side at most [`MAX_SIDE`], even sizes.
+#[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
 fn scaled(w: u32, h: u32) -> (u32, u32) {
     let k = (MAX_SIDE as f32 / w.max(h).max(1) as f32).min(1.0);
     let even = |v: f32| ((v.round() as u32) / 2 * 2).max(2);
@@ -65,9 +76,15 @@ fn open(path: &Path) -> Result<Box<dyn Decoder>, String> {
     {
         mf::MediaFoundation::open(path).map(|d| Box::new(d) as Box<dyn Decoder>)
     }
-    #[cfg(not(windows))]
+    #[cfg(all(not(windows), not(any(target_os = "android", target_os = "ios"))))]
     {
         ffmpeg::Ffmpeg::open(path).map(|d| Box::new(d) as Box<dyn Decoder>)
+    }
+    // No subprocesses on mobile: say so instead of asking for ffmpeg.
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = path;
+        Err(UNSUPPORTED_MESSAGE.to_string())
     }
 }
 
@@ -185,6 +202,7 @@ fn decode_loop(path: &Path, commands: Receiver<Command>, frames: SyncSender<Resu
 }
 
 /// Straight RGBA (alpha 255) as a texture image.
+#[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
 fn image(w: u32, h: u32, rgba: Vec<u8>) -> ColorImage {
     ColorImage::from_rgba_premultiplied([w as usize, h as usize], &rgba)
 }
@@ -302,7 +320,7 @@ mod mf {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(any(target_os = "android", target_os = "ios"))))]
 mod ffmpeg {
     use super::*;
     use std::io::Read;
@@ -429,6 +447,16 @@ mod tests {
         // BGRX bottom-up rows become RGBA top-down.
         let src = [1, 2, 3, 0, 4, 5, 6, 0]; // 1×2: bottom row first
         assert_eq!(resample(&src, 1, 2, 4, true, true, 1, 2), [6, 5, 4, 255, 3, 2, 1, 255]);
+    }
+
+    #[test]
+    fn mobile_builds_refuse_videos_without_running_ffmpeg() {
+        let mobile = cfg!(any(target_os = "android", target_os = "ios"));
+        assert_eq!(PLAYBACK_SUPPORTED, !mobile);
+        if mobile {
+            // A path that doesn't exist: the error must be ours, not a spawn failure.
+            assert_eq!(probe(Path::new("missing.mp4")).err().as_deref(), Some(UNSUPPORTED_MESSAGE));
+        }
     }
 }
 
