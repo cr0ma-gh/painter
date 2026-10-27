@@ -12,6 +12,8 @@ use crate::tile::TileStore;
 #[derive(Clone)]
 struct Snapshot {
     size: (u32, u32),
+    /// Print resolution, so a resolution change undoes with the canvas size.
+    dpi: u32,
     layers: Vec<Layer>,
     active: LayerId,
     selection: Option<TileStore>,
@@ -31,6 +33,7 @@ impl Snapshot {
     fn of(doc: &Document, label: String, hint: bool) -> Self {
         Self {
             size: doc.canvas(),
+            dpi: doc.dpi,
             layers: doc.layers.clone(),
             active: doc.active,
             selection: doc.selection.clone(),
@@ -47,6 +50,7 @@ impl Snapshot {
 
     fn restore(self, doc: &mut Document) {
         (doc.width, doc.height) = self.size;
+        doc.dpi = self.dpi;
         doc.layers = self.layers;
         doc.active = self.active;
         doc.selection = self.selection;
@@ -327,6 +331,19 @@ mod tests {
         doc.width = 4;
         assert!(history.undo(&mut doc));
         assert_eq!(doc.canvas(), (10, 10));
+    }
+
+    #[test]
+    fn dpi_comes_back_through_undo_and_redo() {
+        let mut doc = Document::new(10, 10);
+        doc.dpi = 300;
+        let mut history = History::new(10);
+        history.push_labelled(&doc, "Resolution");
+        doc.dpi = 600;
+        assert!(history.undo(&mut doc));
+        assert_eq!(doc.dpi, 300);
+        assert!(history.redo(&mut doc));
+        assert_eq!(doc.dpi, 600);
     }
 
     #[test]
