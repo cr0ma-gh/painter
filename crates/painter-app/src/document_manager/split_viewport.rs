@@ -759,6 +759,13 @@ impl PainterApp {
         r.previews.retain(|slot, _| slots.contains(slot));
         for slot in slots {
             let Some(i) = self.docs.index_of(slot) else { continue };
+            // A suspended tab keeps the picture it had; with none, it comes back to draw one.
+            if self.docs.is_suspended(i) {
+                if !self.docs.reference.previews.contains_key(&slot) {
+                    self.wake_document(i);
+                }
+                continue;
+            }
             let s = &self.docs.slots[i];
             // A parked document changes only through transfers (its revision);
             // the one being edited is checked by its pixels.
