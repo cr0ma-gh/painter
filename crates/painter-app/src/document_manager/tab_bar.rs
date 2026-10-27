@@ -3,12 +3,14 @@
 //! close button, documents still loading, and how much memory the open
 //! documents take. Ctrl+W closes, Ctrl+Tab / Ctrl+Shift+Tab cycle. Layers
 //! dragged from the Layers panel onto a tab are copied into that document.
+//! Suspended tabs (their pixels on disk) show in italics, with a thumbnail
+//! on hover, and a spinner while going to disk or coming back.
 
 use eframe::egui::{self, Align, Align2, Key, Layout, Modifiers};
 use crate::i18n::tr;
 
 use super::layer_transfer::LayerDrag;
-use super::session_store::ClosePrompt;
+use super::session_store::{ClosePrompt, Residency, Thumbnail};
 use crate::app::PainterApp;
 use crate::theme;
 
@@ -80,18 +82,42 @@ impl PainterApp {
                     let mut close = None;
                     let mut menu: Option<(usize, &str)> = None;
                     let mut dropped: Option<(usize, LayerDrag)> = None;
+                    // Thumbnails of tabs suspended since the last frame.
+                    for (slot, s) in self.docs.slots.iter_mut().filter_map(|slot| Some(slot.id).zip(slot.parked.as_mut())) {
+                        if let Some(Thumbnail::Image(image)) = s.thumbnail.take() {
+                            let texture = ctx.load_texture(format!("suspended-tab-{slot}"), image, egui::TextureOptions::LINEAR);
+                            s.thumbnail = Some(Thumbnail::Texture(texture));
+                        }
+                    }
                     for i in 0..self.docs.slots.len() {
                         let id = self.docs.slots[i].id;
                         let active = i == self.docs.active;
-                        let tab = ui.selectable_label(active, self.tab_label(i));
+                        let suspended = self.docs.is_suspended(i);
+                        let mut label = egui::RichText::new(self.tab_label(i));
+                        if suspended {
+                            label = label.italics();
+                        }
+                        let paging = self.docs.slots[i].parked.as_ref().is_some_and(|s| matches!(s.residency, Residency::Paging(_)));
+                        if paging {
+                            ui.spinner();
+                        }
+                        let tab = ui.selectable_label(active, label);
                         let tab = match &self.docs.slots[i].parked {
-                            Some(s) => tab.on_hover_text(format!(
-                                "{} × {} px, {} dpi{}",
-                                s.doc.width,
-                                s.doc.height,
-                                s.doc.dpi,
-                                s.file_path.as_ref().map_or(String::new(), |p| format!("\n{}", p.display()))
-                            )),
+                            Some(s) => tab.on_hover_ui(|ui| {
+                                if let Some(Thumbnail::Texture(texture)) = &s.thumbnail {
+                                    ui.add(egui::Image::new(texture).fit_to_original_size(1.0));
+                                }
+                                ui.label(format!(
+                                    "{} × {} px, {} dpi{}",
+                                    s.doc.width,
+                                    s.doc.height,
+                                    s.doc.dpi,
+                                    s.file_path.as_ref().map_or(String::new(), |p| format!("\n{}", p.display()))
+                                ));
+                                if suspended {
+                                    ui.weak(tr("Suspended: its pixels and undo history wait on disk to free memory. Click to bring it back."));
+                                }
+                            }),
                             None => tab,
                         };
                         // A layer dragged from the Layers panel.
@@ -140,7 +166,7 @@ impl PainterApp {
                         ui.weak(format!("Opening {}...", file_name(path)));
                     }
                     if let Some(i) = switch {
-                        self.switch_document(i);
+                        self.show_document(i);
                     }
                     if let Some((i, payload)) = dropped {
                         self.transfer_layer_to(i, payload.layer);

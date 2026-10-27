@@ -354,6 +354,11 @@ impl PainterApp {
         let now = Instant::now();
         let due: Vec<u64> = self.texture_links.iter().filter(|(_, l)| l.push_at.is_some_and(|t| t <= now)).map(|(s, _)| *s).collect();
         for slot in due {
+            // A suspended document's pixels are on disk: push once they're back.
+            if let Some(i) = self.docs.index_of(slot).filter(|&i| self.docs.is_suspended(i)) {
+                self.wake_document(i);
+                continue;
+            }
             let texture = if slot == active {
                 document_texture(&self.doc)
             } else {

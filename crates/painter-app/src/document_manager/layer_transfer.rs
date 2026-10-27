@@ -105,7 +105,7 @@ fn copy_rec(layer: &Layer, src_canvas: (u32, u32), dst: &mut Document, factor: f
 impl PainterApp {
     /// Copies layer `id` of the active document into tab `index`.
     pub(crate) fn transfer_layer_to(&mut self, index: usize, id: LayerId) {
-        if index == self.docs.active || index >= self.docs.slots.len() {
+        if index == self.docs.active || index >= self.docs.slots.len() || self.waking_for_transfer(index) {
             return;
         }
         self.commit_scenes(true);
@@ -149,7 +149,7 @@ impl PainterApp {
 
     /// Copies the active document's selection into tab `index`.
     pub(crate) fn transfer_selection_to(&mut self, index: usize) {
-        if index == self.docs.active || index >= self.docs.slots.len() {
+        if index == self.docs.active || index >= self.docs.slots.len() || self.waking_for_transfer(index) {
             return;
         }
         let Some(selection) = self.doc.selection.clone() else { return };
@@ -164,6 +164,17 @@ impl PainterApp {
         target.dirty = true;
         slot.revision += 1;
         self.status = tr("Selection copied").into();
+    }
+
+    /// A suspended tab can't take layers until its pixels are back: starts
+    /// bringing them back and says so. True if tab `index` is suspended.
+    fn waking_for_transfer(&mut self, index: usize) -> bool {
+        if !self.docs.is_suspended(index) {
+            return false;
+        }
+        self.wake_document(index);
+        self.status = format!("{} is coming back from disk: try again in a moment", self.tab_title(index));
+        true
     }
 }
 

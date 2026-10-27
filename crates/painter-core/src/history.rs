@@ -9,6 +9,10 @@
 //! the current state page their tiles out to a deflated swap file once the
 //! pixels only the history holds outgrow it, and page them back in when undone
 //! or redone. Tiles the document still shows stay in RAM: they cost nothing more.
+//!
+//! A document that isn't being edited (a background tab) can be suspended
+//! with its history ([`History::suspend`]): every tile, the document's too,
+//! goes to the same swap file until [`History::resume`].
 
 mod swap;
 
@@ -52,6 +56,15 @@ struct Cold {
     pins: HashMap<usize, Vec<(u32, TileCoord)>>,
     /// The layers read back for [`History::source`], until the next step.
     thawed: OnceLock<Vec<Layer>>,
+}
+
+/// Where a suspended document's tiles went (see [`History::suspend`]).
+struct Suspended {
+    /// `(store, coordinate, record)` of each of the document's tiles on disk;
+    /// stores are numbered by [`stores_mut`].
+    doc: Vec<(u32, TileCoord, RecordId)>,
+    /// The same for the history brush's chosen state.
+    source: Vec<(u32, TileCoord, RecordId)>,
 }
 
 /// Every tile store of a state, in a fixed order: each layer's pixels (a
@@ -267,6 +280,8 @@ pub struct History {
     doc_tiles: HashSet<usize>,
     /// RAM the history alone holds, when last counted.
     resident: usize,
+    /// Set while the document is suspended with its history.
+    suspended: Option<Suspended>,
 }
 
 /// Where swap files go unless told otherwise.
@@ -337,6 +352,31 @@ fn unpin(swap: &mut SwapFile, s: &mut Snapshot, gone: &[usize]) {
     }
 }
 
+/// Pages every tile of `stores` out, but for those the disk fails to take.
+fn page_out(swap: &mut SwapFile, stores: Vec<&mut TileStore>) -> Vec<(u32, TileCoord, RecordId)> {
+    let mut pages = Vec::new();
+    for (n, store) in stores.into_iter().enumerate() {
+        let coords: Vec<TileCoord> = store.iter().map(|(c, _)| c).collect();
+        for coord in coords {
+            let Some(id) = store.get(coord).and_then(|tile| swap.store(tile)) else { continue };
+            store.remove(coord);
+            pages.push((n as u32, coord, id));
+        }
+    }
+    pages
+}
+
+/// Puts tiles paged out by [`page_out`] back into `stores`. A tile the disk
+/// fails to give back stays out (it reads as transparent).
+fn page_in(swap: &mut SwapFile, mut stores: Vec<&mut TileStore>, pages: Vec<(u32, TileCoord, RecordId)>) {
+    for (n, coord, id) in pages {
+        let tile = swap.take(id);
+        if let (Some(tile), Some(store)) = (tile, stores.get_mut(n as usize)) {
+            store.put_shared(coord, tile);
+        }
+    }
+}
+
 /// Pages `s`'s tiles back in. A tile the disk fails to give back stays out
 /// (it reads as transparent).
 fn thaw(swap: &mut SwapFile, s: &mut Snapshot) {
@@ -362,6 +402,7 @@ impl History {
             held: HashMap::new(),
             doc_tiles: HashSet::new(),
             resident: 0,
+            suspended: None,
         }
     }
 
@@ -429,6 +470,7 @@ impl History {
     }
 
     fn record(&mut self, doc: &Document, label: &str, hint: bool) {
+        debug_assert!(self.suspended.is_none(), "resume the document before recording a step");
         self.name_last(doc);
         let snapshot = Snapshot::of(doc, label.to_string(), hint);
         hold(&mut self.held, &snapshot);
@@ -524,6 +566,7 @@ impl History {
     }
 
     pub fn undo(&mut self, doc: &mut Document) -> bool {
+        self.resume(doc);
         let Some(mut snapshot) = self.undo.pop() else {
             return false;
         };
@@ -543,6 +586,7 @@ impl History {
     /// state before it and, unlike [`History::undo`], nothing is left to redo
     /// (a stroke a resting palm started, rolled back).
     pub fn rollback(&mut self, doc: &mut Document) -> bool {
+        self.resume(doc);
         let Some(mut snapshot) = self.undo.pop() else {
             return false;
         };
@@ -553,6 +597,7 @@ impl History {
     }
 
     pub fn redo(&mut self, doc: &mut Document) -> bool {
+        self.resume(doc);
         let Some(mut snapshot) = self.redo.pop() else {
             return false;
         };
@@ -562,6 +607,67 @@ impl History {
         snapshot.restore(doc);
         self.fit(doc);
         true
+    }
+
+    /// Suspends a document that isn't being edited: pages the tiles of `doc`,
+    /// of every step and of the history brush's state out to the swap file, so
+    /// they take no RAM until [`History::resume`]. `doc` keeps its layers,
+    /// sizes and names but no pixels; neither it nor the history may change
+    /// meanwhile (undo, redo and rollback resume first). Tiles shared between
+    /// the document and its steps are written once, and shared again once back.
+    ///
+    /// Returns false when the disk failed: the tiles it couldn't take stay in
+    /// RAM, where they are, and resuming brings the others back all the same.
+    pub fn suspend(&mut self, doc: &mut Document) -> bool {
+        if self.suspended.is_some() {
+            return !self.swap.is_broken();
+        }
+        // A hinted step is named from the document's pixels: while they're here.
+        self.name_last(doc);
+        self.swap.prune();
+        // The steps first, while the document holds its tiles, so a tile both
+        // hold is written once and counted twice.
+        let none = HashSet::new();
+        for s in self.undo.iter_mut().chain(self.redo.iter_mut()) {
+            match &mut s.cold {
+                None => {
+                    unhold(&mut self.held, s);
+                    freeze(&mut self.swap, s, &none);
+                }
+                Some(cold) => {
+                    cold.thawed.take();
+                    let pinned: Vec<usize> = cold.pins.keys().copied().collect();
+                    unpin(&mut self.swap, s, &pinned);
+                }
+            }
+        }
+        let doc_pages = page_out(&mut self.swap, stores_mut(&mut doc.layers, &mut doc.selection, &mut doc.channels));
+        let source = match &mut self.source {
+            Some((_, layers)) => page_out(&mut self.swap, stores_mut(layers, &mut None, &mut [])),
+            None => Vec::new(),
+        };
+        self.suspended = Some(Suspended { doc: doc_pages, source });
+        self.held.clear();
+        self.doc_tiles.clear();
+        self.resident = 0;
+        !self.swap.is_broken()
+    }
+
+    /// Brings back the tiles of a document suspended with [`History::suspend`]
+    /// (the very `doc`, unchanged since). The steps' tiles come back when
+    /// undone or redone, as with a RAM budget. Does nothing if not suspended.
+    pub fn resume(&mut self, doc: &mut Document) {
+        let Some(suspended) = self.suspended.take() else { return };
+        page_in(&mut self.swap, stores_mut(&mut doc.layers, &mut doc.selection, &mut doc.channels), suspended.doc);
+        if let Some((_, layers)) = &mut self.source {
+            page_in(&mut self.swap, stores_mut(layers, &mut None, &mut []), suspended.source);
+        }
+        self.fit(doc);
+    }
+
+    /// Whether the document is suspended (see [`History::suspend`]).
+    pub fn is_suspended(&self) -> bool {
+        self.suspended.is_some()
     }
 
     pub fn can_undo(&self) -> bool {
@@ -667,6 +773,7 @@ impl History {
         self.held.clear();
         self.doc_tiles.clear();
         self.resident = 0;
+        self.suspended = None;
         self.swap.close();
     }
 }
@@ -925,6 +1032,88 @@ mod budget_tests {
         assert_eq!(history.swap_bytes(), 0);
         // Two replaced versions of four tiles (the layer started blank).
         assert_eq!(history.memory_bytes(), 2 * 4 * TILE_BYTES);
+    }
+
+    /// Every tile of the document (layers, masks, selection, channels), sorted.
+    fn all_pixels(doc: &mut Document) -> Vec<(u32, TileCoord, Vec<u8>)> {
+        let Document { layers, selection, channels, .. } = doc;
+        let mut out: Vec<_> = stores_mut(layers, selection, channels)
+            .into_iter()
+            .enumerate()
+            .flat_map(|(n, s)| s.iter().map(|(c, t)| (n as u32, c, t.bytes().to_vec())).collect::<Vec<_>>())
+            .collect();
+        out.sort_by_key(|(n, c, _)| (*n, *c));
+        out
+    }
+
+    #[test]
+    fn suspend_pages_everything_out_and_resume_brings_it_back() {
+        for budget in [None, Some(0), Some(MIB)] {
+            let dir = TempDir::new(&format!("suspend-{budget:?}"));
+            let mut doc = Document::new(256, 256);
+            let id = doc.active;
+            let mut history = History::new(20);
+            history.set_swap_dir(&dir.0);
+            history.set_ram_budget(budget);
+            let mut states = Vec::new();
+            for step in 0..6 {
+                states.push(all_pixels(&mut doc));
+                history.push_labelled(&doc, &format!("Step {step}"));
+                paint(&mut doc, id, step);
+                let rgba = vec![step as u8 * 40; 64 * 64 * 4];
+                doc.find_mut(id).unwrap().mask =
+                    Some(crate::layer::Mask { tiles: TileStore::from_rgba(64, 64, &rgba), enabled: true });
+                doc.selection = Some(TileStore::from_rgba(64, 64, &rgba));
+            }
+            states.push(all_pixels(&mut doc));
+            // Two steps undone: there is something to redo too.
+            assert!(history.undo(&mut doc) && history.undo(&mut doc));
+            history.set_source("Step 1", history.state_layers(1, &doc).unwrap());
+            let current = all_pixels(&mut doc);
+            assert_eq!(current, states[4]);
+            let (done, undone): (Vec<String>, Vec<String>) =
+                (history.done().map(str::to_string).collect(), history.undone().map(str::to_string).collect());
+
+            assert!(history.suspend(&mut doc));
+            assert!(history.is_suspended());
+            assert!(all_pixels(&mut doc).is_empty(), "{budget:?}: the document's tiles left RAM");
+            assert_eq!(history.memory_bytes(), 0);
+            assert!(history.swap_bytes() > 0);
+            assert_eq!(history.source().unwrap().1[1].tiles().unwrap().len(), 0);
+            // The steps keep their names meanwhile.
+            assert!(history.done().eq(done.iter().map(String::as_str)));
+
+            history.resume(&mut doc);
+            assert!(!history.is_suspended());
+            assert_eq!(all_pixels(&mut doc), current, "{budget:?}: the document comes back");
+            assert!(history.done().eq(done.iter().map(String::as_str)));
+            assert!(history.undone().eq(undone.iter().map(String::as_str)));
+            assert_eq!(history.source().unwrap().1[1].tiles().unwrap().len(), 16);
+            for want in states[..4].iter().rev() {
+                assert!(history.undo(&mut doc));
+                assert_eq!(all_pixels(&mut doc), *want, "{budget:?}: undo after resuming");
+            }
+            assert!(!history.can_undo());
+            for want in &states[1..] {
+                assert!(history.redo(&mut doc));
+                assert_eq!(all_pixels(&mut doc), *want, "{budget:?}: redo after resuming");
+            }
+
+            // A step that only renamed: undo resumes by itself, and the
+            // tiles the document and the step both hold are one copy again.
+            history.push_labelled(&doc, "Rename");
+            doc.find_mut(id).unwrap().name = "Inks".into();
+            assert!(history.suspend(&mut doc));
+            assert!(history.undo(&mut doc));
+            assert!(!history.is_suspended());
+            assert_eq!(doc.find(id).unwrap().name, "Layer 1");
+            let redo = history.state_layers(history.done().count() + 1, &doc).unwrap();
+            let (now, then) = (doc.find(id).unwrap().tiles().unwrap(), redo.iter().find(|l| l.id == id).unwrap().tiles().unwrap());
+            assert_eq!(now.len(), 16);
+            assert!(now.same_tiles(then), "{budget:?}: shared, not duplicated");
+            drop(history);
+            assert_eq!(dir.files(), 0, "dropping the history deletes the swap file");
+        }
     }
 }
 

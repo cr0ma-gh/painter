@@ -7,15 +7,22 @@
 //! Opening and saving run on worker threads, so a heavy file doesn't stall
 //! the canvas. A save works on a copy of the document (tiles are shared,
 //! so the copy is cheap), and editing can go on meanwhile.
+//!
+//! A tab left alone for a while, or any parked tab once the open documents
+//! take too much memory, is suspended: its pixels and undo history go to the
+//! history's compressed swap file on a worker thread, and only the layer
+//! tree, names, a small thumbnail and the unsaved-changes flag stay in RAM.
+//! Choosing the tab brings it back on a worker thread, then shows it.
 
 use std::collections::HashMap;
 use crate::i18n::tr;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
+use std::time::{Duration, Instant};
 
 use comic_layout::{ComicPage, PanelId};
 use eframe::egui;
-use painter_core::{io, project, psd, Document, History, LayerId};
+use painter_core::{io, project, psd, Document, History, Layer, LayerId, LayerKind, TileStore, TILE_BYTES, TILE_SIZE};
 
 use super::split_viewport::ReferenceView;
 use crate::app::{file_stem, new_history, PainterApp};
@@ -37,6 +44,211 @@ pub(crate) struct DocSession {
     pub(crate) file_path: Option<PathBuf>,
     pub(crate) dirty: bool,
     pub(crate) edit_mask: bool,
+    /// When it was parked (or last brought back), for suspending tabs left alone.
+    pub(crate) parked_at: Instant,
+    /// Whether its pixels and undo history are in RAM.
+    pub(crate) residency: Residency,
+    /// A small picture of it, taken when it was suspended.
+    pub(crate) thumbnail: Option<Thumbnail>,
+}
+
+/// Where a parked document's pixels and undo history are.
+pub(crate) enum Residency {
+    /// In RAM.
+    Resident,
+    /// Going to disk or coming back on a worker thread. Meanwhile the
+    /// session's `doc` is a stand-in without pixels (same layers, sizes and
+    /// names) and its `history` an empty one.
+    Paging(Receiver<Paged>),
+    /// On disk (see [`History::suspend`]); `doc` has its layers but no pixels.
+    Suspended,
+}
+
+/// What paging a document out or in on a worker thread gives back.
+pub(crate) struct Paged {
+    pub(crate) doc: Document,
+    pub(crate) history: History,
+    /// Whether it ended up on disk (false: back in RAM, or the disk failed).
+    pub(crate) suspended: bool,
+    /// Taken before paging out.
+    pub(crate) thumbnail: Option<egui::ColorImage>,
+}
+
+/// A suspended tab's picture: made on a worker thread, uploaded when first shown.
+pub(crate) enum Thumbnail {
+    Image(egui::ColorImage),
+    Texture(egui::TextureHandle),
+}
+
+/// The longest side of a suspended tab's thumbnail.
+pub(crate) const THUMBNAIL_SIZE: u32 = 256;
+
+/// A tab parked for less than this stays in RAM even under memory pressure,
+/// so flipping between tabs doesn't page them out and in.
+const MIN_PARKED: Duration = Duration::from_secs(10);
+
+/// When background tabs are suspended to disk.
+pub(crate) struct SuspendPolicy {
+    /// A tab parked this long is suspended (`None`: not just for being idle).
+    pub(crate) idle: Option<Duration>,
+    /// Above this much memory for the open documents' pixels and undo steps,
+    /// the tabs parked longest are suspended until it fits (`None`: no bound).
+    pub(crate) pressure_bytes: Option<usize>,
+}
+
+impl SuspendPolicy {
+    /// After 5 minutes, or past 2 GiB for all documents. PAINTER_TAB_SUSPEND_MIN
+    /// sets the minutes (0: never for being idle) and PAINTER_TAB_RAM_MB the
+    /// memory (0: no bound); PAINTER_LOW_RAM=1 makes them 1 minute and 512 MiB.
+    pub(crate) fn from_env() -> Self {
+        let low_ram = std::env::var("PAINTER_LOW_RAM").is_ok_and(|v| !v.is_empty() && v != "0");
+        let (minutes, mib) = if low_ram { (1, 512) } else { (5, 2048) };
+        let number = |name: &str, default: u64| std::env::var(name).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(default);
+        let minutes = number("PAINTER_TAB_SUSPEND_MIN", minutes);
+        let mib = number("PAINTER_TAB_RAM_MB", mib) as usize;
+        Self {
+            idle: (minutes > 0).then(|| Duration::from_secs(minutes * 60)),
+            pressure_bytes: (mib > 0).then(|| mib * 1024 * 1024),
+        }
+    }
+}
+
+impl DocSession {
+    /// Whether its pixels and undo history are in RAM, to be shown or changed.
+    pub(crate) fn resident(&self) -> bool {
+        matches!(self.residency, Residency::Resident)
+    }
+
+    /// RAM its pixels and the tiles only its history holds take.
+    fn memory_bytes(&self) -> usize {
+        self.doc.tile_count() * TILE_BYTES + self.history.memory_bytes()
+    }
+
+    /// Starts paging out (`out`) or back in on a worker thread.
+    fn start_paging(&mut self, out: bool) {
+        let stand_in = without_pixels(&self.doc);
+        let doc = std::mem::replace(&mut self.doc, stand_in);
+        let history = std::mem::replace(&mut self.history, History::new(1));
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(if out { suspend_document(doc, history) } else { resume_document(doc, history) });
+        });
+        self.residency = Residency::Paging(rx);
+    }
+
+    /// Takes back what a worker thread paged out or in.
+    fn land(&mut self, paged: Paged) {
+        self.doc = paged.doc;
+        self.history = paged.history;
+        if paged.suspended {
+            self.residency = Residency::Suspended;
+            self.thumbnail = paged.thumbnail.map(Thumbnail::Image);
+        } else {
+            self.residency = Residency::Resident;
+            self.thumbnail = None;
+            // Back for a reason: not to be suspended again at once.
+            self.parked_at = Instant::now();
+        }
+    }
+
+    /// Brings the pixels and history back into RAM on this thread, waiting
+    /// for a worker that has them. For when the document is needed now.
+    pub(crate) fn wake_now(&mut self) {
+        if let Residency::Paging(rx) = &self.residency {
+            match rx.recv() {
+                Ok(paged) => self.land(paged),
+                // The worker died with them: what's left is the stand-in.
+                Err(_) => self.residency = Residency::Resident,
+            }
+        }
+        if let Residency::Suspended = self.residency {
+            self.history.resume(&mut self.doc);
+            self.residency = Residency::Resident;
+            self.thumbnail = None;
+            self.parked_at = Instant::now();
+        }
+    }
+}
+
+/// Pages a parked document and its history out to disk (on a worker thread),
+/// after taking its thumbnail. If the disk fails it all stays in RAM.
+pub(crate) fn suspend_document(mut doc: Document, mut history: History) -> Paged {
+    let thumbnail = thumbnail(&doc, THUMBNAIL_SIZE);
+    let suspended = history.suspend(&mut doc);
+    if !suspended {
+        history.resume(&mut doc);
+    }
+    Paged { doc, history, suspended, thumbnail: Some(thumbnail) }
+}
+
+/// Brings a document suspended by [`suspend_document`] back (on a worker thread).
+pub(crate) fn resume_document(mut doc: Document, mut history: History) -> Paged {
+    history.resume(&mut doc);
+    Paged { doc, history, suspended: false, thumbnail: None }
+}
+
+/// `doc` with its layers, sizes and names but no pixels: what a tab shows
+/// while its document is paged out or in.
+fn without_pixels(doc: &Document) -> Document {
+    fn clear(layers: &mut [Layer]) {
+        for layer in layers {
+            match &mut layer.kind {
+                LayerKind::Raster(tiles) => *tiles = TileStore::new(),
+                LayerKind::Vector(vector) => vector.cache = TileStore::new(),
+                LayerKind::Folder(folder) => clear(&mut folder.children),
+                _ => {}
+            }
+            if let Some(mask) = &mut layer.mask {
+                mask.tiles = TileStore::new();
+            }
+        }
+    }
+    let mut out = doc.clone();
+    clear(&mut out.layers);
+    if let Some(selection) = &mut out.selection {
+        *selection = TileStore::new();
+    }
+    for channel in &mut out.channels {
+        channel.mask = TileStore::new();
+    }
+    out
+}
+
+/// A picture of `doc` at most `max` pixels on a side, averaged in square
+/// blocks. It's flattened a band at a time, so a large canvas never needs a
+/// full-size copy in RAM.
+pub(crate) fn thumbnail(doc: &Document, max: u32) -> egui::ColorImage {
+    let (w, h) = doc.canvas();
+    let step = w.max(h).div_ceil(max.max(1)).max(1);
+    let (ow, oh) = (w.div_ceil(step) as usize, h.div_ceil(step) as usize);
+    let mut pixels = vec![egui::Color32::TRANSPARENT; ow * oh];
+    // Whole rows of blocks, about a tile high.
+    let band = step * TILE_SIZE.div_ceil(step);
+    let mut sums = vec![[0u32; 5]; ow];
+    for y0 in (0..h).step_by(band as usize) {
+        let bh = band.min(h - y0);
+        let flat = io::flatten_region(doc, 0, y0, w, bh);
+        for oy in 0..bh.div_ceil(step) {
+            sums.iter_mut().for_each(|s| *s = [0; 5]);
+            for y in oy * step..((oy + 1) * step).min(bh) {
+                let row = &flat[(y * w * 4) as usize..((y + 1) * w * 4) as usize];
+                for (x, px) in row.as_chunks::<4>().0.iter().enumerate() {
+                    let s = &mut sums[x / step as usize];
+                    for c in 0..4 {
+                        s[c] += px[c] as u32;
+                    }
+                    s[4] += 1;
+                }
+            }
+            let out_row = ((y0 / step + oy) as usize) * ow;
+            for (ox, s) in sums.iter().enumerate() {
+                let n = s[4].max(1);
+                pixels[out_row + ox] =
+                    egui::Color32::from_rgba_premultiplied((s[0] / n) as u8, (s[1] / n) as u8, (s[2] / n) as u8, (s[3] / n) as u8);
+            }
+        }
+    }
+    egui::ColorImage { size: [ow, oh], pixels }
 }
 
 /// A document tab.
@@ -95,6 +307,10 @@ pub(crate) struct DocManager {
     pub(crate) reference: ReferenceView,
     /// Ctrl+Tab presses waiting to be applied (negative: backwards).
     pub(crate) pending_cycle: i32,
+    /// A suspended tab that was chosen: shown once it's back in RAM.
+    pub(crate) waking: Option<u64>,
+    /// When background tabs go to disk.
+    pub(crate) suspend: SuspendPolicy,
 }
 
 impl Default for DocManager {
@@ -110,6 +326,8 @@ impl Default for DocManager {
             quit_after_saves: false,
             reference: ReferenceView::default(),
             pending_cycle: 0,
+            waking: None,
+            suspend: SuspendPolicy::from_env(),
         }
     }
 }
@@ -128,7 +346,17 @@ impl DocManager {
     }
 
     pub(crate) fn busy(&self) -> bool {
-        !self.loads.is_empty() || !self.saves.is_empty()
+        !self.loads.is_empty() || !self.saves.is_empty() || self.paging()
+    }
+
+    /// Whether a tab is going to disk or coming back.
+    fn paging(&self) -> bool {
+        self.slots.iter().filter_map(|s| s.parked.as_ref()).any(|s| matches!(s.residency, Residency::Paging(_)))
+    }
+
+    /// Whether tab `index` is parked with its pixels on disk (or on their way).
+    pub(crate) fn is_suspended(&self, index: usize) -> bool {
+        self.slots.get(index).and_then(|s| s.parked.as_ref()).is_some_and(|s| !s.resident())
     }
 
     pub(crate) fn saving(&self) -> bool {
@@ -204,11 +432,15 @@ impl PainterApp {
             file_path: self.file_path.take(),
             dirty: std::mem::replace(&mut self.dirty, false),
             edit_mask: std::mem::replace(&mut self.edit_mask, false),
+            parked_at: Instant::now(),
+            residency: Residency::Resident,
+            thumbnail: None,
         }
     }
 
     /// Makes `s` the active document, with its own view.
-    fn put_session(&mut self, s: DocSession) {
+    fn put_session(&mut self, mut s: DocSession) {
+        s.wake_now();
         self.doc = s.doc;
         self.history = s.history;
         self.view = s.view;
@@ -252,10 +484,14 @@ impl PainterApp {
         true
     }
 
-    /// Shows tab `index`.
+    /// Shows tab `index` now: a suspended one is brought back on this thread
+    /// (see [`PainterApp::show_document`] for doing it in the background).
     pub(crate) fn switch_document(&mut self, index: usize) {
         if index == self.docs.active || index >= self.docs.slots.len() || !self.settle_active() {
             return;
+        }
+        if self.docs.waking == Some(self.docs.slots[index].id) {
+            self.docs.waking = None;
         }
         let current = self.take_session();
         let from = self.docs.active;
@@ -268,11 +504,116 @@ impl PainterApp {
         self.transform_blocked = true;
     }
 
+    /// Shows tab `index`; a suspended one first comes back from disk on a
+    /// worker thread, without holding up the canvas.
+    pub(crate) fn show_document(&mut self, index: usize) {
+        if index == self.docs.active || index >= self.docs.slots.len() {
+            return;
+        }
+        if !self.docs.is_suspended(index) {
+            self.docs.waking = None;
+            self.switch_document(index);
+            return;
+        }
+        self.docs.waking = Some(self.docs.slots[index].id);
+        self.wake_document(index);
+        self.status = format!("Restoring {}...", self.tab_title(index));
+    }
+
+    /// Starts bringing parked tab `index` back into RAM, if suspended.
+    pub(crate) fn wake_document(&mut self, index: usize) {
+        let Some(session) = self.docs.slots.get_mut(index).and_then(|s| s.parked.as_mut()) else { return };
+        if let Residency::Suspended = session.residency {
+            session.start_paging(false);
+        }
+    }
+
     pub(crate) fn cycle_document(&mut self, step: i32) {
         let n = self.docs.slots.len() as i32;
         if n > 1 {
-            self.switch_document((self.docs.active as i32 + step).rem_euclid(n) as usize);
+            self.show_document((self.docs.active as i32 + step).rem_euclid(n) as usize);
         }
+    }
+
+    /// Lands finished paging, shows a tab chosen while suspended once it's
+    /// back, and suspends the tabs the policy says to. Called once per frame.
+    fn poll_suspension(&mut self, ctx: &egui::Context) {
+        let mut lost = false;
+        for slot in &mut self.docs.slots {
+            let Some(session) = slot.parked.as_mut() else { continue };
+            let Residency::Paging(rx) = &session.residency else { continue };
+            match rx.try_recv() {
+                Ok(paged) => session.land(paged),
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => {
+                    session.residency = Residency::Resident;
+                    lost = true;
+                }
+            }
+        }
+        if lost {
+            self.status = tr("A background tab couldn't be paged: its pixels were lost").into();
+        }
+        if let Some(id) = self.docs.waking {
+            match self.docs.index_of(id) {
+                Some(i) if i != self.docs.active => {
+                    let session = self.docs.slots[i].parked.as_ref().expect("inactive tabs are parked");
+                    match session.residency {
+                        Residency::Resident => self.switch_document(i),
+                        // Chosen while still going to disk: bring it straight back.
+                        Residency::Suspended => self.wake_document(i),
+                        Residency::Paging(_) => {}
+                    }
+                }
+                _ => self.docs.waking = None,
+            }
+        }
+        if let Some(wait) = self.suspend_background_tabs() {
+            ctx.request_repaint_after(wait);
+        }
+    }
+
+    /// Suspends the parked tabs left alone past the policy's idle time and,
+    /// while the documents take more memory than it allows, the ones parked
+    /// longest. Returns when to look again.
+    fn suspend_background_tabs(&mut self) -> Option<Duration> {
+        let now = Instant::now();
+        let waking = self.docs.waking;
+        let mut parked: Vec<(Instant, usize)> = (self.docs.slots.iter().enumerate())
+            .filter(|(_, s)| Some(s.id) != waking)
+            .filter_map(|(i, s)| s.parked.as_ref().filter(|p| p.resident()).map(|p| (p.parked_at, i)))
+            .collect();
+        parked.sort();
+        let mut memory = self.doc.tile_count() * TILE_BYTES
+            + self.history.memory_bytes()
+            + self.docs.slots.iter().filter_map(|s| s.parked.as_ref()).map(DocSession::memory_bytes).sum::<usize>();
+        let policy = &self.docs.suspend;
+        let mut next: Option<Duration> = None;
+        let mut go = Vec::new();
+        for (at, i) in parked {
+            let age = now.saturating_duration_since(at);
+            let idle = policy.idle.is_some_and(|d| age >= d);
+            let pressed = policy.pressure_bytes.is_some_and(|b| memory > b);
+            let wait = if (idle || pressed) && age >= MIN_PARKED {
+                memory = memory.saturating_sub(self.docs.slots[i].parked.as_ref().map_or(0, DocSession::memory_bytes));
+                go.push(i);
+                None
+            } else if pressed {
+                Some(MIN_PARKED - age)
+            } else {
+                policy.idle.map(|d| d.saturating_sub(age))
+            };
+            next = match (next, wait) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+        }
+        for i in go {
+            if let Some(session) = self.docs.slots[i].parked.as_mut() {
+                session.start_paging(true);
+            }
+        }
+        next
     }
 
     /// An untitled, unchanged document: replacing it loses nothing.
@@ -402,7 +743,7 @@ impl PainterApp {
             };
             p == Some(&path)
         }) {
-            self.switch_document(i);
+            self.show_document(i);
             self.status = format!("{} is already open", path.display());
             return;
         }
@@ -493,6 +834,7 @@ impl PainterApp {
         if self.docs.quit_after_saves && !self.docs.saving() && self.dirty_count() == 0 {
             self.allow_quit(ctx);
         }
+        self.poll_suspension(ctx);
         self.poll_reference_previews(ctx);
         if self.docs.busy() {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
@@ -582,5 +924,168 @@ mod tests {
             assert_eq!(crate::files::kind_of(&path), Some(crate::files::FileKind::Document));
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Every tile of the document, by layer and plane: pixels, masks, the
+    /// selection and the saved channels.
+    fn planes(doc: &Document) -> Vec<(String, painter_core::TileCoord, Vec<u8>)> {
+        fn walk(layers: &[Layer], out: &mut Vec<(String, painter_core::TileCoord, Vec<u8>)>) {
+            for layer in layers {
+                let mut add = |plane: String, tiles: &TileStore| {
+                    out.extend(tiles.iter().map(|(c, t)| (plane.clone(), c, t.bytes().to_vec())));
+                };
+                if let Some(tiles) = layer.tiles() {
+                    add(format!("{} pixels", layer.id.0), tiles);
+                }
+                if let Some(mask) = &layer.mask {
+                    add(format!("{} mask", layer.id.0), &mask.tiles);
+                }
+                if let LayerKind::Folder(folder) = &layer.kind {
+                    walk(&folder.children, out);
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&doc.layers, &mut out);
+        let selection = doc.selection.iter().map(|s| ("selection".to_string(), s));
+        let channels = doc.channels.iter().map(|c| (format!("channel {}", c.name), &c.mask));
+        for (plane, tiles) in selection.chain(channels) {
+            out.extend(tiles.iter().map(|(c, t)| (plane.clone(), c, t.bytes().to_vec())));
+        }
+        out.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
+        out
+    }
+
+    /// `w` × `h` of one colour, premultiplied, as tiles.
+    fn solid(w: u32, h: u32, px: [u8; 4]) -> TileStore {
+        TileStore::from_rgba(w, h, &px.repeat((w * h) as usize))
+    }
+
+    /// Waits for the worker thread and takes its result back.
+    fn finish_paging(session: &mut DocSession) {
+        let Residency::Paging(rx) = &session.residency else { panic!("not paging") };
+        let paged = rx.recv().expect("the worker answers");
+        session.land(paged);
+    }
+
+    #[test]
+    fn park_suspend_resume_keeps_every_layer_mask_tile_and_undo_step() {
+        let swap = std::env::temp_dir().join(format!("painter-tab-swap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&swap);
+        let mut doc = Document::new(300, 200);
+        let mut history = History::with_ram_budget(50, 1 << 20, &swap);
+        let base = doc.active;
+        // A folder with a masked layer inside, a selection and a saved channel.
+        let (folder_id, inner) = (doc.alloc_id(), doc.alloc_id());
+        let mut folder = Layer::folder(folder_id, "Inks");
+        let mut child = Layer::raster(inner, "Lines");
+        child.mask = Some(painter_core::Mask { tiles: solid(100, 100, [0, 0, 0, 128]), enabled: true });
+        if let LayerKind::Folder(f) = &mut folder.kind {
+            f.children.push(child);
+        }
+        doc.layers.push(folder);
+        doc.channels.push(painter_core::SavedChannel { name: "Alpha 1".into(), mask: solid(64, 64, [0, 0, 0, 255]) });
+        let mut states = Vec::new();
+        for step in 0..8u8 {
+            states.push(planes(&doc));
+            history.push_labelled(&doc, &format!("Step {step}"));
+            let px = [step * 20, 255 - step * 20, step * 7, 255];
+            let target = if step % 2 == 0 { base } else { inner };
+            doc.find_mut(target).unwrap().kind = LayerKind::Raster(solid(300, 200, px));
+            doc.selection = Some(solid(64 * (1 + step as u32 % 3), 64, [0, 0, 0, 255]));
+        }
+        states.push(planes(&doc));
+        // Two steps undone, so there's something to redo too.
+        assert!(history.undo(&mut doc) && history.undo(&mut doc));
+        let parked_planes = planes(&doc);
+        assert_eq!(parked_planes, states[6]);
+        let (done, undone): (Vec<String>, Vec<String>) =
+            (history.done().map(str::to_string).collect(), history.undone().map(str::to_string).collect());
+
+        // Park.
+        let mut session = DocSession {
+            doc,
+            history,
+            view: ViewTransform::default(),
+            comic: None,
+            comic_undo: Vec::new(),
+            comic_redo: Vec::new(),
+            selected_panel: None,
+            scenes: HashMap::new(),
+            scene_undo: Vec::new(),
+            scene_redo: Vec::new(),
+            file_path: Some(PathBuf::from("page 12.painter")),
+            dirty: true,
+            edit_mask: false,
+            parked_at: Instant::now(),
+            residency: Residency::Resident,
+            thumbnail: None,
+        };
+        assert!(session.memory_bytes() > 0);
+
+        // Suspend: meanwhile the tab still knows its layers and size.
+        session.start_paging(true);
+        assert!(!session.resident());
+        assert_eq!((session.doc.canvas(), session.doc.find(inner).unwrap().name.as_str()), ((300, 200), "Lines"));
+        finish_paging(&mut session);
+        assert!(matches!(session.residency, Residency::Suspended));
+        assert!(planes(&session.doc).is_empty(), "no pixels left in RAM");
+        assert_eq!(session.memory_bytes(), 0);
+        assert!(session.history.swap_bytes() > 0);
+        assert!(session.dirty && session.file_path.is_some());
+        assert!(session.history.done().eq(done.iter().map(String::as_str)));
+        let Some(Thumbnail::Image(thumb)) = &session.thumbnail else { panic!("a thumbnail") };
+        assert_eq!(thumb.size, [150, 100]);
+
+        // Resume.
+        session.start_paging(false);
+        finish_paging(&mut session);
+        assert!(session.resident());
+        assert!(session.thumbnail.is_none());
+        assert_eq!(planes(&session.doc), parked_planes);
+        assert!(session.history.done().eq(done.iter().map(String::as_str)));
+        assert!(session.history.undone().eq(undone.iter().map(String::as_str)));
+        let (doc, history) = (&mut session.doc, &mut session.history);
+        for want in states[..6].iter().rev() {
+            assert!(history.undo(doc));
+            assert_eq!(planes(doc), *want);
+        }
+        assert!(!history.can_undo());
+        for want in &states[1..] {
+            assert!(history.redo(doc));
+            assert_eq!(planes(doc), *want);
+        }
+
+        // Suspended and needed at once (a tab closed next to it): back on this thread.
+        session.start_paging(true);
+        session.wake_now();
+        assert!(session.resident());
+        assert_eq!(planes(&session.doc), states[8]);
+        drop(session);
+        assert_eq!(std::fs::read_dir(&swap).map_or(0, |d| d.count()), 0, "closing the tab deletes its swap file");
+        std::fs::remove_dir_all(&swap).ok();
+    }
+
+    #[test]
+    fn thumbnails_average_the_flattened_canvas() {
+        let mut doc = Document::new(1000, 130);
+        let active = doc.active;
+        doc.find_mut(active).unwrap().kind = LayerKind::Raster(solid(500, 130, [200, 0, 0, 255]));
+        let thumb = thumbnail(&doc, THUMBNAIL_SIZE);
+        // 4 × 4 blocks: 250 × 33, the left half red over the white paper.
+        assert_eq!(thumb.size, [250, 33]);
+        assert_eq!(thumb.pixels[0], egui::Color32::from_rgba_premultiplied(200, 0, 0, 255));
+        assert_eq!(thumb.pixels[32 * 250 + 249], egui::Color32::WHITE);
+    }
+
+    #[test]
+    fn idle_and_memory_limits_come_from_the_environment_defaults() {
+        let policy = SuspendPolicy::from_env();
+        if std::env::var_os("PAINTER_TAB_SUSPEND_MIN").is_none() && std::env::var_os("PAINTER_LOW_RAM").is_none() {
+            assert_eq!(policy.idle, Some(Duration::from_secs(300)));
+        }
+        if std::env::var_os("PAINTER_TAB_RAM_MB").is_none() && std::env::var_os("PAINTER_LOW_RAM").is_none() {
+            assert_eq!(policy.pressure_bytes, Some(2048 << 20));
+        }
     }
 }
