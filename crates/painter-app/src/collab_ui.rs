@@ -11,14 +11,15 @@
 
 use std::collections::HashMap;
 use crate::i18n::tr;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Color32, FontId, Painter, Pos2, Rect, RichText, Stroke};
-use painter_core::collab::{self, Message, Peer, PlaneId, MAX_FRAME, VERSION};
+use painter_core::collab::{self, Message, Peer, PlaneId, MAX_FRAME, MAX_HANDSHAKE_FRAME, MAX_MESSAGE_FRAME, VERSION};
 use painter_core::{Document, LayerId, TileCoord, TileStore};
 use painter_render::Plane;
 
@@ -34,7 +35,7 @@ const TILES_PER_MESSAGE: usize = 96;
 type Frame = Arc<Vec<u8>>;
 
 enum NetEvent {
-    Connected { conn: u32, tx: Sender<Frame> },
+    Connected { conn: u32, tx: Sender<Frame>, limit: Arc<AtomicUsize> },
     Frame { conn: u32, message: Message },
     Closed { conn: u32 },
 }
@@ -49,6 +50,8 @@ struct Conn {
     tx: Sender<Frame>,
     /// Set once it said hello and was let in.
     peer: Option<u32>,
+    /// Largest frame its reader accepts: a handshake's until it's let in.
+    limit: Arc<AtomicUsize>,
 }
 
 pub(crate) struct Session {
@@ -103,23 +106,14 @@ impl Default for SessionForm {
     }
 }
 
-/// Reads frames from `stream` into events until it closes.
-fn reader(conn: u32, mut stream: TcpStream, events: Sender<NetEvent>) {
+/// Reads frames from `stream` into events until it closes, or until a frame
+/// is over `limit` (which the session raises once a peer is let in).
+fn reader(conn: u32, mut stream: TcpStream, events: Sender<NetEvent>, limit: Arc<AtomicUsize>) {
     loop {
-        let mut len = [0u8; 4];
-        if stream.read_exact(&mut len).is_err() {
-            break;
-        }
-        let len = u32::from_be_bytes(len) as usize;
-        if len > MAX_FRAME {
-            break;
-        }
-        let mut body = vec![0u8; len];
-        if stream.read_exact(&mut body).is_err() {
-            break;
-        }
+        let most = limit.load(Ordering::Relaxed);
+        let Ok(body) = collab::read_frame(&mut stream, most) else { break };
         // Malformed frames are dropped; the connection stays.
-        if let Some(message) = Message::decode(&body) {
+        if let Some(message) = Message::decode_limited(&body, most) {
             if events.send(NetEvent::Frame { conn, message }).is_err() {
                 return;
             }
@@ -129,11 +123,14 @@ fn reader(conn: u32, mut stream: TcpStream, events: Sender<NetEvent>) {
 }
 
 /// Starts the reading and writing threads of a connection; returns its sender.
-fn start_conn(conn: u32, stream: TcpStream, events: Sender<NetEvent>) -> std::io::Result<Sender<Frame>> {
+/// Its reader accepts frames up to `limit`.
+fn start_conn(conn: u32, stream: TcpStream, events: Sender<NetEvent>, limit: Arc<AtomicUsize>) -> std::io::Result<Sender<Frame>> {
     stream.set_nodelay(true).ok();
     let read_half = stream.try_clone()?;
     let (tx, rx) = channel::<Frame>();
-    std::thread::Builder::new().name(format!("session-read-{conn}")).spawn(move || reader(conn, read_half, events))?;
+    std::thread::Builder::new()
+        .name(format!("session-read-{conn}"))
+        .spawn(move || reader(conn, read_half, events, limit))?;
     let mut write_half = stream;
     std::thread::Builder::new().name(format!("session-write-{conn}")).spawn(move || {
         for frame in rx {
@@ -228,8 +225,10 @@ impl PainterApp {
                             let _ = stream.set_nonblocking(false);
                             let conn = next;
                             next += 1;
-                            if let Ok(tx) = start_conn(conn, stream, events_tx.clone()) {
-                                if events_tx.send(NetEvent::Connected { conn, tx }).is_err() {
+                            // Strangers get a handshake's worth until they're let in.
+                            let limit = Arc::new(AtomicUsize::new(MAX_HANDSHAKE_FRAME));
+                            if let Ok(tx) = start_conn(conn, stream, events_tx.clone(), limit.clone()) {
+                                if events_tx.send(NetEvent::Connected { conn, tx, limit }).is_err() {
                                     break;
                                 }
                             }
@@ -281,7 +280,9 @@ impl PainterApp {
             }
         };
         let (events_tx, events) = channel();
-        let tx = match start_conn(0, stream, events_tx) {
+        // The host sends the whole document.
+        let limit = Arc::new(AtomicUsize::new(MAX_FRAME));
+        let tx = match start_conn(0, stream, events_tx, limit.clone()) {
             Ok(tx) => tx,
             Err(e) => {
                 self.status = format!("Couldn't join: {e}");
@@ -293,7 +294,7 @@ impl PainterApp {
             Message::Hello { name: if name.is_empty() { "Guest".into() } else { name }, password, version: VERSION }.encode(),
         ));
         let mut conns = HashMap::new();
-        conns.insert(0, Conn { tx, peer: Some(0) });
+        conns.insert(0, Conn { tx, peer: Some(0), limit });
         self.status = format!("Joining {address}…");
         self.session = Some(Session {
             role: Role::Client,
@@ -350,8 +351,8 @@ impl PainterApp {
     fn session_event(&mut self, event: NetEvent) {
         let Some(s) = self.session.as_mut() else { return };
         match event {
-            NetEvent::Connected { conn, tx } => {
-                s.conns.insert(conn, Conn { tx, peer: None });
+            NetEvent::Connected { conn, tx, limit } => {
+                s.conns.insert(conn, Conn { tx, peer: None, limit });
             }
             NetEvent::Closed { conn } => {
                 if s.role == Role::Client {
@@ -376,7 +377,9 @@ impl PainterApp {
         let Some(s) = self.session.as_mut() else { return };
         // The host vouches for who sent what.
         let message = if s.role == Role::Host {
-            match (s.conns.get(&conn).and_then(|c| c.peer), message) {
+            // A connection already turned away has nothing more to say.
+            let Some(c) = s.conns.get(&conn) else { return };
+            match (c.peer, message) {
                 (None, Message::Hello { name, password, version }) => return self.session_hello(conn, name, password, version),
                 (None, _) => return,
                 // Only changes, pointers, chat and resync requests come from the others.
@@ -478,6 +481,8 @@ impl PainterApp {
         };
         if let Some(reason) = refuse {
             s.send_to(conn, &Message::Refused { reason });
+            // Dropping its sender closes it once the refusal is out.
+            s.conns.remove(&conn);
             return;
         }
         // Everyone in step first, so the newcomer's copy matches.
@@ -496,6 +501,7 @@ impl PainterApp {
         s.peers.push(Peer { id: peer, name: name.clone() });
         if let Some(c) = s.conns.get_mut(&conn) {
             c.peer = Some(peer);
+            c.limit.store(MAX_MESSAGE_FRAME, Ordering::Relaxed);
         }
         s.send_to(conn, &Message::Welcome { peer, peers: s.peers.clone(), document });
         s.chat.push((String::new(), format!("{name} joined")));

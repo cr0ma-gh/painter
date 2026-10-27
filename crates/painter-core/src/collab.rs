@@ -20,8 +20,16 @@ use crate::layer::{Layer, LayerId, LayerKind};
 use crate::raster::merge_stroke;
 use crate::tile::{Tile, TileCoord, TileStore, TILE_BYTES, TILE_PIXELS};
 
-/// Largest frame accepted (a whole document can be large).
+/// Largest frame accepted (a whole document can be large): only for the
+/// document a joining peer gets from the host it chose ([`Message::Welcome`],
+/// [`Message::Snapshot`]).
 pub const MAX_FRAME: usize = 1 << 30;
+/// Largest frame from a peer not let in yet (its [`Message::Hello`]), and
+/// largest unpacked binary part of messages that carry none (chat, pointers).
+pub const MAX_HANDSHAKE_FRAME: usize = 64 << 10;
+/// Largest frame of an ordinary message, packed or unpacked: changes travel
+/// in pieces (96 tiles, about 1.5 MiB unpacked), so this is plenty.
+pub const MAX_MESSAGE_FRAME: usize = 32 << 20;
 /// Protocol version; peers with another one are turned away.
 pub const VERSION: u32 = 1;
 
@@ -249,10 +257,23 @@ impl Message {
 
     /// A frame's body (after its length); `None` when it's malformed.
     pub fn decode(body: &[u8]) -> Option<Message> {
+        Self::decode_limited(body, MAX_FRAME)
+    }
+
+    /// As [`Message::decode`], but `None` too when the binary part unpacks to
+    /// more than `limit` bytes or more than its kind of message ever carries
+    /// (no decompression bombs).
+    pub fn decode_limited(body: &[u8], limit: usize) -> Option<Message> {
         let kind = *body.first()?;
         let hlen = u32::from_be_bytes(body.get(1..5)?.try_into().ok()?) as usize;
         let h: Header = serde_json::from_slice(body.get(5..5 + hlen)?).ok()?;
-        let blob = inflate(body.get(5 + hlen..)?, MAX_FRAME)?;
+        let most = match kind {
+            2 | 11 => MAX_FRAME,
+            5 => MAX_MESSAGE_FRAME,
+            6 | 7 => h.coords.len().saturating_mul(TILE_BYTES).min(MAX_MESSAGE_FRAME),
+            _ => MAX_HANDSHAKE_FRAME,
+        };
+        let blob = inflate(body.get(5 + hlen..)?, most.min(limit))?;
         let tiles_in = |blob: &[u8], all: bool| -> Option<Vec<(TileCoord, Option<Vec<u8>>)>> {
             let mut at = 0;
             let mut out = Vec::with_capacity(h.coords.len());
@@ -303,6 +324,24 @@ impl Message {
             _ => None,
         }
     }
+}
+
+/// Reads one frame's body (after its length) from `r`, refusing frames
+/// longer than `limit`. Memory grows only as the bytes actually arrive, so a
+/// peer claiming a huge frame gets nothing allocated for it.
+pub fn read_frame<R: Read>(r: &mut R, limit: usize) -> std::io::Result<Vec<u8>> {
+    let mut len = [0u8; 4];
+    r.read_exact(&mut len)?;
+    let len = u32::from_be_bytes(len) as usize;
+    if len > limit {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("frame of {len} bytes, over {limit}")));
+    }
+    let mut body = Vec::with_capacity(len.min(MAX_HANDSHAKE_FRAME));
+    r.take(len as u64).read_to_end(&mut body)?;
+    if body.len() != len {
+        return Err(std::io::ErrorKind::UnexpectedEof.into());
+    }
+    Ok(body)
 }
 
 // ---- document bookkeeping -------------------------------------------------------
@@ -490,6 +529,54 @@ mod tests {
         }
         assert_eq!(Message::decode(&[99, 0, 0, 0, 2, b'{', b'}']), None);
         assert_eq!(Message::decode(&[6, 0, 0, 0, 0]), None);
+    }
+
+    /// A frame with `kind`, a JSON `header` and `blob` deflated.
+    fn raw_frame(kind: u8, header: &[u8], blob: &[u8]) -> Vec<u8> {
+        let packed = deflate(blob);
+        let mut out = Vec::new();
+        out.extend_from_slice(&((5 + header.len() + packed.len()) as u32).to_be_bytes());
+        out.push(kind);
+        out.extend_from_slice(&(header.len() as u32).to_be_bytes());
+        out.extend_from_slice(header);
+        out.extend_from_slice(&packed);
+        out
+    }
+
+    #[test]
+    fn oversized_frames_are_refused_before_allocating() {
+        // A stranger claims a 1 GiB frame: refused from its length alone.
+        let mut wire: &[u8] = &[0x3F, 0xFF, 0xFF, 0xFF, 1, 2, 3];
+        let err = read_frame(&mut wire, MAX_HANDSHAKE_FRAME).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        // Even within the limit, a claimed length that never arrives costs only what arrived.
+        let mut wire: &[u8] = &[0x3F, 0xFF, 0xFF, 0xFF, 1, 2, 3];
+        let err = read_frame(&mut wire, MAX_FRAME).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::UnexpectedEof);
+        // A real hello fits the handshake limit and reads back.
+        let hello = Message::Hello { name: "Ada".into(), password: "pw".into(), version: VERSION };
+        let frame = hello.encode();
+        let mut wire: &[u8] = &frame;
+        let body = read_frame(&mut wire, MAX_HANDSHAKE_FRAME).unwrap();
+        assert_eq!(Message::decode_limited(&body, MAX_HANDSHAKE_FRAME), Some(hello));
+    }
+
+    #[test]
+    fn decompression_bombs_are_refused() {
+        let zeros = vec![0u8; 40 << 20];
+        // A chat or hello carries no binary part: a packed 4 MiB one is refused.
+        for kind in [1, 9] {
+            let frame = raw_frame(kind, b"{}", &zeros[..4 << 20]);
+            assert!(frame.len() < MAX_HANDSHAKE_FRAME);
+            assert_eq!(Message::decode(&frame[4..]), None);
+        }
+        // Tiles unpacking to more than their tiles.
+        let frame = raw_frame(6, br#"{"plane":{"layer":1,"mask":false},"coords":[[0,0,true]]}"#, &zeros);
+        assert_eq!(Message::decode(&frame[4..]), None);
+        // A document is fine from the host, not past the caller's limit.
+        let frame = raw_frame(11, b"{}", &zeros);
+        assert!(matches!(Message::decode(&frame[4..]), Some(Message::Snapshot { .. })));
+        assert_eq!(Message::decode_limited(&frame[4..], MAX_MESSAGE_FRAME), None);
     }
 
     #[test]
