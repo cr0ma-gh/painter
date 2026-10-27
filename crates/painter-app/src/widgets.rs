@@ -21,6 +21,46 @@ pub fn prop_slider(
     decimals: usize,
     logarithmic: bool,
 ) -> bool {
+    prop_row(ui, label, value, range, suffix, decimals, logarithmic, None)
+}
+
+/// [`prop_slider`] with a reset button at the end of the row that puts the
+/// value back to `default` (dimmed while the value is already there).
+#[allow(clippy::too_many_arguments)]
+pub fn prop_slider_reset(
+    ui: &mut Ui,
+    label: &str,
+    value: &mut f32,
+    default: f32,
+    range: RangeInclusive<f32>,
+    suffix: &str,
+    decimals: usize,
+    logarithmic: bool,
+) -> bool {
+    prop_row(ui, label, value, range, suffix, decimals, logarithmic, Some(default))
+}
+
+/// [`prop_percent`] with a reset button back to `default` (a 0..1 value).
+pub fn prop_percent_reset(ui: &mut Ui, label: &str, value: &mut f32, default: f32, range: RangeInclusive<f32>) -> bool {
+    let mut pct = *value * 100.0;
+    let changed = prop_slider_reset(ui, label, &mut pct, default * 100.0, range, "%", 0, false);
+    if changed {
+        *value = pct / 100.0;
+    }
+    changed
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prop_row(
+    ui: &mut Ui,
+    label: &str,
+    value: &mut f32,
+    range: RangeInclusive<f32>,
+    suffix: &str,
+    decimals: usize,
+    logarithmic: bool,
+    default: Option<f32>,
+) -> bool {
     let label = crate::i18n::tr_str(label);
     let (lo, hi) = (*range.start(), *range.end());
     let to_t = |v: f32| {
@@ -54,7 +94,8 @@ pub fn prop_slider(
             label_response.on_hover_text(label);
         }
         let value_w = 58.0;
-        let bar_w = (ui.available_width() - value_w - 4.0).max(24.0);
+        let reset_w = if default.is_some() { 20.0 } else { 0.0 };
+        let bar_w = (ui.available_width() - value_w - reset_w - 4.0).max(24.0);
         let (rect, response) = ui.allocate_exact_size(Vec2::new(bar_w, row_h), Sense::click_and_drag());
         let bar = Rect::from_center_size(rect.center(), Vec2::new(rect.width(), 6.0));
         if let Some(pos) = response.interact_pointer_pos() {
@@ -74,6 +115,13 @@ pub fn prop_slider(
         painter.rect_filled(filled, 1.0, fill);
         let drag = egui::DragValue::new(value).range(range.clone()).suffix(suffix).max_decimals(decimals).speed((hi - lo) / 400.0);
         changed |= ui.add_sized([value_w, row_h], drag).changed();
+        if let Some(default) = default {
+            let differs = (*value - default).abs() > 1e-4 * default.abs().max(1.0);
+            if crate::brush_ui::reset_glyph(ui, differs, tr("Back to the preset's value")).clicked() {
+                *value = default;
+                changed = true;
+            }
+        }
     });
     changed
 }

@@ -3,12 +3,15 @@
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use eframe::egui::{self, Color32, ColorImage, TextureHandle, TextureOptions};
 use painter_core::raster::paint_stroke;
-use painter_core::{blend, BrushMode, BrushSettings, StrokeEngine, StrokePoint, TileStore};
+use painter_core::{blend, BrushMode, BrushSettings, StrokeEngine, StrokePoint, TileStore, TipShape};
 
 pub const PREVIEW_SIZE: [usize; 2] = [200, 34];
+/// The larger preview at the foot of Advanced Tool Settings.
+pub const DETAIL_PREVIEW_SIZE: [usize; 2] = [420, 64];
 
 /// Rendered previews by brush index, re-rendered when a brush's look changes.
 #[derive(Default)]
@@ -16,18 +19,27 @@ pub struct StrokePreviews {
     cache: HashMap<usize, (u64, TextureHandle)>,
     /// Brush count the cache was built for; a change (import, delete) clears it.
     brushes: usize,
+    /// Pixel size of the previews; `None`: [`PREVIEW_SIZE`].
+    size: Option<[usize; 2]>,
 }
 
 impl StrokePreviews {
+    /// A cache rendering its previews at `size` instead of [`PREVIEW_SIZE`].
+    pub fn with_size(size: [usize; 2]) -> Self {
+        Self { size: Some(size), ..Self::default() }
+    }
+
     pub fn get(&mut self, ctx: &egui::Context, index: usize, settings: &BrushSettings, total: usize) -> &TextureHandle {
         if total != self.brushes {
             self.cache.clear();
             self.brushes = total;
         }
-        let key = fingerprint(settings);
+        let size = self.size.unwrap_or(PREVIEW_SIZE);
+        // Above the preview's own thickness cap a size change looks the same.
+        let key = fingerprint(settings, size[1] as f32 * 0.5);
         let stale = self.cache.get(&index).is_none_or(|(k, _)| *k != key);
         if stale {
-            let image = render(settings, PREVIEW_SIZE);
+            let image = render(settings, size);
             let texture = ctx.load_texture(format!("stroke_preview_{index}"), image, TextureOptions::LINEAR);
             self.cache.insert(index, (key, texture));
         }
@@ -67,12 +79,13 @@ pub fn render(settings: &BrushSettings, [w, h]: [usize; 2]) -> ColorImage {
     ColorImage { size: [w, h], pixels }
 }
 
-/// Hash of what the panels can change on a brush. Tips, textures and dual tips
-/// only change by re-importing, which resets the cache.
-fn fingerprint(s: &BrushSettings) -> u64 {
+/// Hash of what the panels can change on a brush. Tip, texture and dual tip
+/// bitmaps are told apart by their allocation: loading or resetting one in
+/// Advanced Tool Settings makes a new one.
+fn fingerprint(s: &BrushSettings, size_cap: f32) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     let floats = [
-        s.size.min(16.0),
+        s.size.min(size_cap),
         s.min_size_ratio,
         s.opacity,
         s.density,
@@ -96,7 +109,18 @@ fn fingerprint(s: &BrushSettings) -> u64 {
         }
     }
     (s.pressure_size, s.pressure_density, s.antialias.name(), s.rotation.random_flip_x, s.rotation.random_flip_y).hash(&mut h);
-    (s.texture.is_some(), s.dual.is_some()).hash(&mut h);
+    (s.rotation.follow_direction, s.scatter.count, s.scatter.both_axes, s.mode == BrushMode::Erase).hash(&mut h);
+    for f in [s.scatter.amount, s.scatter.count_jitter, s.taper_start, s.tilt_side] {
+        f.to_bits().hash(&mut h);
+    }
+    // Speed, tilt and rotation responses: small structs, hashed through their debug text.
+    format!("{:?}", (&s.size_dynamics, &s.density_dynamics, &s.opacity_dynamics, &s.thickness_dynamics, &s.rotation)).hash(&mut h);
+    match &s.tip.shape {
+        TipShape::Round => 0usize.hash(&mut h),
+        TipShape::Sampled(bitmap) => (Arc::as_ptr(bitmap) as usize).hash(&mut h),
+    }
+    s.texture.as_ref().map(|t| (Arc::as_ptr(&t.bitmap) as usize, t.scale.to_bits(), t.density.to_bits(), t.invert)).hash(&mut h);
+    s.dual.as_ref().map(|d| (Arc::as_ptr(&d.bitmap) as usize, d.scale.to_bits())).hash(&mut h);
     h.finish()
 }
 

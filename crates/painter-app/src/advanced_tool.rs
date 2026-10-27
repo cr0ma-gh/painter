@@ -10,6 +10,7 @@ use painter_core::{AntiAlias, BrushMode, PressureCurve, SmoothingMethod};
 use crate::app::PainterApp;
 use crate::panels::{dynamics_row, percent_slider, preset_buttons, rotation_presets};
 use crate::theme;
+use crate::previews::DETAIL_PREVIEW_SIZE;
 use crate::widgets::{prop_percent, prop_slider};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,25 +24,22 @@ pub(crate) enum Section {
     Stroke,
     Texture,
     SecondBrush,
+    /// Pressure curves and speed, tilt and random responses in one place.
+    Dynamics,
     Correction,
     StartingEnding,
     Export,
 }
 
 impl Section {
-    const ALL: [Section; 12] = [
-        Section::BrushSize,
-        Section::Ink,
-        Section::ColorJitter,
-        Section::AntiAliasing,
-        Section::BrushTip,
-        Section::Spraying,
-        Section::Stroke,
-        Section::Texture,
-        Section::SecondBrush,
-        Section::Correction,
-        Section::StartingEnding,
-        Section::Export,
+    /// The sidebar: macro areas (as in Clip Studio's Sub Tool Detail), each with its categories.
+    const AREAS: [(&'static str, &'static [Section]); 6] = [
+        ("General", &[Section::BrushSize, Section::Ink, Section::ColorJitter]),
+        ("Tip", &[Section::BrushTip, Section::AntiAliasing, Section::Stroke, Section::Spraying]),
+        ("Dynamics", &[Section::Dynamics]),
+        ("Texture", &[Section::Texture, Section::SecondBrush]),
+        ("Inking", &[Section::Correction, Section::StartingEnding]),
+        ("Brush File", &[Section::Export]),
     ];
 
     fn title(self) -> &'static str {
@@ -55,6 +53,7 @@ impl Section {
             Section::Stroke => "Stroke",
             Section::Texture => "Texture",
             Section::SecondBrush => "2-Brush Shape",
+            Section::Dynamics => "Pressure and Dynamics",
             Section::Correction => "Correction",
             Section::StartingEnding => "Starting and Ending",
             Section::Export => "Export",
@@ -74,10 +73,77 @@ impl Section {
             Section::Stroke => "How far apart the dabs are.",
             Section::Texture => "A paper texture the ink follows.",
             Section::SecondBrush => "A second tip that masks every dab (Clip Studio's 2-brush shape, Photoshop's dual brush).",
+            Section::Dynamics => "Pressure curves for size and density, and how pressure, speed, tilt and randomness change size, density, opacity and the tip.",
             Section::Correction => "Stabilisation of the stroke.",
             Section::StartingEnding => "Thin, light starts of strokes.",
             Section::Export => "Save this brush for Painter, Photoshop or Clip Studio.",
         }
+    }
+}
+
+/// Calls `$do!` with the preset fields a category of the window edits, as
+/// paths from a [`brush_io::BrushPreset`].
+macro_rules! section_fields {
+    ($section:expr, $do:ident) => {
+        match $section {
+            Section::BrushSize => $do!(
+                settings.size,
+                settings.size_relative,
+                settings.pressure_size,
+                settings.min_size_ratio,
+                settings.size_curve,
+                settings.size_dynamics
+            ),
+            Section::Ink => $do!(
+                settings.mode,
+                settings.blend,
+                settings.opacity,
+                settings.density,
+                settings.pressure_density,
+                settings.density_curve,
+                settings.density_dynamics,
+                settings.opacity_dynamics
+            ),
+            Section::ColorJitter => $do!(settings.color_jitter),
+            Section::AntiAliasing => $do!(settings.antialias, settings.hardness),
+            Section::BrushTip => $do!(tip, thickness, angle, settings.thickness_dynamics, settings.rotation, settings.tilt_side),
+            Section::Spraying => $do!(settings.scatter),
+            Section::Stroke => $do!(settings.spacing),
+            Section::Texture => $do!(texture),
+            Section::SecondBrush => $do!(dual),
+            Section::Dynamics => $do!(
+                settings.pressure_size,
+                settings.pressure_density,
+                settings.size_curve,
+                settings.density_curve,
+                settings.size_dynamics,
+                settings.density_dynamics,
+                settings.opacity_dynamics,
+                settings.thickness_dynamics
+            ),
+            Section::Correction => $do!(settings.stabilization, settings.smoothing),
+            Section::StartingEnding => $do!(settings.taper_start),
+            Section::Export => $do!(),
+        }
+    };
+}
+
+impl Section {
+    /// Whether this category's settings differ between `a` and `b`.
+    fn differs(self, a: &brush_io::BrushPreset, b: &brush_io::BrushPreset) -> bool {
+        macro_rules! any_differs {
+            ($($($p:ident).+),*) => { false $(|| a.$($p).+ != b.$($p).+)* };
+        }
+        section_fields!(self, any_differs)
+    }
+
+    /// Puts this category's settings of `to` back to `from`'s. The caller
+    /// then calls [`brush_io::BrushPreset::apply_tip`].
+    fn reset(self, to: &mut brush_io::BrushPreset, from: &brush_io::BrushPreset) {
+        macro_rules! copy {
+            ($($($p:ident).+),*) => {{ $(to.$($p).+ = Clone::clone(&from.$($p).+);)* }};
+        }
+        section_fields!(self, copy)
     }
 }
 
@@ -105,54 +171,91 @@ impl PainterApp {
         self.advanced_tool = Some(self.advanced_tool.unwrap_or(Section::BrushSize));
     }
 
-    /// The window: the brush's stroke on top, categories on the left, their settings on the right.
+    /// The window (Sub Tool Detail): macro areas and their categories on the
+    /// left, the category's settings on the right, the brush's stroke at the
+    /// foot, redrawn live as the settings change.
     pub(crate) fn advanced_tool_window(&mut self, ctx: &egui::Context) {
         let Some(mut section) = self.advanced_tool else { return };
         let mut open = true;
-        egui::Window::new(tr("Advanced Tool Settings")).open(&mut open).default_size(Vec2::new(560.0, 520.0)).resizable(true).show(
+        egui::Window::new(tr("Advanced Tool Settings")).open(&mut open).default_size(Vec2::new(600.0, 560.0)).resizable(true).show(
             ctx,
             |ui| {
-                // The stroke preview, as in Tool Settings.
                 let index = self.brush.min(self.brushes.len() - 1);
-                let total = self.brushes.len();
-                let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 56.0), Sense::hover());
-                ui.painter().rect_filled(rect, 3.0, Color32::from_gray(205));
-                let texture = self.previews.get(ui.ctx(), index, &self.brushes[index].settings, total);
-                let shown = egui::Rect::from_min_size(rect.left_top() + Vec2::new(rect.width() * 0.2, 8.0), texture.size_vec2());
-                ui.painter().image(
-                    texture.id(),
-                    shown,
-                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                    Color32::from_gray(20),
-                );
-                ui.painter().text(
-                    rect.left_top() + Vec2::new(6.0, 4.0),
-                    egui::Align2::LEFT_TOP,
-                    &self.brushes[index].settings.name,
-                    egui::FontId::proportional(12.0),
-                    Color32::from_gray(30),
-                );
-                ui.add_space(4.0);
-                ui.horizontal_top(|ui| {
+                // A fixed body height: a window has the whole screen available, which would push the preview off it.
+                let body_h = 420.0;
+                let base = crate::brush_ui::baseline_of(&mut self.brush_baselines, &self.brushes, index).clone();
+                let mut reset = false;
+                let body = Vec2::new(ui.available_width(), body_h);
+                ui.allocate_ui_with_layout(body, egui::Layout::left_to_right(egui::Align::Min), |ui| {
+                    ui.set_height(body_h);
                     ui.vertical(|ui| {
                         ui.set_width(150.0);
-                        for s in Section::ALL {
-                            ui.selectable_value(&mut section, s, tr(s.title()));
-                        }
+                        egui::ScrollArea::vertical().id_salt("advanced_tool_sidebar").max_height(body_h).show(ui, |ui| {
+                            for (area, sections) in Section::AREAS {
+                                ui.add_space(4.0);
+                                ui.label(egui::RichText::new(tr(area)).small().strong().color(theme::text_dim()));
+                                for &s in sections {
+                                    let edited = s.differs(&self.brushes[index], &base);
+                                    // A dot marks the categories changed from the preset.
+                                    let title = if edited { format!("{} •", tr(s.title())) } else { tr(s.title()).to_string() };
+                                    let item = ui.selectable_value(&mut section, s, title);
+                                    if edited {
+                                        item.on_hover_text(tr("Changed from the preset"));
+                                    }
+                                }
+                            }
+                        });
                     });
                     ui.separator();
                     ui.vertical(|ui| {
-                        ui.label(egui::RichText::new(tr(section.title())).strong());
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(tr(section.title())).strong());
+                            if section != Section::Export {
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let edited = section.differs(&self.brushes[index], &base);
+                                    reset = crate::brush_ui::reset_glyph(ui, edited, tr("Back to the preset's values for this category"))
+                                        .clicked();
+                                });
+                            }
+                        });
                         ui.small(section.help());
                         ui.separator();
-                        egui::ScrollArea::vertical().id_salt("advanced_tool_scroll").max_height(380.0).show(ui, |ui| {
+                        egui::ScrollArea::vertical().id_salt("advanced_tool_scroll").max_height(body_h - 50.0).auto_shrink([false, true]).show(ui, |ui| {
                             self.advanced_section(ui, section);
                         });
                     });
                 });
+                if reset {
+                    section.reset(&mut self.brushes[index], &base);
+                    self.brushes[index].apply_tip();
+                    self.brush_px = None;
+                }
+                ui.separator();
+                self.detail_preview_strip(ui, index);
             },
         );
         self.advanced_tool = open.then_some(section);
+    }
+
+    /// The stroke preview at the foot of Sub Tool Detail: the brush's name and
+    /// its stroke in the main colour on paper, re-rendered as settings change.
+    fn detail_preview_strip(&mut self, ui: &mut egui::Ui, index: usize) {
+        let total = self.brushes.len();
+        let height = DETAIL_PREVIEW_SIZE[1] as f32 + 8.0;
+        let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::hover());
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 3.0, Color32::from_gray(235));
+        let texture = self.detail_preview.get(ui.ctx(), index, &self.brushes[index].settings, total);
+        let size = texture.size_vec2();
+        let size = size * (rect.width() / size.x).min(1.0);
+        let shown = egui::Rect::from_center_size(rect.center(), size);
+        let [r, g, b] = {
+            let c = Color32::from(self.color);
+            [c.r(), c.g(), c.b()]
+        };
+        painter.image(texture.id(), shown, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::from_rgb(r, g, b));
+        let name = &self.brushes[index].settings.name;
+        painter.text(rect.left_top() + Vec2::new(6.0, 4.0), egui::Align2::LEFT_TOP, name, egui::FontId::proportional(11.5), Color32::from_gray(60));
     }
 
     fn advanced_section(&mut self, ui: &mut egui::Ui, section: Section) {
@@ -326,6 +429,24 @@ impl PainterApp {
                 if let Some(d) = &mut preset.dual {
                     tip_changed |= percent_slider(ui, &mut d.scale, "Size (of the main tip)", 5.0..=800.0);
                 }
+            }
+            Section::Dynamics => {
+                // The two pressure curves side by side when there's room, stacked otherwise.
+                ui.columns(2, |cols| {
+                    cols[0].checkbox(&mut brush.pressure_size, tr("Size from pen pressure"));
+                    if brush.pressure_size {
+                        pressure_curve(&mut cols[0], "dyn_size_curve", &mut brush.size_curve);
+                    }
+                    cols[1].checkbox(&mut brush.pressure_density, tr("Density (flow) from pen pressure"));
+                    if brush.pressure_density {
+                        pressure_curve(&mut cols[1], "dyn_density_curve", &mut brush.density_curve);
+                    }
+                });
+                ui.separator();
+                dynamics_row(ui, "Size with speed, tilt, random", &mut brush.size_dynamics, false);
+                dynamics_row(ui, "Density with speed, tilt, random", &mut brush.density_dynamics, false);
+                dynamics_row(ui, "Opacity per dab", &mut brush.opacity_dynamics, true);
+                dynamics_row(ui, "Tip thickness", &mut brush.thickness_dynamics, true);
             }
             Section::Correction => {
                 let mut stabilization = brush.stabilization as f32;
@@ -527,5 +648,40 @@ impl BrushFormat {
             BrushFormat::MyPaint => "MyPaint's engine; texture, dual tip and bitmap tips aren't carried over",
             BrushFormat::Gimp => "the tip and spacing; GIMP keeps dynamics separately",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use brush_io::BrushPreset;
+    use painter_core::BrushSettings;
+
+    #[test]
+    fn every_category_is_in_one_area() {
+        let all: Vec<Section> = Section::AREAS.iter().flat_map(|(_, s)| s.iter().copied()).collect();
+        assert_eq!(all.len(), 13);
+        for (i, s) in all.iter().enumerate() {
+            assert!(!all[i + 1..].contains(s), "{s:?} listed twice");
+        }
+    }
+
+    #[test]
+    fn category_reset_restores_only_its_settings() {
+        let base = BrushPreset::new(BrushSettings::g_pen());
+        let mut edited = base.clone();
+        edited.settings.spacing = 1.7;
+        edited.settings.stabilization = 80;
+        edited.thickness = 0.3;
+        assert!(Section::Stroke.differs(&edited, &base));
+        assert!(Section::BrushTip.differs(&edited, &base));
+        assert!(!Section::Ink.differs(&edited, &base));
+        assert!(!Section::Export.differs(&edited, &base));
+        Section::Stroke.reset(&mut edited, &base);
+        Section::BrushTip.reset(&mut edited, &base);
+        assert_eq!(edited.settings.spacing, base.settings.spacing);
+        assert_eq!(edited.thickness, base.thickness);
+        assert_eq!(edited.settings.stabilization, 80, "Correction untouched");
+        assert!(Section::Correction.differs(&edited, &base));
     }
 }
