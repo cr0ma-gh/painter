@@ -7,7 +7,7 @@ struct Globals {
     view_proj: mat4x4<f32>,
     // xyz: direction the light travels (sun) or position (point); w: 0 sun, 1 point.
     light_vec: array<vec4<f32>, 4>,
-    // rgb: colour × intensity; w unused.
+    // rgb: colour × intensity; w: range (point lights only).
     light_color: array<vec4<f32>, 4>,
     // x: light count, y: ambient.
     params: vec4<f32>,
@@ -59,11 +59,16 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     for (var i = 0u; i < count; i++) {
         let v = globals.light_vec[i];
         var to_light = -v.xyz;
+        var atten = 1.0;
         if (v.w > 0.5) {
             to_light = v.xyz - input.world;
+            // Smooth quadratic falloff, reaching zero at the light's range.
+            let range = max(globals.light_color[i].w, 1e-4);
+            let f = clamp(1.0 - length(to_light) / range, 0.0, 1.0);
+            atten = f * f;
         }
         // Two-sided: reference meshes are often open or have flipped faces.
-        light += globals.light_color[i].rgb * abs(dot(n, normalize(to_light)));
+        light += globals.light_color[i].rgb * atten * abs(dot(n, normalize(to_light)));
     }
     let painted = textureSample(paint, paint_sampler, vec2<f32>(input.uv.x, 1.0 - input.uv.y)) * object.params.x;
     let base = object.color.rgb * (1.0 - painted.a) + painted.rgb;

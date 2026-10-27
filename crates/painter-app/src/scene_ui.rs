@@ -1027,7 +1027,7 @@ fn preview(id: LayerId, layer: &SceneLayer, (w, h): (u32, u32)) -> ScenePreview 
                 let color = l.color.map(|c| c * l.intensity);
                 match l.kind {
                     LightKind::Sun { direction } => SceneLight::Sun { direction: direction.to_array(), color },
-                    LightKind::Point { position, .. } => SceneLight::Point { position: position.to_array(), color },
+                    LightKind::Point { position, range } => SceneLight::Point { position: position.to_array(), range, color },
                 }
             })
             .collect(),
