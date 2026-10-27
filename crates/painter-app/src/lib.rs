@@ -138,28 +138,32 @@ pub fn native_options() -> eframe::NativeOptions {
 fn gpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
     use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetupCreateNew};
     use eframe::wgpu;
-    let dir = files::app_data_dir();
-    let starting = dir.as_ref().map(|d| d.join("gpu-starting"));
-    let use_gl = dir.as_ref().map(|d| d.join("gpu-use-opengl"));
-    // The marker of the last start is still there: it never got past the GPU setup.
-    if let (Some(starting), Some(use_gl)) = (&starting, &use_gl) {
-        if starting.exists() {
-            let _ = std::fs::write(use_gl, b"Vulkan crashed while starting; OpenGL ES is used.\n");
-        }
-        if let Some(d) = &dir {
-            let _ = std::fs::create_dir_all(d);
-        }
-        let _ = std::fs::write(starting, b"");
-    }
     // Decided before the window's surface exists: one backend only, since a
     // Vulkan surface takes the window and OpenGL ES can't attach to it after.
-    let force_gl = use_gl.is_some_and(|p| p.exists());
+    let force_gl = gpu_crash_marker(b"Vulkan crashed while starting; OpenGL ES is used.
+");
     let vulkan = if force_gl { Vec::new() } else { vulkan_gpus() };
     let mali = vulkan.iter().any(|info| info.vendor == 0x13B5 || info.name.to_ascii_lowercase().contains("mali"));
     let backends = if force_gl || mali || vulkan.is_empty() { wgpu::Backends::GL } else { wgpu::Backends::VULKAN };
     let mut setup = WgpuSetupCreateNew::default();
     setup.instance_descriptor.backends = backends;
     WgpuConfiguration { wgpu_setup: setup.into(), ..Default::default() }
+}
+
+/// Marks this start in the app's data folder (`gpu-starting`, cleared by
+/// `gpu_started`). If the last start's marker is still there, it never got
+/// past the GPU setup: `gpu-use-opengl` is written with `note`. True when
+/// that compatible-mode marker exists; it sticks once made.
+fn gpu_crash_marker(note: &[u8]) -> bool {
+    let Some(dir) = files::app_data_dir() else { return false };
+    let starting = dir.join("gpu-starting");
+    let use_gl = dir.join("gpu-use-opengl");
+    if starting.exists() {
+        let _ = std::fs::write(&use_gl, note);
+    }
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(starting, b"");
+    use_gl.exists()
 }
 
 /// The Vulkan GPUs, listed without touching the window.
@@ -170,14 +174,70 @@ fn vulkan_gpus() -> Vec<eframe::wgpu::AdapterInfo> {
     instance.enumerate_adapters(wgpu::Backends::VULKAN).iter().map(|a| a.get_info()).collect()
 }
 
+/// Desktop: every backend wgpu has here (Vulkan, DirectX 12, Metal and
+/// OpenGL), with device limits that fit the GPU (see [`device_limits`]), so
+/// old GPUs (Intel GMA 4500, HD 3000: no DirectX 12, no Vulkan) start on
+/// OpenGL instead of failing. Compatibility mode (`--low-gpu` /
+/// `--gpu-compat`, `PAINTER_LOW_GPU=1`, or after a start that died while
+/// setting up the GPU; `PAINTER_LOW_GPU=0` undoes that) goes straight to
+/// OpenGL with downlevel limits.
 #[cfg(not(target_os = "android"))]
 fn gpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
-    Default::default()
+    use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetupCreateNew};
+    use eframe::wgpu;
+    let crashed = gpu_crash_marker(b"The GPU crashed while starting; compatibility mode (OpenGL) is used.
+");
+    let args: Vec<String> = std::env::args().collect();
+    let env = std::env::var_os("PAINTER_LOW_GPU");
+    // `PAINTER_LOW_GPU=0`: back to the usual setup, forgetting a past crash.
+    let crashed = if env.as_deref() == Some(std::ffi::OsStr::new("0")) {
+        if let Some(d) = files::app_data_dir() {
+            let _ = std::fs::remove_file(d.join("gpu-use-opengl"));
+        }
+        false
+    } else {
+        crashed
+    };
+    let compat = crashed || low_gpu_requested(&args, env.as_deref());
+    let mut setup = WgpuSetupCreateNew::default();
+    // `WGPU_BACKEND` still wins; macOS and iPadOS have no OpenGL in wgpu.
+    if compat && wgpu::Backends::from_env().is_none() && !cfg!(target_vendor = "apple") {
+        setup.instance_descriptor.backends = wgpu::Backends::GL;
+    }
+    setup.device_descriptor = std::sync::Arc::new(move |adapter| wgpu::DeviceDescriptor {
+        label: Some("egui wgpu device"),
+        required_features: wgpu::Features::default(),
+        required_limits: device_limits(&adapter.limits(), compat),
+        memory_hints: wgpu::MemoryHints::default(),
+    });
+    WgpuConfiguration { wgpu_setup: setup.into(), ..Default::default() }
+}
+
+/// The command-line flags that start in GPU compatibility mode.
+pub const LOW_GPU_FLAGS: [&str; 2] = ["--low-gpu", "--gpu-compat"];
+
+/// Compatibility mode asked for: one of [`LOW_GPU_FLAGS`] in `args`, or
+/// `PAINTER_LOW_GPU` set to anything but `0`.
+#[cfg_attr(target_os = "android", allow(dead_code))]
+fn low_gpu_requested(args: &[String], env: Option<&std::ffi::OsStr>) -> bool {
+    args.iter().any(|a| LOW_GPU_FLAGS.contains(&a.as_str())) || env.is_some_and(|v| !v.is_empty() && v != "0")
+}
+
+/// The limits to ask of a GPU offering `adapter`: wgpu's defaults when it
+/// has them (and `compat` is off), else the downlevel ones (OpenGL 3.3 /
+/// DirectX 11 class), else WebGL 2's (OpenGL ES 3.0), else just what it has.
+/// Textures stay up to 8192 pixels wide where the GPU allows, for 4K screens.
+#[cfg_attr(target_os = "android", allow(dead_code))]
+fn device_limits(adapter: &eframe::wgpu::Limits, compat: bool) -> eframe::wgpu::Limits {
+    use eframe::wgpu::Limits;
+    let tiers = [Limits::default(), Limits::downlevel_defaults(), Limits::downlevel_webgl2_defaults()];
+    let tiers = if compat { &tiers[1..] } else { &tiers[..] };
+    let base = tiers.iter().find(|t| t.check_limits(adapter)).cloned().unwrap_or_else(|| adapter.clone());
+    Limits { max_texture_dimension_2d: adapter.max_texture_dimension_2d.min(8192), ..base }
 }
 
 /// The app is up, GPU included: this start didn't crash (see `gpu_options`).
 fn gpu_started() {
-    #[cfg(target_os = "android")]
     if let Some(d) = files::app_data_dir() {
         let _ = std::fs::remove_file(d.join("gpu-starting"));
     }
@@ -264,4 +324,51 @@ pub fn run(options: eframe::NativeOptions, file: Option<std::path::PathBuf>, res
 pub fn set_android_app(app: winit::platform::android::activity::AndroidApp) {
     files::set_android_folders(app.internal_data_path(), app.external_data_path());
     android::set_app(app);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eframe::wgpu::Limits;
+
+    #[test]
+    fn modern_gpus_get_the_default_limits() {
+        let adapter = Limits { max_texture_dimension_2d: 16384, ..Limits::default() };
+        let limits = device_limits(&adapter, false);
+        assert_eq!(limits, Limits { max_texture_dimension_2d: 8192, ..Limits::default() });
+        // Compatibility mode asks for less even of a capable GPU.
+        assert_eq!(device_limits(&adapter, true), Limits { max_texture_dimension_2d: 8192, ..Limits::downlevel_defaults() });
+    }
+
+    #[test]
+    fn downlevel_gpus_get_limits_they_have() {
+        // An OpenGL 3.3 class GPU: the default limits would fail the device request.
+        let adapter = Limits::downlevel_defaults();
+        assert!(!Limits::default().check_limits(&adapter));
+        let limits = device_limits(&adapter, false);
+        assert_eq!(limits, Limits::downlevel_defaults());
+        assert!(limits.check_limits(&adapter));
+    }
+
+    #[test]
+    fn webgl2_class_and_weaker_gpus_still_start() {
+        let adapter = Limits { max_texture_dimension_2d: 4096, ..Limits::downlevel_webgl2_defaults() };
+        let limits = device_limits(&adapter, false);
+        assert_eq!(limits, Limits { max_texture_dimension_2d: 4096, ..Limits::downlevel_webgl2_defaults() });
+        assert!(limits.check_limits(&adapter));
+        // Below even WebGL 2: exactly what the GPU offers.
+        let adapter = Limits { max_texture_array_layers: 64, ..Limits::downlevel_webgl2_defaults() };
+        assert_eq!(device_limits(&adapter, true), adapter);
+    }
+
+    #[test]
+    fn low_gpu_flags_and_variable() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(low_gpu_requested(&args(&["painter", "--low-gpu"]), None));
+        assert!(low_gpu_requested(&args(&["painter", "--gpu-compat", "a.painter"]), None));
+        assert!(!low_gpu_requested(&args(&["painter", "a.painter"]), None));
+        assert!(low_gpu_requested(&args(&["painter"]), Some("1".as_ref())));
+        assert!(!low_gpu_requested(&args(&["painter"]), Some("0".as_ref())));
+        assert!(!low_gpu_requested(&args(&["painter"]), Some("".as_ref())));
+    }
 }
