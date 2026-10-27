@@ -12,8 +12,9 @@
 //! - masks → user masks (PSD stores visibility, we store the hidden amount);
 //! - opacity, visibility, clipping and the 13 blend modes map directly.
 //!
-//! Reading accepts 8-bit RGB files with raw or RLE channels; other depths,
-//! colour modes and ZIP-compressed channels are rejected with an error.
+//! Reading accepts 8-bit Grayscale, RGB and CMYK files with raw or RLE
+//! channels; grey and CMYK pixels are converted to RGB. Other depths, colour
+//! modes and ZIP-compressed channels are rejected with an error.
 //! Adjustment and other special layers are skipped.
 
 use std::fmt;
@@ -589,6 +590,62 @@ impl<'a> Reader<'a> {
     }
 }
 
+/// Colour modes the reader converts to RGB pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SourceMode {
+    /// Mode 1: one grey channel.
+    Gray,
+    /// Mode 3: red, green and blue channels.
+    Rgb,
+    /// Mode 4: cyan, magenta, yellow and black, stored as 255 = no ink.
+    Cmyk,
+}
+
+impl SourceMode {
+    /// The header's colour mode, if it is one we read.
+    fn from_header(mode: u16) -> Option<Self> {
+        match mode {
+            1 => Some(Self::Gray),
+            3 => Some(Self::Rgb),
+            4 => Some(Self::Cmyk),
+            _ => None,
+        }
+    }
+
+    /// Colour channels before any alpha.
+    fn colour_channels(self) -> usize {
+        match self {
+            Self::Gray => 1,
+            Self::Rgb => 3,
+            Self::Cmyk => 4,
+        }
+    }
+
+    /// Stored value of a colour channel a layer leaves out: no colour, no ink.
+    fn absent(self) -> u8 {
+        match self {
+            Self::Cmyk => 255,
+            Self::Gray | Self::Rgb => 0,
+        }
+    }
+
+    /// Stored colour channels (unused ones ignored) → straight RGB.
+    ///
+    /// CMYK uses the naive conversion `R = (1 − C)(1 − K)` and so on; with
+    /// stored values (255 − ink) that is `stored C × stored K / 255`.
+    fn rgb(self, c: [u8; 4]) -> [u8; 3] {
+        match self {
+            Self::Gray => [c[0]; 3],
+            Self::Rgb => [c[0], c[1], c[2]],
+            Self::Cmyk => {
+                let k = u32::from(c[3]);
+                let mul = |v: u8| ((u32::from(v) * k + 127) / 255) as u8;
+                [mul(c[0]), mul(c[1]), mul(c[2])]
+            }
+        }
+    }
+}
+
 struct ReadRecord {
     name: String,
     rect: [i32; 4],
@@ -661,9 +718,10 @@ pub fn read(data: &[u8]) -> Result<Document, PsdError> {
     let width = r.u32()?;
     let depth = r.u16()?;
     let mode = r.u16()?;
-    if depth != 8 || mode != 3 {
-        return Err(PsdError::Unsupported(format!("{depth}-bit colour mode {mode} (only 8-bit RGB)")));
-    }
+    let source = match SourceMode::from_header(mode) {
+        Some(source) if depth == 8 => source,
+        _ => return Err(PsdError::Unsupported(format!("{depth}-bit colour mode {mode} (only 8-bit Grayscale, RGB and CMYK)"))),
+    };
     if width == 0 || height == 0 || width > MAX_CANVAS_SIZE || height > MAX_CANVAS_SIZE {
         return Err(PsdError::Unsupported(format!("{width}×{height} canvas (max {MAX_CANVAS_SIZE})")));
     }
@@ -684,7 +742,7 @@ pub fn read(data: &[u8]) -> Result<Document, PsdError> {
     if section_len > 0 {
         let info_len = r.u32()? as usize;
         if info_len > 0 {
-            layers = read_layers(&mut r, canvas, &mut doc)?;
+            layers = read_layers(&mut r, canvas, source, &mut doc)?;
         }
     }
     r.pos = section_end;
@@ -693,7 +751,10 @@ pub fn read(data: &[u8]) -> Result<Document, PsdError> {
         // Flat file: read the composite into one layer.
         let compression = r.u16()?;
         let (w, h) = (width as usize, height as usize);
-        let channels = channel_count.min(4) as usize;
+        let colours = source.colour_channels();
+        if (channel_count as usize) < colours {
+            return Err(PsdError::Corrupt("too few composite channels"));
+        }
         let mut planes = Vec::new();
         match compression {
             0 => {
@@ -717,8 +778,14 @@ pub fn read(data: &[u8]) -> Result<Document, PsdError> {
         }
         let mut rgba = vec![0u8; w * h * 4];
         for i in 0..w * h {
-            let a = if channels >= 4 { planes[3][i] } else { 255 };
-            let px = premultiply([planes[0][i], planes[1][i], planes[2][i], a]);
+            // Colour channels, then the merged alpha if there is one.
+            let a = planes.get(colours).map_or(255, |p| p[i]);
+            let mut colour = [0; 4];
+            for (c, v) in colour.iter_mut().enumerate().take(colours) {
+                *v = planes[c][i];
+            }
+            let [red, green, blue] = source.rgb(colour);
+            let px = premultiply([red, green, blue, a]);
             rgba[i * 4..i * 4 + 4].copy_from_slice(&px);
         }
         let id = doc.alloc_id();
@@ -731,7 +798,7 @@ pub fn read(data: &[u8]) -> Result<Document, PsdError> {
     Ok(doc)
 }
 
-fn read_layers(r: &mut Reader<'_>, canvas: (u32, u32), doc: &mut Document) -> Result<Vec<Layer>, PsdError> {
+fn read_layers(r: &mut Reader<'_>, canvas: (u32, u32), source: SourceMode, doc: &mut Document) -> Result<Vec<Layer>, PsdError> {
     let count = r.i16()?.unsigned_abs() as usize;
     let mut records = Vec::with_capacity(count);
     for _ in 0..count {
@@ -812,11 +879,14 @@ fn read_layers(r: &mut Reader<'_>, canvas: (u32, u32), doc: &mut Document) -> Re
     for record in records {
         let [top, left, _, _] = record.rect;
         let (w, h) = rect_size(record.rect)?;
-        let mut planes: [Option<Vec<u8>>; 4] = [None, None, None, None];
+        // Alpha, then up to four colour channels.
+        let mut planes: [Option<Vec<u8>>; 5] = Default::default();
         let mut mask_plane = None;
+        let colours = source.colour_channels() as i16;
         for &(id, len) in &record.channels {
             match id {
-                -1..=2 => planes[(id + 1) as usize] = read_channel(r, len, w, h)?,
+                -1 => planes[0] = read_channel(r, len, w, h)?,
+                0.. if id < colours => planes[(id + 1) as usize] = read_channel(r, len, w, h)?,
                 -2 => {
                     let (mrect, _) = record.mask.unwrap_or(([0; 4], 255));
                     let (mw, mh) = rect_size(mrect)?;
@@ -854,7 +924,8 @@ fn read_layers(r: &mut Reader<'_>, canvas: (u32, u32), doc: &mut Document) -> Re
         }
         let mut tiles = TileStore::new();
         if w * h > 0 {
-            let get = |c: usize, i: usize| planes[c].as_ref().map_or(if c == 0 { 255 } else { 0 }, |p| p[i]);
+            let absent = source.absent();
+            let get = |c: usize, i: usize| planes[c].as_ref().map_or(if c == 0 { 255 } else { absent }, |p| p[i]);
             for y in 0..h {
                 for x in 0..w {
                     let (cx, cy) = (left + x as i32, top + y as i32);
@@ -862,7 +933,8 @@ fn read_layers(r: &mut Reader<'_>, canvas: (u32, u32), doc: &mut Document) -> Re
                         continue;
                     }
                     let i = y * w + x;
-                    let px = premultiply([get(1, i), get(2, i), get(3, i), get(0, i)]);
+                    let [red, green, blue] = source.rgb([get(1, i), get(2, i), get(3, i), get(4, i)]);
+                    let px = premultiply([red, green, blue, get(0, i)]);
                     if px[3] == 0 {
                         continue;
                     }
@@ -1053,6 +1125,105 @@ mod tests {
         let mut r = Reader { data: &blob, pos: 0 };
         let err = read_channel(&mut r, blob.len() as u32, 1, usize::MAX / 2 + 1);
         assert!(matches!(err, Err(PsdError::Corrupt(_))));
+    }
+
+    /// A `w × h` 8-bit file in colour `mode` with raw channels: one layer of
+    /// `layer` channels if given, else no layer section; then `composite`.
+    fn raw_psd(mode: u16, (w, h): (u32, u32), layer: Option<&[(i16, Vec<u8>)]>, composite: &[Vec<u8>]) -> Vec<u8> {
+        let mut out = Writer(Vec::new());
+        out.bytes(b"8BPS");
+        out.u16(1);
+        out.bytes(&[0; 6]);
+        out.u16(composite.len() as u16);
+        out.u32(h);
+        out.u32(w);
+        out.u16(8);
+        out.u16(mode);
+        out.u32(0); // colour mode data
+        out.u32(0); // image resources
+        let section = out.begin_len();
+        if let Some(channels) = layer {
+            let info = out.begin_len();
+            out.i16(1);
+            for v in [0, 0, h as i32, w as i32] {
+                out.i32(v);
+            }
+            out.u16(channels.len() as u16);
+            for (id, data) in channels {
+                out.i16(*id);
+                out.u32(2 + data.len() as u32);
+            }
+            out.bytes(b"8BIMnorm");
+            out.bytes(&[255, 0, 0, 0]);
+            let extra = out.begin_len();
+            out.u32(0); // mask
+            out.u32(0); // blending ranges
+            out.bytes(&pascal_name("Ink"));
+            out.end_len(extra);
+            for (_, data) in channels {
+                out.u16(0);
+                out.bytes(data);
+            }
+            out.pad_to(info + 4, 2);
+            out.end_len(info);
+            out.u32(0); // global mask info
+        }
+        out.end_len(section);
+        out.u16(0);
+        for plane in composite {
+            out.bytes(plane);
+        }
+        out.0
+    }
+
+    #[test]
+    fn grayscale_files_read_as_grey_pixels() {
+        let grey = vec![0, 128, 200, 255];
+        let alpha = vec![255, 255, 128, 0];
+        // Layered, with transparency.
+        let bytes = raw_psd(1, (4, 1), Some(&[(-1, alpha.clone()), (0, grey.clone())]), &[grey.clone(), alpha]);
+        let doc = read(&bytes).unwrap();
+        assert_eq!(layer_names(&doc), ["Ink"]);
+        let tiles = doc.layers[0].tiles().unwrap();
+        assert_eq!(tiles.pixel(0, 0), [0, 0, 0, 255]);
+        assert_eq!(tiles.pixel(1, 0), [128, 128, 128, 255]);
+        assert_eq!(tiles.pixel(2, 0), premultiply([200, 200, 200, 128]));
+        assert_eq!(tiles.pixel(3, 0), [0; 4]);
+        // Flat, grey only: opaque.
+        let flat = read(&raw_psd(1, (4, 1), None, std::slice::from_ref(&grey))).unwrap();
+        let tiles = flat.layers[0].tiles().unwrap();
+        assert_eq!(tiles.pixel(1, 0), [128, 128, 128, 255]);
+        assert_eq!(tiles.pixel(3, 0), [255; 4]);
+    }
+
+    #[test]
+    fn cmyk_files_read_as_rgb_pixels() {
+        // Inks per pixel: none, full black, full cyan, 50 % magenta + 50 % black.
+        let ink = [[0u8, 0, 0, 0], [0, 0, 0, 255], [255, 0, 0, 0], [0, 128, 0, 128]];
+        // Stored as 255 = no ink.
+        let planes: Vec<Vec<u8>> = (0..4).map(|c| ink.iter().map(|k| 255 - k[c]).collect()).collect();
+        let want = [[255, 255, 255], [0, 0, 0], [0, 255, 255], [127, 63, 127]];
+        let alpha = vec![255; 4];
+        let mut layer: Vec<(i16, Vec<u8>)> = vec![(-1, alpha.clone())];
+        layer.extend(planes.iter().cloned().enumerate().map(|(c, p)| (c as i16, p)));
+        let mut composite = planes.clone();
+        composite.push(alpha);
+        for doc in [read(&raw_psd(4, (4, 1), Some(&layer), &composite)).unwrap(), read(&raw_psd(4, (4, 1), None, &planes)).unwrap()] {
+            let tiles = doc.layers[0].tiles().unwrap();
+            for (x, rgb) in want.iter().enumerate() {
+                assert_eq!(tiles.pixel(x as i32, 0)[..3], rgb[..], "pixel {x}");
+                assert_eq!(tiles.pixel(x as i32, 0)[3], 255);
+            }
+        }
+    }
+
+    #[test]
+    fn other_colour_modes_stay_unsupported() {
+        let bytes = raw_psd(9, (1, 1), None, &[vec![0], vec![0], vec![0]]); // Lab
+        assert!(matches!(read(&bytes), Err(PsdError::Unsupported(_))));
+        // Too few composite channels for the mode.
+        let bytes = raw_psd(4, (1, 1), None, &[vec![0], vec![0]]);
+        assert!(matches!(read(&bytes), Err(PsdError::Corrupt(_))));
     }
 
     #[test]
