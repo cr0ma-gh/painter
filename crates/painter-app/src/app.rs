@@ -283,6 +283,8 @@ pub struct PainterApp {
     pub(crate) brush_rename: Option<(usize, String, bool)>,
     /// Help → Check for Updates, and the daily check.
     pub(crate) updater: crate::updater::Updater,
+    /// The crash report window: open at the start after a crash, and from Help → View Crash Logs.
+    pub(crate) crash_reports: crate::crash_report::CrashReports,
     /// Files opened or saved lately (welcome screen, File → Open Recent).
     pub(crate) recent: crate::recent::Recent,
     /// Photoshop's screen modes: 0 standard, 1 full screen with menus, 2 canvas only.
@@ -475,6 +477,7 @@ impl PainterApp {
             layer_rename: None,
             brush_rename: None,
             updater: Default::default(),
+            crash_reports: crate::crash_report::CrashReports::at_start(),
             recent: crate::recent::Recent::load(),
             screen_mode: 0,
             egui_ctx: cc.egui_ctx.clone(),
@@ -1969,6 +1972,7 @@ impl eframe::App for PainterApp {
         self.file_types_window(ctx);
         self.palm_window(ctx);
         self.updater_window(ctx);
+        self.crash_report_window(ctx);
         self.close_prompts(ctx);
         if self.doc.selection.is_some() {
             // Marching ants.

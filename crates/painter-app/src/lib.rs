@@ -28,6 +28,7 @@ mod stamp_tool;
 mod canvas;
 mod channels_ui;
 mod comic_ui;
+mod crash_report;
 mod curve;
 mod dev_shot;
 mod dialogs;
@@ -87,18 +88,6 @@ mod workspace_ui;
 /// Touch screens (iPadOS, Android): bigger controls, on-screen modifier keys,
 /// the pen alone paints, Save As asks for a name in the app.
 pub(crate) const MOBILE: bool = cfg!(any(target_os = "ios", target_os = "android"));
-
-/// A panic is written to painter-crash.txt in the app's documents folder
-/// (iPadOS, Android), the only way to see why the app closed there.
-fn install_crash_log() {
-    let Some(dir) = files::documents_dir() else { return };
-    let previous = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let backtrace = std::backtrace::Backtrace::force_capture();
-        let _ = std::fs::write(dir.join("painter-crash.txt"), format!("{info}\n\n{backtrace}"));
-        previous(info);
-    }));
-}
 
 /// The ensō, for the window and the taskbar.
 fn app_icon() -> eframe::egui::IconData {
@@ -297,7 +286,8 @@ pub fn file_types_command(args: &[String]) -> Option<i32> {
 
 /// `reset`: the interface and tool options back to how they come (`--reset-settings`).
 pub fn run(options: eframe::NativeOptions, file: Option<std::path::PathBuf>, reset: bool) -> eframe::Result {
-    install_crash_log();
+    // A panic is written to a crash report, shown at the next start.
+    crash_report::install();
     // iPadOS: the Materials folder appears in Files, ready for Clip Studio materials.
     let _ = files::materials_dir();
     eframe::run_native(
@@ -306,6 +296,9 @@ pub fn run(options: eframe::NativeOptions, file: Option<std::path::PathBuf>, res
         Box::new(move |cc| {
             let mut app = app::PainterApp::new(cc);
             gpu_started();
+            if let Some(rs) = &cc.wgpu_render_state {
+                crash_report::set_renderer(&rs.adapter.get_info());
+            }
             if reset {
                 app.reset_settings(&cc.egui_ctx, settings_reset::ResetChoice::default());
             }
