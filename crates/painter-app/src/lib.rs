@@ -12,6 +12,7 @@ mod advanced_tool;
 mod app;
 mod brush_cursor;
 mod brush_library;
+mod brush_ui;
 mod clipboard_image;
 mod cmyk_ui;
 mod clock_widget;

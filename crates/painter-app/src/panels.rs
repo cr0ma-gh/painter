@@ -16,7 +16,8 @@ use crate::icons::{icon_button, Icon};
 use crate::theme;
 use crate::tools::Tool;
 use crate::view::{MAX_ZOOM, MIN_ZOOM};
-use crate::widgets::{self, color_wheel, prop_percent, prop_slider, segmented};
+use crate::brush_ui::{group_differs, reset_group, PropertyGroup};
+use crate::widgets::{self, color_wheel, prop_percent, prop_percent_reset, prop_slider, prop_slider_reset, segmented};
 
 /// The layer colour a layer gets when it is switched on (a light blue, as in Clip Studio).
 const DEFAULT_LAYER_COLOR: [u8; 3] = [0, 150, 255];
@@ -583,9 +584,32 @@ impl PainterApp {
         let group = self.brush_group;
         widgets::group_header(ui, group.icon(), group.label());
         ui.add_space(2.0);
+        // Quick search: the group's brushes whose name has every typed word.
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            let (glyph, _) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
+            crate::icons::paint_glyph(ui.painter(), glyph, 12.0, crate::icons::Glyph::Search, theme::text_dim());
+            let clear_w = if self.brush_filter.is_empty() { 0.0 } else { 20.0 };
+            let field = egui::TextEdit::singleline(&mut self.brush_filter)
+                .hint_text(tr("Search brushes"))
+                .desired_width((ui.available_width() - clear_w).max(40.0));
+            let edit = ui.add(field);
+            if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.brush_filter.clear();
+            }
+            if !self.brush_filter.is_empty() && ui.small_button("×").on_hover_text(tr("Clear the search")).clicked() {
+                self.brush_filter.clear();
+            }
+        });
         let footer = 30.0;
         let list_height = (ui.available_height() - footer).max(60.0);
-        let indices = self.brushes_in(group);
+        let in_group = self.brushes_in(group);
+        let renaming = self.brush_rename.as_ref().map(|r| r.0);
+        let indices: Vec<usize> = in_group
+            .iter()
+            .copied()
+            .filter(|&i| Some(i) == renaming || crate::brush_ui::name_matches(&self.brushes[i].settings.name, &self.brush_filter))
+            .collect();
         let mut picked = None;
         // What a brush's right-click menu asked for: (brush, 0 reset, 1 duplicate, 2 delete, 3 rename).
         let mut menu: Option<(usize, u8)> = None;
@@ -596,7 +620,10 @@ impl PainterApp {
             ui.set_min_height(list_height);
             egui::ScrollArea::vertical().max_height(list_height).auto_shrink([false, false]).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
-                if indices.is_empty() {
+                if indices.is_empty() && !in_group.is_empty() {
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new(tr("No brush in this group matches the search.")).color(theme::text_dim()));
+                } else if indices.is_empty() {
                     ui.add_space(8.0);
                     ui.label(
                         egui::RichText::new(tr("No brushes in this group yet. Import some with the button below.")).color(theme::text_dim()),
@@ -633,10 +660,15 @@ impl PainterApp {
                         fill.gamma_multiply(0.85),
                     );
                     painter.galley(at, galley, theme::strong());
-                    let response = match preset.unsupported_features() {
-                        missing if missing.is_empty() => response,
-                        missing => response.on_hover_text(format!("Not rendered yet: {}", missing.join(", "))),
-                    };
+                    // Badges for a textured, dual-tip, sprayed or imported brush, top right.
+                    let badges = crate::brush_ui::badges(preset);
+                    crate::brush_ui::paint_badges(&painter, rect.right() - 6.0, rect.top() + 8.0, &badges);
+                    let mut hints: Vec<String> = badges.iter().map(|b| tr(b.hint()).to_string()).collect();
+                    let missing = preset.unsupported_features();
+                    if !missing.is_empty() {
+                        hints.push(format!("Not rendered yet: {}", missing.join(", ")));
+                    }
+                    let response = if hints.is_empty() { response } else { response.on_hover_text(hints.join("\n")) };
                     if response.clicked() {
                         picked = Some(i);
                     }
@@ -1010,21 +1042,32 @@ impl PainterApp {
         painter.galley(tag.min + Vec2::new(4.0, 1.0), galley, Color32::WHITE);
         ui.add_space(2.0);
 
+        // The wrench opens Sub Tool Detail (Advanced Tool Settings); Reset puts the whole brush back.
+        let base = crate::brush_ui::baseline_of(&mut self.brush_baselines, &self.brushes, index).clone();
+        let mut reset_all = false;
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 3.0;
+            let detail = "Sub Tool Detail: every setting by category, with a live preview";
+            if icon_button(ui, Icon::Options, 14.0, self.advanced_tool.is_some(), detail).clicked() {
+                self.open_advanced_tool_settings();
+            }
             if ui.small_button(tr("Advanced Tool Settings...")).on_hover_text(tr("Every setting by category; export for Photoshop or Clip Studio")).clicked() {
                 self.open_advanced_tool_settings();
             }
-            let builtin = self.default_of(self.brush).is_some();
+            let edited = crate::brush_ui::preset_differs(&self.brushes[index], &base);
             if ui
-                .add_enabled(builtin, egui::Button::new(tr("Reset")).small())
-                .on_hover_text(tr("Back to this brush's default settings"))
-                .on_disabled_hover_text(tr("Imported brushes have no default to go back to"))
+                .add_enabled(edited, egui::Button::new(tr("Reset")).small())
+                .on_hover_text(tr("Back to this brush's preset settings"))
+                .on_disabled_hover_text(tr("The brush is as its preset"))
                 .clicked()
             {
-                self.reset_brush(self.brush);
+                reset_all = true;
             }
         });
-        let missing = self.brushes[self.brush].unsupported_features();
+        if reset_all {
+            self.reset_brush_to_baseline(index, base.clone());
+        }
+        let missing = self.brushes[index].unsupported_features();
         if !missing.is_empty() {
             ui.colored_label(Color32::from_rgb(240, 190, 90), format!("Imported features not painted yet: {}", missing.join(", ")));
         }
@@ -1036,104 +1079,132 @@ impl PainterApp {
                 tr("Draw a line, circle, rectangle or triangle and keep the pen still at the end: it becomes the clean shape, drawn with this brush"),
             );
         });
+        // Which groups differ from the preset: their headers get a live reset button.
+        let differs = |group| group_differs(&self.brushes[index], &base, group);
+        let edited = [
+            differs(PropertyGroup::General),
+            differs(PropertyGroup::Tip),
+            differs(PropertyGroup::Correction),
+            differs(PropertyGroup::Dynamics),
+            differs(PropertyGroup::Curves),
+        ];
+        let mut reset = None;
         let vector_eraser = &mut self.tools.vector_erase;
         let long = self.doc.width.max(self.doc.height).max(1) as f32;
-        let brush = &mut self.brushes[self.brush].settings;
-        // Size in pixels, or (as Clip Studio's option) a share of the canvas that follows the document.
-        match brush.size_relative {
-            Some(mut f) => {
-                let mut pct = f * 100.0;
-                if prop_slider(ui, "Brush Size", &mut pct, 0.01..=25.0, "%", 2, true) {
-                    f = pct / 100.0;
-                    brush.size_relative = Some(f);
-                    brush.size = brush.size_on(long);
-                    self.brush_px = Some((self.brush, brush.size, long));
-                }
-            }
-            None => {
-                prop_slider(ui, "Brush Size", &mut brush.size, 0.5..=2000.0, "", 1, true);
-            }
-        }
-        ui.horizontal(|ui| {
-            let mut relative = brush.size_relative.is_some();
-            let hint = tr("The size is a share of the canvas: the brush looks the same on a small or a large document, and after resizing it");
-            if ui.checkbox(&mut relative, tr("Size relative to the canvas")).on_hover_text(hint).changed() {
-                brush.set_relative(relative, long);
-                self.brush_px = relative.then_some((self.brush, brush.size, long));
-            }
-            if brush.size_relative.is_some() {
-                ui.label(egui::RichText::new(format!("= {:.1} px", brush.size)).small().color(theme::text_dim()));
-            }
-        });
-        if brush.pressure_size {
-            prop_percent(ui, "Minimum size", &mut brush.min_size_ratio, 0.0..=100.0);
-        }
-        prop_percent(ui, "Opacity", &mut brush.opacity, 0.0..=100.0);
-        // Clip Studio's brush blending mode: how the stroke mixes with the layer's pixels.
-        if brush.mode != BrushMode::Erase {
-            egui::ComboBox::from_label(tr("Blending")).selected_text(tr(brush.blend.name())).show_ui(ui, |ui| {
-                for b in painter_core::BrushBlend::ALL {
-                    let r = ui.selectable_value(&mut brush.blend, b, tr(b.name()));
-                    if b == painter_core::BrushBlend::Behind {
-                        r.on_hover_text(tr("Paints only where the layer is still transparent: under the lines, on the same layer"));
+        let brush = &mut self.brushes[index].settings;
+        let b = &base.settings;
+        let brush_px = &mut self.brush_px;
+
+        if property_section(ui, "brush_general", "General", true, edited[0], |ui| {
+            // Size in pixels, or (as Clip Studio's option) a share of the canvas that follows the document.
+            match brush.size_relative {
+                Some(mut f) => {
+                    let mut pct = f * 100.0;
+                    let changed = match b.size_relative {
+                        Some(d) => prop_slider_reset(ui, "Brush Size", &mut pct, d * 100.0, 0.01..=25.0, "%", 2, true),
+                        None => prop_slider(ui, "Brush Size", &mut pct, 0.01..=25.0, "%", 2, true),
+                    };
+                    if changed {
+                        f = pct / 100.0;
+                        brush.size_relative = Some(f);
+                        brush.size = brush.size_on(long);
+                        *brush_px = Some((index, brush.size, long));
                     }
                 }
-            });
-        }
-        prop_percent(ui, "Density", &mut brush.density, 0.0..=100.0);
-        // What pen pressure changes, as two toggles on one row.
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 3.0;
-            ui.label(egui::RichText::new(tr("Pressure:")).small());
-            ui.toggle_value(&mut brush.pressure_size, tr("Size")).on_hover_text(tr("Size follows pressure"));
-            ui.toggle_value(&mut brush.pressure_density, tr("Density")).on_hover_text(tr("Density follows pressure"));
-        });
-        prop_percent(ui, "Spacing", &mut brush.spacing, 1.0..=200.0);
-        prop_percent(ui, "Hardness", &mut brush.hardness, 0.0..=100.0);
-
-        ui.horizontal(|ui| {
-            ui.label(tr("Anti-aliasing"));
-            ui.add_space((ui.available_width() - 4.0 * 25.0).max(0.0));
-            let options: Vec<(AntiAlias, &str)> = AntiAlias::ALL.iter().map(|aa| (*aa, aa.name())).collect();
-            segmented(ui, &mut brush.antialias, &options, Vec2::new(24.0, 20.0), |painter, rect, aa, _| {
-                let soft = aa.width();
-                if soft <= 0.0 {
-                    // Hard edge: a stair-stepped disc.
-                    for (dx, dy, w, h) in [(-2.0, -6.0, 4.0, 12.0), (-4.0, -4.0, 8.0, 8.0), (-6.0, -2.0, 12.0, 4.0)] {
-                        let cell = egui::Rect::from_min_size(rect.center() + Vec2::new(dx, dy), Vec2::new(w, h));
-                        painter.rect_filled(cell, 0.0, Color32::from_gray(220));
-                    }
-                } else {
-                    // Softer rims for stronger anti-aliasing.
-                    let steps = (soft * 3.0).ceil() as i32;
-                    for k in (0..=steps).rev() {
-                        let t = k as f32 / steps.max(1) as f32;
-                        let color = Color32::from_gray(220).gamma_multiply(1.0 - t * 0.85);
-                        painter.circle_filled(rect.center(), 5.0 + t * soft, color);
-                    }
+                None => {
+                    prop_slider_reset(ui, "Brush Size", &mut brush.size, b.size, 0.5..=2000.0, "", 1, true);
                 }
-            });
-        });
-        if brush.mode == BrushMode::Erase {
-            egui::ComboBox::from_label(tr("Vector layers")).selected_text(tr(vector_eraser.name())).show_ui(ui, |ui| {
-                for mode in crate::tools::VectorErase::ALL {
-                    ui.selectable_value(vector_eraser, mode, tr(mode.name()));
-                }
-            });
-        }
-
-        ui.add_space(2.0);
-        let mut stabilization = brush.stabilization as f32;
-        if prop_slider(ui, "Stabilization", &mut stabilization, 0.0..=100.0, "", 0, false) {
-            brush.stabilization = stabilization.round() as u32;
-        }
-        egui::ComboBox::from_label(tr("Smoothing")).selected_text(tr(brush.smoothing.name())).show_ui(ui, |ui| {
-            for method in SmoothingMethod::ALL {
-                ui.selectable_value(&mut brush.smoothing, method, tr(method.name()));
             }
-        });
+            ui.horizontal(|ui| {
+                let mut relative = brush.size_relative.is_some();
+                let hint = tr("The size is a share of the canvas: the brush looks the same on a small or a large document, and after resizing it");
+                if ui.checkbox(&mut relative, tr("Size relative to the canvas")).on_hover_text(hint).changed() {
+                    brush.set_relative(relative, long);
+                    *brush_px = relative.then_some((index, brush.size, long));
+                }
+                if brush.size_relative.is_some() {
+                    ui.label(egui::RichText::new(format!("= {:.1} px", brush.size)).small().color(theme::text_dim()));
+                }
+            });
+            if brush.pressure_size {
+                prop_percent_reset(ui, "Minimum size", &mut brush.min_size_ratio, b.min_size_ratio, 0.0..=100.0);
+            }
+            prop_percent_reset(ui, "Opacity", &mut brush.opacity, b.opacity, 0.0..=100.0);
+            // Clip Studio's brush blending mode: how the stroke mixes with the layer's pixels.
+            if brush.mode != BrushMode::Erase {
+                egui::ComboBox::from_label(tr("Blending")).selected_text(tr(brush.blend.name())).show_ui(ui, |ui| {
+                    for blend in painter_core::BrushBlend::ALL {
+                        let r = ui.selectable_value(&mut brush.blend, blend, tr(blend.name()));
+                        if blend == painter_core::BrushBlend::Behind {
+                            r.on_hover_text(tr("Paints only where the layer is still transparent: under the lines, on the same layer"));
+                        }
+                    }
+                });
+            }
+            prop_percent_reset(ui, "Density", &mut brush.density, b.density, 0.0..=100.0);
+            // What pen pressure changes, as two toggles on one row.
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 3.0;
+                ui.label(egui::RichText::new(tr("Pressure:")).small());
+                ui.toggle_value(&mut brush.pressure_size, tr("Size")).on_hover_text(tr("Size follows pressure"));
+                ui.toggle_value(&mut brush.pressure_density, tr("Density")).on_hover_text(tr("Density follows pressure"));
+            });
+        }) {
+            reset = Some(PropertyGroup::General);
+        }
 
-        egui::CollapsingHeader::new(tr("Dynamics")).id_salt("brush_dynamics").show(ui, |ui| {
+        if property_section(ui, "brush_tip", "Tip", true, edited[1], |ui| {
+            prop_percent_reset(ui, "Spacing", &mut brush.spacing, b.spacing, 1.0..=200.0);
+            prop_percent_reset(ui, "Hardness", &mut brush.hardness, b.hardness, 0.0..=100.0);
+            ui.horizontal(|ui| {
+                ui.label(tr("Anti-aliasing"));
+                ui.add_space((ui.available_width() - 4.0 * 25.0).max(0.0));
+                let options: Vec<(AntiAlias, &str)> = AntiAlias::ALL.iter().map(|aa| (*aa, aa.name())).collect();
+                segmented(ui, &mut brush.antialias, &options, Vec2::new(24.0, 20.0), |painter, rect, aa, _| {
+                    let soft = aa.width();
+                    if soft <= 0.0 {
+                        // Hard edge: a stair-stepped disc.
+                        for (dx, dy, w, h) in [(-2.0, -6.0, 4.0, 12.0), (-4.0, -4.0, 8.0, 8.0), (-6.0, -2.0, 12.0, 4.0)] {
+                            let cell = egui::Rect::from_min_size(rect.center() + Vec2::new(dx, dy), Vec2::new(w, h));
+                            painter.rect_filled(cell, 0.0, Color32::from_gray(220));
+                        }
+                    } else {
+                        // Softer rims for stronger anti-aliasing.
+                        let steps = (soft * 3.0).ceil() as i32;
+                        for k in (0..=steps).rev() {
+                            let t = k as f32 / steps.max(1) as f32;
+                            let color = Color32::from_gray(220).gamma_multiply(1.0 - t * 0.85);
+                            painter.circle_filled(rect.center(), 5.0 + t * soft, color);
+                        }
+                    }
+                });
+            });
+            if brush.mode == BrushMode::Erase {
+                egui::ComboBox::from_label(tr("Vector layers")).selected_text(tr(vector_eraser.name())).show_ui(ui, |ui| {
+                    for mode in crate::tools::VectorErase::ALL {
+                        ui.selectable_value(vector_eraser, mode, tr(mode.name()));
+                    }
+                });
+            }
+        }) {
+            reset = Some(PropertyGroup::Tip);
+        }
+
+        if property_section(ui, "brush_correction", "Correction", true, edited[2], |ui| {
+            let mut stabilization = brush.stabilization as f32;
+            if prop_slider_reset(ui, "Stabilization", &mut stabilization, b.stabilization as f32, 0.0..=100.0, "", 0, false) {
+                brush.stabilization = stabilization.round() as u32;
+            }
+            egui::ComboBox::from_label(tr("Smoothing")).selected_text(tr(brush.smoothing.name())).show_ui(ui, |ui| {
+                for method in SmoothingMethod::ALL {
+                    ui.selectable_value(&mut brush.smoothing, method, tr(method.name()));
+                }
+            });
+        }) {
+            reset = Some(PropertyGroup::Correction);
+        }
+
+        if property_section(ui, "brush_dynamics", "Dynamics", false, edited[3], |ui| {
             dynamics_row(ui, "Size", &mut brush.size_dynamics, false);
             dynamics_row(ui, "Density", &mut brush.density_dynamics, false);
             dynamics_row(ui, "Opacity (per dab)", &mut brush.opacity_dynamics, true);
@@ -1162,10 +1233,12 @@ impl PainterApp {
             percent_slider(ui, &mut brush.tilt_side, "Pencil side", 0.0..=100.0);
             ui.small(tr("As the pen leans the tip lies down along it, like a pencil's side: wider, flatter, lighter."));
             ui.small(tr("Tilt comes from WinTab or XInput2 tablets and the Apple Pencil; speed is measured on the canvas."));
-        });
+        }) {
+            reset = Some(PropertyGroup::Dynamics);
+        }
 
         let curve_target = &mut self.curve_target;
-        egui::CollapsingHeader::new(tr("Pressure curve")).id_salt("pressure_curve_section").show(ui, |ui| {
+        if property_section(ui, "pressure_curve_section", "Pressure curve", false, edited[4], |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(curve_target, CurveTarget::Size, tr("Size"));
                 ui.selectable_value(curve_target, CurveTarget::Density, tr("Density"));
@@ -1183,7 +1256,19 @@ impl PainterApp {
             });
             curve_editor(ui, "pressure_curve", curve);
             ui.small(tr("Drag points · double-click to add · right-click to remove"));
-        });
+        }) {
+            reset = Some(PropertyGroup::Curves);
+        }
+
+        if let Some(group) = reset {
+            if reset_group(&mut self.brushes[index], &base, group) {
+                self.brushes[index].apply_tip();
+            }
+            if group == PropertyGroup::General {
+                // The canvas-relative size, if any, follows the preset again.
+                self.brush_px = None;
+            }
+        }
     }
 
     pub(crate) fn navigator_panel(&mut self, ui: &mut egui::Ui) {
@@ -1755,6 +1840,23 @@ impl PainterApp {
         }
         self.file_object_panel(ui);
     }
+}
+
+/// A collapsible group of Tool Property with a reset button in its header,
+/// live while `edited` (the group differs from the preset). Returns whether
+/// the reset button was clicked.
+fn property_section(ui: &mut egui::Ui, id: &str, title: &'static str, open: bool, edited: bool, body: impl FnOnce(&mut egui::Ui)) -> bool {
+    let mut reset = false;
+    let id = ui.make_persistent_id(id);
+    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, open)
+        .show_header(ui, |ui| {
+            ui.label(egui::RichText::new(tr(title)).strong());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                reset = crate::brush_ui::reset_glyph(ui, edited, tr("Back to the preset's values for this group")).clicked();
+            });
+        })
+        .body(body);
+    reset
 }
 
 /// Slider showing a 0..1 value as a percentage. Returns whether it changed.

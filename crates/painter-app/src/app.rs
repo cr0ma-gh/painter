@@ -109,6 +109,12 @@ pub struct PainterApp {
     pub(crate) modifier_keys: crate::modifier_keys::ModifierKeys,
     /// Stroke thumbnails for the Tool Group panel.
     pub(crate) previews: StrokePreviews,
+    /// The larger, live stroke preview at the foot of Advanced Tool Settings.
+    pub(crate) detail_preview: StrokePreviews,
+    /// The Sub Tool panel's name filter.
+    pub(crate) brush_filter: String,
+    /// What the brush property reset buttons go back to.
+    pub(crate) brush_baselines: crate::brush_ui::PresetBaselines,
     /// The toolbar's brush group, and the brush last used in each group.
     pub(crate) brush_group: BrushGroup,
     pub(crate) group_brush: HashMap<BrushGroup, usize>,
@@ -376,6 +382,9 @@ impl PainterApp {
             ios_window: Default::default(),
             modifier_keys: Default::default(),
             previews: StrokePreviews::default(),
+            detail_preview: StrokePreviews::with_size(crate::previews::DETAIL_PREVIEW_SIZE),
+            brush_filter: String::new(),
+            brush_baselines: Default::default(),
             brush_group: BrushGroup::Pen,
             group_brush: HashMap::new(),
             import_warnings: Vec::new(),
@@ -1458,6 +1467,26 @@ impl PainterApp {
             self.select_brush(index);
         }
         self.status = format!("“{name}” is back to its default settings");
+    }
+
+    /// Brush `index` back to `baseline`, the preset its reset buttons go back to
+    /// (see [`crate::brush_ui::PresetBaselines`]), keeping its name and group.
+    pub(crate) fn reset_brush_to_baseline(&mut self, index: usize, baseline: BrushPreset) {
+        if self.default_of(index).is_some() {
+            self.reset_brush(index);
+            return;
+        }
+        let settings = &self.brushes[index].settings;
+        let (name, group) = (settings.name.clone(), settings.group.clone());
+        self.brushes[index] = baseline;
+        self.brushes[index].settings.name = name.clone();
+        self.brushes[index].settings.group = group;
+        self.brush_px = None;
+        self.group_brush.clear();
+        if index == self.brush {
+            self.select_brush(index);
+        }
+        self.status = format!("“{name}” is back to its preset settings");
     }
 
     /// Every built-in brush back to its default settings, and the missing ones
