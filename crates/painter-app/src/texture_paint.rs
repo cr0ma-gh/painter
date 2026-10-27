@@ -27,6 +27,8 @@ use scene_3d::mesh::Mesh;
 use scene_3d::texture::{project, uv_edges, Texture};
 
 use crate::app::PainterApp;
+use crate::document_manager::session_store::Slot;
+use crate::scene_ui::SceneLayer;
 use crate::tools::Tool;
 
 /// Texture sizes offered for a new texture.
@@ -367,18 +369,12 @@ impl PainterApp {
             let Some(texture) = texture.map(Arc::new) else { continue };
             let Some(link) = self.texture_links.get_mut(&slot) else { continue };
             link.push_at = None;
-            let (layer, object, mesh) = (link.layer, link.object, link.mesh.clone());
-            if let Some(source) = self.docs.slots.iter_mut().find(|s| s.id == link.source_slot) {
-                if let Some(parked) = source.parked.as_mut() {
-                    if let Some(scene_layer) = parked.scenes.get_mut(&layer) {
-                        if let Some(o) = scene_layer.scene.objects.get_mut(object).filter(|o| Arc::ptr_eq(&o.mesh, &mesh)) {
-                            o.texture = Some(texture.clone());
-                            scene_layer.touch();
-                            parked.dirty = true;
-                            source.revision += 1;
-                        }
-                    }
-                }
+            let (source_slot, layer, object, mesh) = (link.source_slot, link.layer, link.object, link.mesh.clone());
+            let pushed = push_texture(&mut self.docs.slots, active, &mut self.scenes, source_slot, layer, object, &mesh, &texture);
+            if pushed == Pushed::Active {
+                // The model's tab is the one shown: its scenes are the app's.
+                self.scene_changed(layer);
+                self.dirty = true;
             }
             if slot == active {
                 self.render_texture_preview(ctx, slot, texture);
@@ -485,6 +481,52 @@ pub(crate) fn obj_texture(obj_path: &std::path::Path, obj_text: &str) -> Option<
     load_texture(&dir.join(file)).ok()
 }
 
+/// Where [`push_texture`] put a texture document's picture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pushed {
+    /// Onto the model in the active document (`PainterApp::scenes`): the caller redraws it.
+    Active,
+    /// Onto the model in a parked tab, marked to redraw once shown.
+    Parked,
+    /// Nowhere: the tab, layer or object is gone, or the object's mesh changed.
+    Nowhere,
+}
+
+/// Sets `texture` on object `object` of 3D layer `layer` in tab `source_slot`.
+/// The active tab (`active`) keeps its scenes in the app (`active_scenes`),
+/// not in its slot, which is parked only while another tab is shown.
+#[allow(clippy::too_many_arguments)]
+fn push_texture(
+    slots: &mut [Slot],
+    active: u64,
+    active_scenes: &mut HashMap<LayerId, SceneLayer>,
+    source_slot: u64,
+    layer: LayerId,
+    object: usize,
+    mesh: &Arc<Mesh>,
+    texture: &Arc<Texture>,
+) -> Pushed {
+    let set = |scenes: &mut HashMap<LayerId, SceneLayer>| {
+        let o = scenes.get_mut(&layer)?.scene.objects.get_mut(object).filter(|o| Arc::ptr_eq(&o.mesh, mesh))?;
+        o.texture = Some(texture.clone());
+        Some(())
+    };
+    if source_slot == active {
+        return if set(active_scenes).is_some() { Pushed::Active } else { Pushed::Nowhere };
+    }
+    let Some(source) = slots.iter_mut().find(|s| s.id == source_slot) else { return Pushed::Nowhere };
+    let Some(parked) = source.parked.as_mut() else { return Pushed::Nowhere };
+    if set(&mut parked.scenes).is_none() {
+        return Pushed::Nowhere;
+    }
+    if let Some(scene_layer) = parked.scenes.get_mut(&layer) {
+        scene_layer.touch();
+    }
+    parked.dirty = true;
+    source.revision += 1;
+    Pushed::Parked
+}
+
 /// Map of texture documents by tab.
 pub(crate) type TextureLinks = HashMap<u64, TextureLink>;
 
@@ -504,6 +546,75 @@ mod tests {
         assert_eq!(&t.rgba[4..], &[0, 0, 255, 128], "straight alpha kept");
         assert!(obj_texture(&dir.join("m.obj"), "v 0 0 0\n").is_none());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Scenes with one 3D layer holding a cube, and that cube's mesh.
+    fn cube_scenes(layer: LayerId) -> (HashMap<LayerId, SceneLayer>, Arc<Mesh>) {
+        let scene = scene_3d::scene::Scene3D::from_mesh(Mesh::cube());
+        let mesh = scene.objects[0].mesh.clone();
+        let mut scenes = HashMap::new();
+        crate::scene_ui::restore(&mut scenes, HashMap::from([(layer, scene)]));
+        (scenes, mesh)
+    }
+
+    fn parked(scenes: HashMap<LayerId, SceneLayer>) -> crate::document_manager::session_store::DocSession {
+        crate::document_manager::session_store::DocSession {
+            doc: Document::from_parts(4, 4, Vec::new(), LayerId(0), 1),
+            history: crate::app::new_history(),
+            view: crate::view::ViewTransform::default(),
+            comic: None,
+            comic_undo: Vec::new(),
+            comic_redo: Vec::new(),
+            selected_panel: None,
+            scenes,
+            scene_undo: Vec::new(),
+            scene_redo: Vec::new(),
+            file_path: None,
+            dirty: false,
+            edit_mask: false,
+            parked_at: Instant::now(),
+            residency: crate::document_manager::session_store::Residency::Resident,
+            thumbnail: None,
+        }
+    }
+
+    fn texture_of(scenes: &HashMap<LayerId, SceneLayer>, layer: LayerId) -> Option<Arc<Texture>> {
+        scenes[&layer].scene.objects[0].texture.clone()
+    }
+
+    #[test]
+    fn texture_links_reach_parked_and_active_models() {
+        let layer = LayerId(7);
+        let texture = Arc::new(Texture::from_rgba(1, 1, vec![9, 8, 7, 255]).unwrap());
+        let (model_scenes, mesh) = cube_scenes(layer);
+
+        // The model's tab (1) is parked while the texture's tab (2) is shown.
+        let mut slots = vec![
+            Slot { id: 1, parked: Some(parked(model_scenes.clone())), untitled: 1, name: None, revision: 0 },
+            Slot { id: 2, parked: None, untitled: 2, name: None, revision: 0 },
+        ];
+        let mut app_scenes = HashMap::new();
+        assert_eq!(push_texture(&mut slots, 2, &mut app_scenes, 1, layer, 0, &mesh, &texture), Pushed::Parked);
+        let session = slots[0].parked.as_ref().unwrap();
+        assert!(texture_of(&session.scenes, layer).is_some_and(|t| Arc::ptr_eq(&t, &texture)));
+        assert!(session.dirty);
+        assert_eq!(slots[0].revision, 1);
+
+        // The model's tab is the active one: its scenes are the app's, its slot holds nothing.
+        let mut slots = vec![
+            Slot { id: 1, parked: None, untitled: 1, name: None, revision: 0 },
+            Slot { id: 2, parked: Some(parked(HashMap::new())), untitled: 2, name: None, revision: 0 },
+        ];
+        let mut app_scenes = model_scenes;
+        assert_eq!(push_texture(&mut slots, 1, &mut app_scenes, 1, layer, 0, &mesh, &texture), Pushed::Active);
+        assert!(texture_of(&app_scenes, layer).is_some_and(|t| Arc::ptr_eq(&t, &texture)));
+        assert_eq!(slots[0].revision, 0);
+
+        // A model whose mesh was replaced since the link was made isn't painted.
+        let other = Arc::new(Mesh::cube());
+        let (mut app_scenes, _) = cube_scenes(layer);
+        assert_eq!(push_texture(&mut slots, 1, &mut app_scenes, 1, layer, 0, &other, &texture), Pushed::Nowhere);
+        assert!(texture_of(&app_scenes, layer).is_none());
     }
 
     #[test]
