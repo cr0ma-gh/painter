@@ -164,7 +164,16 @@ fn texts_of(src: &str) -> Vec<(String, usize)> {
             (Token::Ident(f), Some(Token::Punct('(')), Some(Token::Str(s, line))) if f == "tr" => out.push((s.clone(), *line)),
             // Helpers that translate their label themselves: every text argument.
             (Token::Ident(f), Some(Token::Punct('(')), _)
-                if ["prop_slider", "prop_percent", "section", "group_header", "tr_str"].contains(&f.as_str()) =>
+                if [
+                    "prop_slider",
+                    "prop_percent",
+                    "prop_slider_reset",
+                    "prop_percent_reset",
+                    "section",
+                    "group_header",
+                    "tr_str",
+                ]
+                .contains(&f.as_str()) =>
             {
                 let mut depth = 0;
                 for tok in &t[i + 1..] {
@@ -188,7 +197,7 @@ fn texts_of(src: &str) -> Vec<(String, usize)> {
                 }
             }
             (Token::Ident(f), Some(Token::Ident(n)), _)
-                if f == "fn" && ["name", "title", "label", "hint", "tooltip"].contains(&n.as_str()) =>
+                if f == "fn" && ["name", "title", "area", "label", "hint", "tooltip"].contains(&n.as_str()) =>
             {
                 // Only functions that return text.
                 let open = (i..t.len()).find(|&k| t[k] == Token::Punct('{')).unwrap_or(t.len());

@@ -256,6 +256,24 @@ pub(crate) fn report_bug(ctx: &egui::Context) {
     crate::updater::open_in_browser(ctx, &url);
 }
 
+/// A human-readable label for a crash report: its UTC date and time, plus
+/// a marker if it hasn't been viewed yet.
+fn report_label(path: &Path) -> String {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    let ms = name.trim_start_matches("crash-").split('.').next().and_then(|t| t.parse::<u64>().ok());
+    if let Some(ms) = ms {
+        let is_new = is_pending(path);
+        let time_str = utc_time(ms / 1000);
+        if is_new {
+            format!("{time_str} ({})", tr("new"))
+        } else {
+            time_str
+        }
+    } else {
+        name.to_string()
+    }
+}
+
 impl PainterApp {
     /// The crash report window, while open.
     pub(crate) fn crash_report_window(&mut self, ctx: &egui::Context) {
@@ -282,14 +300,14 @@ impl PainterApp {
                     }
                     return;
                 }
-                let name = |p: &PathBuf| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let chosen_label = report_label(&reports.reports[reports.selected]);
                 let mut chosen = reports.selected;
                 egui::ComboBox::from_id_salt("crash-report")
-                    .selected_text(name(&reports.reports[reports.selected]))
+                    .selected_text(chosen_label)
                     .width(320.0)
                     .show_ui(ui, |ui| {
                         for (i, path) in reports.reports.iter().enumerate() {
-                            ui.selectable_value(&mut chosen, i, name(path));
+                            ui.selectable_value(&mut chosen, i, report_label(path));
                         }
                     });
                 if chosen != reports.selected {
@@ -398,5 +416,15 @@ mod tests {
         // Still listed, in the same place.
         assert_eq!(reports_in(&dir)[0], seen);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn report_labels_show_utc_dates_and_new_marker() {
+        let pending = PathBuf::from("crash-1793101234000.txt");
+        assert_eq!(report_label(&pending), format!("{} ({})", utc_time(1_793_101_234), tr("new")));
+        let seen = PathBuf::from("crash-1793101234000.seen.txt");
+        assert_eq!(report_label(&seen), utc_time(1_793_101_234));
+        let other = PathBuf::from("other.txt");
+        assert_eq!(report_label(&other), "other.txt");
     }
 }

@@ -33,14 +33,25 @@ pub(crate) enum Section {
 
 impl Section {
     /// The sidebar: macro areas (as in Clip Studio's Sub Tool Detail), each with its categories.
-    const AREAS: [(&'static str, &'static [Section]); 6] = [
-        ("General", &[Section::BrushSize, Section::Ink, Section::ColorJitter]),
-        ("Tip", &[Section::BrushTip, Section::AntiAliasing, Section::Stroke, Section::Spraying]),
-        ("Dynamics", &[Section::Dynamics]),
-        ("Texture", &[Section::Texture, Section::SecondBrush]),
-        ("Inking", &[Section::Correction, Section::StartingEnding]),
-        ("Brush File", &[Section::Export]),
+    const AREAS: [&'static [Section]; 6] = [
+        &[Section::BrushSize, Section::Ink, Section::ColorJitter],
+        &[Section::BrushTip, Section::AntiAliasing, Section::Stroke, Section::Spraying],
+        &[Section::Dynamics],
+        &[Section::Texture, Section::SecondBrush],
+        &[Section::Correction, Section::StartingEnding],
+        &[Section::Export],
     ];
+
+    pub(crate) fn area(self) -> &'static str {
+        match self {
+            Section::BrushSize | Section::Ink | Section::ColorJitter => "General",
+            Section::BrushTip | Section::AntiAliasing | Section::Stroke | Section::Spraying => "Tip",
+            Section::Dynamics => "Dynamics",
+            Section::Texture | Section::SecondBrush => "Texture",
+            Section::Correction | Section::StartingEnding => "Inking",
+            Section::Export => "Brush File",
+        }
+    }
 
     fn title(self) -> &'static str {
         match self {
@@ -191,9 +202,9 @@ impl PainterApp {
                     ui.vertical(|ui| {
                         ui.set_width(150.0);
                         egui::ScrollArea::vertical().id_salt("advanced_tool_sidebar").max_height(body_h).show(ui, |ui| {
-                            for (area, sections) in Section::AREAS {
+                            for sections in Section::AREAS {
                                 ui.add_space(4.0);
-                                ui.label(egui::RichText::new(tr(area)).small().strong().color(theme::text_dim()));
+                                ui.label(egui::RichText::new(tr(sections[0].area())).small().strong().color(theme::text_dim()));
                                 for &s in sections {
                                     let edited = s.differs(&self.brushes[index], &base);
                                     // A dot marks the categories changed from the preset.
@@ -218,7 +229,7 @@ impl PainterApp {
                                 });
                             }
                         });
-                        ui.small(section.help());
+                        ui.small(tr(section.help()));
                         ui.separator();
                         egui::ScrollArea::vertical().id_salt("advanced_tool_scroll").max_height(body_h - 50.0).auto_shrink([false, true]).show(ui, |ui| {
                             self.advanced_section(ui, section);
@@ -659,7 +670,7 @@ mod tests {
 
     #[test]
     fn every_category_is_in_one_area() {
-        let all: Vec<Section> = Section::AREAS.iter().flat_map(|(_, s)| s.iter().copied()).collect();
+        let all: Vec<Section> = Section::AREAS.iter().flat_map(|s| s.iter().copied()).collect();
         assert_eq!(all.len(), 13);
         for (i, s) in all.iter().enumerate() {
             assert!(!all[i + 1..].contains(s), "{s:?} listed twice");

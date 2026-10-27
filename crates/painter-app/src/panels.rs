@@ -594,7 +594,10 @@ impl PainterApp {
                 .hint_text(tr("Search brushes"))
                 .desired_width((ui.available_width() - clear_w).max(40.0));
             let edit = ui.add(field);
-            if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            if edit.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+                self.brush_filter.clear();
+                edit.surrender_focus();
+            } else if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 self.brush_filter.clear();
             }
             if !self.brush_filter.is_empty() && ui.small_button("×").on_hover_text(tr("Clear the search")).clicked() {
@@ -666,7 +669,7 @@ impl PainterApp {
                     let mut hints: Vec<String> = badges.iter().map(|b| tr(b.hint()).to_string()).collect();
                     let missing = preset.unsupported_features();
                     if !missing.is_empty() {
-                        hints.push(format!("Not rendered yet: {}", missing.join(", ")));
+                        hints.push(format!("{}: {}", tr("Not rendered yet"), missing.join(", ")));
                     }
                     let response = if hints.is_empty() { response } else { response.on_hover_text(hints.join("\n")) };
                     if response.clicked() {
@@ -1047,7 +1050,7 @@ impl PainterApp {
         let mut reset_all = false;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 3.0;
-            let detail = "Sub Tool Detail: every setting by category, with a live preview";
+            let detail = tr("Sub Tool Detail: every setting by category, with a live preview");
             if icon_button(ui, Icon::Options, 14.0, self.advanced_tool.is_some(), detail).clicked() {
                 self.open_advanced_tool_settings();
             }
@@ -1069,7 +1072,7 @@ impl PainterApp {
         }
         let missing = self.brushes[index].unsupported_features();
         if !missing.is_empty() {
-            ui.colored_label(Color32::from_rgb(240, 190, 90), format!("Imported features not painted yet: {}", missing.join(", ")));
+            ui.colored_label(Color32::from_rgb(240, 190, 90), format!("{}: {}", tr("Imported features not painted yet"), missing.join(", ")));
         }
         egui::CollapsingHeader::new(tr("Tip preview")).id_salt("tip_preview").default_open(false).show(ui, |ui| self.tip_preview(ui));
         ui.horizontal_wrapped(|ui| {

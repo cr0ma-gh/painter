@@ -378,6 +378,41 @@ mod tests {
     }
 
     #[test]
+    fn badge_labels_and_hints_cover_all_variants() {
+        let all_badges = [
+            BrushBadge::Tip,
+            BrushBadge::Flat,
+            BrushBadge::Texture,
+            BrushBadge::Dual,
+            BrushBadge::Spray,
+            BrushBadge::ClipStudio,
+            BrushBadge::Photoshop,
+            BrushBadge::Krita,
+            BrushBadge::OtherApp,
+        ];
+        for b in all_badges {
+            assert!(!b.label().is_empty());
+            assert!(!b.hint().is_empty());
+        }
+    }
+
+    #[test]
+    fn preset_differs_detects_any_property_or_mode_change() {
+        let base = preset(BrushSettings::g_pen());
+        assert!(!preset_differs(&base, &base));
+
+        let mut edited = base.clone();
+        edited.settings.mode = painter_core::BrushMode::Erase;
+        assert!(preset_differs(&edited, &base));
+
+        let mut edited = base.clone();
+        edited.settings.stabilization = 99;
+        assert!(preset_differs(&edited, &base));
+        reset_group(&mut edited, &base, PropertyGroup::Correction);
+        assert!(!preset_differs(&edited, &base));
+    }
+
+    #[test]
     fn imported_baseline_is_the_first_seen_preset() {
         let mut baselines = PresetBaselines::default();
         let mut p = preset(BrushSettings::g_pen());
