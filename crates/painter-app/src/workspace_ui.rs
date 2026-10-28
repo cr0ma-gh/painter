@@ -1032,7 +1032,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 96] = [
+        let fixed: [FixedCommand; 98] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -1100,6 +1100,8 @@ impl PainterApp {
             ("view.tool_strip", "Show Tool Strip", C::View, "", &["toolbar", "tools", "hide", "left"], true),
             ("view.command_bar", "Show Command Bar", C::View, "", &["toolbar", "icons", "hide", "top"], true),
             ("view.flip", "Flip View Horizontally", C::View, "", &["mirror", "check the drawing"], true),
+            ("view.proof_colors", "Proof Colors (CMYK)", C::View, "Ctrl+Y", &["cmyk", "proof", "print", "preview", "soft proof"], true),
+            ("view.gamut_warning", "Gamut Warning", C::View, "Ctrl+Shift+Y", &["gamut", "cmyk", "warning", "print", "out of gamut"], true),
             ("view.grid", "Show Grid", C::View, "Ctrl+'", &["guides"], true),
             ("rulers.snap", "Snap to Rulers", C::View, "Ctrl+1", &["perspective", "symmetry", "ruler"], true),
             ("view.zen", "Toggle Zen Mode", C::View, "Tab / F11", &["fullscreen", "hide panels", "distraction free"], true),
@@ -1265,6 +1267,14 @@ impl PainterApp {
             "help.reset_settings" => self.reset_dialog = Some(Default::default()),
             "view.reset_rotation" => self.view.set_rotation(0.0),
             "view.flip" => self.view.flip = !self.view.flip,
+            "view.proof_colors" => {
+                self.proof_colors = !self.proof_colors;
+                self.update_proofer();
+            }
+            "view.gamut_warning" => {
+                self.gamut_warning = !self.gamut_warning;
+                self.update_proofer();
+            }
             "view.grid" => self.doc.rulers.grid.visible = !self.doc.rulers.grid.visible,
             "rulers.snap" => self.toggle_ruler_snapping(),
             "view.zen" => self.toggle_zen(),

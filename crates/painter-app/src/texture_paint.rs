@@ -573,6 +573,8 @@ mod tests {
             dirty: false,
             edit_mask: false,
             mask_view_mode: painter_render::MaskViewMode::Off,
+            proof_colors: false,
+            gamut_warning: false,
             parked_at: Instant::now(),
             residency: crate::document_manager::session_store::Residency::Resident,
             thumbnail: None,
