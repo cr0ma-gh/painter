@@ -32,7 +32,15 @@ impl BrushLibrary {
         let mut error = None;
         let brushes = path.as_ref().filter(|p| p.is_file()).and_then(|p| {
             match std::fs::read(p).map_err(|e| e.to_string()).and_then(|b| brush_io::native::read(&b).map_err(|e| e.to_string())) {
-                Ok(list) if !list.is_empty() => Some(list),
+                Ok(mut list) if !list.is_empty() => {
+                    for p in &mut list {
+                        let cleaned = brush_io::clean_brush_name(&p.settings.name);
+                        if !cleaned.is_empty() {
+                            p.settings.name = cleaned;
+                        }
+                    }
+                    Some(list)
+                }
                 Ok(_) => None,
                 Err(err) => {
                     // Keep the unreadable file for a look, instead of overwriting it.

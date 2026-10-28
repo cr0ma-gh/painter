@@ -25,6 +25,7 @@ pub mod types;
 
 use std::path::Path;
 
+pub use abr::clean_brush_name;
 pub use types::{BrushIoError, BrushPreset, BrushTexture, BrushTip, DualBrush, Dynamic, Dynamics, ImportReport, PresetSource};
 
 /// File extensions [`import`] understands.
