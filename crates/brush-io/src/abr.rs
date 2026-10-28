@@ -178,7 +178,10 @@ fn read_v1_v2(c: &mut Cursor<'_>, version: u16, warnings: &mut Vec<String>) -> R
                 let _misc = c.u32()?;
                 let spacing = c.u16()?;
                 let name = if version == 2 { Some(c.unicode()?) } else { None };
-                let name = name.filter(|n| !n.is_empty()).map_or_else(|| format!("ABR brush {}", index + 1), |n| clean_brush_name(&n));
+                let name = name
+                    .map(|n| clean_brush_name(&n))
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| format!("ABR brush {}", index + 1));
                 let antialias = c.u8()? != 0;
                 let tip = (|| {
                     for _ in 0..4 {
@@ -219,6 +222,7 @@ fn sampled_preset(sample: Sample, version: u16, index: usize) -> BrushPreset {
         .name
         .as_deref()
         .map(clean_brush_name)
+        .filter(|n| !n.is_empty())
         .unwrap_or_else(|| format!("ABR brush {}", index + 1));
     let mut preset = BrushPreset::new(BrushSettings {
         name,
@@ -428,7 +432,11 @@ fn preset_from_desc(
     index: usize,
     warnings: &mut Vec<String>,
 ) -> BrushPreset {
-    let name = entry.text("Nm  ").map_or_else(|| format!("ABR brush {}", index + 1), clean_brush_name);
+    let name = entry
+        .text("Nm  ")
+        .map(clean_brush_name)
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| format!("ABR brush {}", index + 1));
     let tip_desc = entry.descriptor("Brsh");
     let (sample_id, sample) = sample_for(tip_desc, samples);
 

@@ -1424,31 +1424,31 @@ msgstr ""
 msgid "No folder to save into"
 msgstr ""
 
-#: crates/painter-app/src/dialogs.rs:1136
+#: crates/painter-app/src/dialogs.rs:1137
 msgid "No canvas open"
 msgstr ""
 
-#: crates/painter-app/src/dialogs.rs:1151
+#: crates/painter-app/src/dialogs.rs:1159
 msgid "Define Brush Preset: no artwork found in active layer or selection"
 msgstr ""
 
-#: crates/painter-app/src/dialogs.rs:1164
+#: crates/painter-app/src/dialogs.rs:1172
 msgid "Define Brush Preset: selected area is empty"
 msgstr ""
 
-#: crates/painter-app/src/dialogs.rs:1195
+#: crates/painter-app/src/dialogs.rs:1203
 msgid "Define Brush Preset: area contains no dark markings to sample"
 msgstr ""
 
-#: crates/painter-app/src/dialogs.rs:1223
+#: crates/painter-app/src/dialogs.rs:1231
 msgid "Define Brush Preset"
 msgstr ""
 
-#: crates/painter-app/src/dialogs.rs:1250
+#: crates/painter-app/src/dialogs.rs:1258
 msgid "Brush Name:"
 msgstr ""
 
-#: crates/painter-app/src/dialogs.rs:1302
+#: crates/painter-app/src/dialogs.rs:1318
 msgid "Defined brush preset"
 msgstr ""
 

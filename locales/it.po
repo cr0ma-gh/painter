@@ -1426,31 +1426,31 @@ msgstr "Poi scegli dove va una copia: iCloud Drive, un'altra cartella o app"
 msgid "No folder to save into"
 msgstr "Nessuna cartella in cui salvare"
 
-#: crates/painter-app/src/dialogs.rs:1136
+#: crates/painter-app/src/dialogs.rs:1137
 msgid "No canvas open"
 msgstr "Nessuna tela aperta"
 
-#: crates/painter-app/src/dialogs.rs:1151
+#: crates/painter-app/src/dialogs.rs:1159
 msgid "Define Brush Preset: no artwork found in active layer or selection"
 msgstr "Definisci pennello predefinito: nessun disegno trovato nel livello attivo o nella selezione"
 
-#: crates/painter-app/src/dialogs.rs:1164
+#: crates/painter-app/src/dialogs.rs:1172
 msgid "Define Brush Preset: selected area is empty"
 msgstr "Definisci pennello predefinito: l'area selezionata è vuota"
 
-#: crates/painter-app/src/dialogs.rs:1195
+#: crates/painter-app/src/dialogs.rs:1203
 msgid "Define Brush Preset: area contains no dark markings to sample"
 msgstr "Definisci pennello predefinito: l'area non contiene tratti scuri da campionare"
 
-#: crates/painter-app/src/dialogs.rs:1223
+#: crates/painter-app/src/dialogs.rs:1231
 msgid "Define Brush Preset"
 msgstr "Definisci pennello predefinito"
 
-#: crates/painter-app/src/dialogs.rs:1250
+#: crates/painter-app/src/dialogs.rs:1258
 msgid "Brush Name:"
 msgstr "Nome pennello:"
 
-#: crates/painter-app/src/dialogs.rs:1302
+#: crates/painter-app/src/dialogs.rs:1318
 msgid "Defined brush preset"
 msgstr "Pennello predefinito definito"
 

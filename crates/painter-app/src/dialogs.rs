@@ -1119,11 +1119,12 @@ pub(crate) struct DefineBrushDialog {
     pub(crate) alpha: Vec<u8>,
     pub(crate) name: String,
     pub(crate) preview_texture: Option<egui::TextureHandle>,
+    pub(crate) focus_requested: bool,
 }
 
 impl DefineBrushDialog {
     pub(crate) fn new(width: u32, height: u32, alpha: Vec<u8>, name: String) -> Self {
-        Self { width, height, alpha, name, preview_texture: None }
+        Self { width, height, alpha, name, preview_texture: None, focus_requested: false }
     }
 }
 
@@ -1142,7 +1143,14 @@ impl PainterApp {
 
         let area = match &self.doc.selection {
             Some(sel) => painter_core::selection::bounds(sel),
-            None => active_tiles.and_then(painter_core::selection::bounds),
+            None => active_tiles.and_then(painter_core::selection::bounds).or_else(|| {
+                let has_any = self.doc.layers.iter().any(|l| l.tiles().is_some_and(|t| !t.is_empty()));
+                if has_any {
+                    Some([0, 0, (cw.saturating_sub(1)) as i32, (ch.saturating_sub(1)) as i32])
+                } else {
+                    None
+                }
+            }),
         };
 
         let [x0, y0, x1, y1] = match area {
@@ -1250,10 +1258,17 @@ impl PainterApp {
                     ui.label(tr("Brush Name:"));
                     let field = egui::TextEdit::singleline(&mut dialog.name).desired_width(220.0);
                     let edit = ui.add(field);
+                    if !dialog.focus_requested {
+                        edit.request_focus();
+                        dialog.focus_requested = true;
+                    }
                     if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         apply = true;
                     }
                 });
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    cancel = true;
+                }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui.button(tr("Cancel")).clicked() {
@@ -1286,6 +1301,7 @@ impl PainterApp {
                 spacing: 0.15,
                 hardness: 1.0,
                 pressure_size: true,
+                min_size_ratio: 0.0,
                 stabilization: 0,
                 ..painter_core::BrushSettings::g_pen()
             });
