@@ -50,6 +50,50 @@ pub fn read(bytes: &[u8]) -> Result<Vec<BrushPreset>, BrushIoError> {
     read_report(bytes).map(|r| r.presets)
 }
 
+/// Cleans Photoshop / Adobe internal localization resource strings.
+///
+/// Adobe `.abr` files frequently store brush names formatted as localization resource keys,
+/// such as `$$$/Presets/Brushes/HeavyMarkerSmallerTip=Heavy Marker Smaller Tip` or
+/// `$$$/Presets/Brushes/DryMedia=Dry Media`.
+///
+/// This function strips the resource key prefix and returns the clean human-readable name.
+pub fn clean_brush_name(raw: &str) -> String {
+    let s = raw.trim().trim_matches('\0').trim();
+    if s.is_empty() {
+        return String::new();
+    }
+
+    // Case 1: Prefixed with Adobe resource key marker "$$$" or "$$"
+    if let Some(rest) = s.strip_prefix("$$$/").or_else(|| s.strip_prefix("$$$")).or_else(|| s.strip_prefix("$$")) {
+        // If there's an '=' sign, the human-readable display name is after '='
+        if let Some((_key, val)) = rest.split_once('=') {
+            let val = val.trim().trim_matches('\0').trim();
+            if !val.is_empty() {
+                return val.to_string();
+            }
+        }
+        // If no '=' or val was empty, take the last path component
+        if let Some(last) = rest.rsplit('/').next() {
+            let last = last.trim().trim_matches('\0').trim();
+            if !last.is_empty() {
+                return last.to_string();
+            }
+        }
+    }
+
+    // Case 2: Contains '=' where key looks like a resource path (e.g. "Presets/Brushes/Key=Display Name")
+    if let Some((key, val)) = s.split_once('=') {
+        if key.contains('/') || key.contains("Presets") || key.contains("Brushes") {
+            let val = val.trim().trim_matches('\0').trim();
+            if !val.is_empty() {
+                return val.to_string();
+            }
+        }
+    }
+
+    s.to_string()
+}
+
 /// Reads every preset, collecting fallbacks taken for unreadable parts.
 pub fn read_report(bytes: &[u8]) -> Result<ImportReport, BrushIoError> {
     let mut c = Cursor::new(bytes);
@@ -134,7 +178,7 @@ fn read_v1_v2(c: &mut Cursor<'_>, version: u16, warnings: &mut Vec<String>) -> R
                 let _misc = c.u32()?;
                 let spacing = c.u16()?;
                 let name = if version == 2 { Some(c.unicode()?) } else { None };
-                let name = name.filter(|n| !n.is_empty()).unwrap_or_else(|| format!("ABR brush {}", index + 1));
+                let name = name.filter(|n| !n.is_empty()).map_or_else(|| format!("ABR brush {}", index + 1), |n| clean_brush_name(&n));
                 let antialias = c.u8()? != 0;
                 let tip = (|| {
                     for _ in 0..4 {
@@ -171,8 +215,13 @@ fn read_v1_v2(c: &mut Cursor<'_>, version: u16, warnings: &mut Vec<String>) -> R
 
 fn sampled_preset(sample: Sample, version: u16, index: usize) -> BrushPreset {
     let size = sample.tip.width.max(sample.tip.height) as f32;
+    let name = sample
+        .name
+        .as_deref()
+        .map(clean_brush_name)
+        .unwrap_or_else(|| format!("ABR brush {}", index + 1));
     let mut preset = BrushPreset::new(BrushSettings {
-        name: sample.name.clone().unwrap_or_else(|| format!("ABR brush {}", index + 1)),
+        name,
         size,
         spacing: sample.spacing.unwrap_or(0.25).max(0.01),
         // The bitmap carries the softness.
@@ -379,7 +428,7 @@ fn preset_from_desc(
     index: usize,
     warnings: &mut Vec<String>,
 ) -> BrushPreset {
-    let name = entry.text("Nm  ").map_or_else(|| format!("ABR brush {}", index + 1), str::to_string);
+    let name = entry.text("Nm  ").map_or_else(|| format!("ABR brush {}", index + 1), clean_brush_name);
     let tip_desc = entry.descriptor("Brsh");
     let (sample_id, sample) = sample_for(tip_desc, samples);
 
@@ -946,5 +995,42 @@ mod tests {
         assert!((s.thickness_dynamics.jitter - 0.2).abs() < 1e-6);
         assert!(!s.pressure_size, "tilt control, not pressure");
         assert!(preset.unsupported_features().is_empty());
+    }
+
+    #[test]
+    fn test_clean_brush_name_adobe_localization_keys() {
+        // Screenshot example cases:
+        assert_eq!(
+            clean_brush_name("$$$/Presets/Brushes/HeavyMarkerSmallerTip=Heavy Marker Smaller Tip"),
+            "Heavy Marker Smaller Tip"
+        );
+        assert_eq!(
+            clean_brush_name("$$$/Presets/Brushes/KyleBok=Kyle's Bok"),
+            "Kyle's Bok"
+        );
+        assert_eq!(
+            clean_brush_name("$$$/VectorPresets/Brushes/Charcoal=Charcoal 01"),
+            "Charcoal 01"
+        );
+        // Without equals sign
+        assert_eq!(
+            clean_brush_name("$$$/Presets/Brushes/RoughPencil"),
+            "RoughPencil"
+        );
+        // Path with equals sign but no $$$
+        assert_eq!(
+            clean_brush_name("Presets/Brushes/DryMedia=Rough Chalk"),
+            "Rough Chalk"
+        );
+        // Null-terminated or whitespace padding
+        assert_eq!(
+            clean_brush_name("  $$$/Presets/Brushes/SoftRound30=Soft Round 30\0  "),
+            "Soft Round 30"
+        );
+        // Normal names preserved untouched
+        assert_eq!(clean_brush_name("G-Pen"), "G-Pen");
+        assert_eq!(clean_brush_name("Airbrush"), "Airbrush");
+        assert_eq!(clean_brush_name("Hard Round 19"), "Hard Round 19");
+        assert_eq!(clean_brush_name("   "), "");
     }
 }

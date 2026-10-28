@@ -1406,7 +1406,13 @@ impl PainterApp {
                 self.status = format!("No brushes found in {}", file_name(path));
                 self.import_warnings = report.warnings;
             }
-            Ok(report) => {
+            Ok(mut report) => {
+                for p in &mut report.presets {
+                    let cleaned = brush_io::clean_brush_name(&p.settings.name);
+                    if !cleaned.is_empty() {
+                        p.settings.name = cleaned;
+                    }
+                }
                 let first = self.brushes.len();
                 let count = report.presets.len();
                 let partial = report.presets.iter().filter(|p| !p.unsupported_features().is_empty()).count();
