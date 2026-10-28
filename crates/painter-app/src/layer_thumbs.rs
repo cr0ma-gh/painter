@@ -10,7 +10,7 @@ use std::hash::{Hash, Hasher};
 
 use eframe::egui::{self, Color32};
 use painter_core::tile::{TileStore, TILE_SIZE};
-use painter_core::{Layer, LayerId, LayerKind};
+use painter_core::{Layer, LayerId, LayerKind, Mask};
 use ui_workspace::LayerThumbMode;
 
 use crate::app::PainterApp;
@@ -29,11 +29,17 @@ const MIN_CONTENT_SIDE: f32 = 16.0;
 pub(crate) struct LayerThumbs {
     /// Layer → what it was drawn from, and the picture.
     cache: HashMap<LayerId, (u64, egui::TextureHandle)>,
+    /// Mask thumbnails for layers with a mask.
+    mask_cache: HashMap<LayerId, (u64, egui::TextureHandle)>,
 }
 
 impl LayerThumbs {
     pub(crate) fn get(&self, id: LayerId) -> Option<&egui::TextureHandle> {
         self.cache.get(&id).map(|(_, t)| t)
+    }
+
+    pub(crate) fn get_mask(&self, id: LayerId) -> Option<&egui::TextureHandle> {
+        self.mask_cache.get(&id).map(|(_, t)| t)
     }
 }
 
@@ -145,6 +151,38 @@ fn render(layer: &Layer, area: [f32; 4], size: [usize; 2]) -> egui::ColorImage {
     egui::ColorImage { size, pixels }
 }
 
+fn mask_key(mask: &Mask, canvas: (u32, u32), mode: LayerThumbMode) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    canvas.hash(&mut h);
+    mode.hash(&mut h);
+    mask.enabled.hash(&mut h);
+    mask.tiles.len().hash(&mut h);
+    for (coord, tile) in mask.tiles.iter() {
+        (coord.x, coord.y).hash(&mut h);
+        (std::sync::Arc::as_ptr(tile) as usize).hash(&mut h);
+    }
+    h.finish()
+}
+
+fn render_mask(mask: &Mask, area: [f32; 4], size: [usize; 2]) -> egui::ColorImage {
+    let (w, h) = (size[0], size[1]);
+    let (sx, sy) = (area[2] / w as f32, area[3] / h as f32);
+    let mut pixels = Vec::with_capacity(w * h);
+    for ty in 0..h {
+        for tx in 0..w {
+            let mut acc = 0.0f32;
+            for (ox, oy) in [(0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)] {
+                let (x, y) = (area[0] + (tx as f32 + ox) * sx, area[1] + (ty as f32 + oy) * sy);
+                let q = mask.tiles.pixel(x.floor() as i32, y.floor() as i32);
+                acc += (255 - q[3]) as f32 / 255.0;
+            }
+            let v = ((acc / 4.0).clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+            pixels.push(Color32::from_gray(v));
+        }
+    }
+    egui::ColorImage { size, pixels }
+}
+
 impl PainterApp {
     /// Brings the thumbnails of `ids` up to date (a few per frame), at `side` pixels.
     pub(crate) fn update_layer_thumbs(&mut self, ctx: &egui::Context, ids: &[LayerId], side: f32) {
@@ -157,33 +195,60 @@ impl PainterApp {
         let mut drawn = 0;
         for &id in ids {
             let Some(layer) = self.doc.find(id) else { continue };
-            let Some(key) = content_key(layer, canvas, mode) else { continue };
-            let key = key ^ (side.round() as u64) << 40;
-            if self.layer_thumbs.cache.get(&id).is_some_and(|(k, _)| *k == key) {
-                continue;
-            }
-            if drawn == PER_FRAME {
-                ctx.request_repaint();
-                break;
-            }
-            // The content's bounds are found only here, when the key changed.
-            let area = frame(layer, canvas, mode);
-            let image = render(layer, area, frame_size(area, side));
-            match self.layer_thumbs.cache.get_mut(&id) {
-                Some((k, tex)) => {
-                    tex.set(image, egui::TextureOptions::LINEAR);
-                    *k = key;
+            if let Some(key) = content_key(layer, canvas, mode) {
+                let key = key ^ (side.round() as u64) << 40;
+                if !self.layer_thumbs.cache.get(&id).is_some_and(|(k, _)| *k == key) {
+                    if drawn == PER_FRAME {
+                        ctx.request_repaint();
+                        break;
+                    }
+                    // The content's bounds are found only here, when the key changed.
+                    let area = frame(layer, canvas, mode);
+                    let image = render(layer, area, frame_size(area, side));
+                    match self.layer_thumbs.cache.get_mut(&id) {
+                        Some((k, tex)) => {
+                            tex.set(image, egui::TextureOptions::LINEAR);
+                            *k = key;
+                        }
+                        None => {
+                            let tex = ctx.load_texture(format!("layer-thumb-{}", id.0), image, egui::TextureOptions::LINEAR);
+                            self.layer_thumbs.cache.insert(id, (key, tex));
+                        }
+                    }
+                    drawn += 1;
                 }
-                None => {
-                    let tex = ctx.load_texture(format!("layer-thumb-{}", id.0), image, egui::TextureOptions::LINEAR);
-                    self.layer_thumbs.cache.insert(id, (key, tex));
-                }
             }
-            drawn += 1;
+
+            // Layer mask thumbnail:
+            if let Some(mask) = &layer.mask {
+                let mkey = mask_key(mask, canvas, mode) ^ (side.round() as u64) << 40;
+                if !self.layer_thumbs.mask_cache.get(&id).is_some_and(|(k, _)| *k == mkey) {
+                    if drawn == PER_FRAME {
+                        ctx.request_repaint();
+                        break;
+                    }
+                    let marea = [0.0, 0.0, canvas.0.max(1) as f32, canvas.1.max(1) as f32];
+                    let image = render_mask(mask, marea, frame_size(marea, side));
+                    match self.layer_thumbs.mask_cache.get_mut(&id) {
+                        Some((k, tex)) => {
+                            tex.set(image, egui::TextureOptions::LINEAR);
+                            *k = mkey;
+                        }
+                        None => {
+                            let tex = ctx.load_texture(format!("mask-thumb-{}", id.0), image, egui::TextureOptions::LINEAR);
+                            self.layer_thumbs.mask_cache.insert(id, (mkey, tex));
+                        }
+                    }
+                    drawn += 1;
+                }
+            } else {
+                self.layer_thumbs.mask_cache.remove(&id);
+            }
         }
         // Layers that are gone.
         let live: std::collections::HashSet<LayerId> = ids.iter().copied().collect();
         self.layer_thumbs.cache.retain(|id, _| live.contains(id));
+        self.layer_thumbs.mask_cache.retain(|id, _| live.contains(id));
     }
 }
 
@@ -263,5 +328,32 @@ mod tests {
         assert_eq!(frame(&empty, (64, 64), LayerThumbMode::Content), [0.0, 0.0, 64.0, 64.0]);
         let fill = Layer { kind: LayerKind::Fill { color: [1, 2, 3] }, ..empty };
         assert_eq!(frame(&fill, (64, 64), LayerThumbMode::Content), [0.0, 0.0, 64.0, 64.0]);
+    }
+
+    #[test]
+    fn mask_thumbnails_render_grayscale_accurately() {
+        let mut mask_rgba = vec![0u8; 64 * 64 * 4];
+        // Left half hidden (alpha 255), right half revealed (alpha 0)
+        for y in 0..64 {
+            for x in 0..32 {
+                let i = ((y * 64 + x) * 4) as usize;
+                mask_rgba[i..i + 4].copy_from_slice(&[255, 255, 255, 255]);
+            }
+        }
+        let mask = Mask {
+            tiles: TileStore::from_rgba(64, 64, &mask_rgba),
+            enabled: true,
+        };
+        let k1 = mask_key(&mask, (64, 64), LayerThumbMode::Canvas);
+        let img = render_mask(&mask, [0.0, 0.0, 64.0, 64.0], [16, 16]);
+        // Pixel at (0, 0) is hidden -> black
+        assert_eq!(img.pixels[0], Color32::from_gray(0));
+        // Pixel at (15, 0) is unmasked/revealed -> white
+        assert_eq!(img.pixels[15], Color32::from_gray(255));
+
+        // Changing enabled state changes key
+        let mut mask_disabled = mask.clone();
+        mask_disabled.enabled = false;
+        assert_ne!(k1, mask_key(&mask_disabled, (64, 64), LayerThumbMode::Canvas));
     }
 }

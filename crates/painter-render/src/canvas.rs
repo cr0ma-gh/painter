@@ -32,7 +32,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
-use painter_core::{AdjustOp, BlendMode, Gradient, Tile, TileCoord, Tone};
+use painter_core::{AdjustOp, BlendMode, Gradient, LayerId, Tile, TileCoord, Tone};
 use wgpu::util::DeviceExt;
 
 use crate::atlas::{index_texture, AtlasProfile, Plane, Residency};
@@ -183,6 +183,17 @@ const STROKE_MARGIN: f32 = 128.0;
 /// Targets are sized in whole tiles, so small changes reuse them.
 const TILE: u32 = painter_core::TILE_SIZE;
 
+/// How the active layer mask is previewed on canvas.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum MaskViewMode {
+    #[default]
+    Off,
+    /// Shows the mask as black and white (white = reveal, black = hide).
+    Grayscale,
+    /// Shows artwork with a translucent ruby overlay over masked areas.
+    Rubylith,
+}
+
 pub struct CanvasFrame {
     /// Bumped by the app whenever the document is replaced; drops all GPU state.
     pub epoch: u64,
@@ -203,6 +214,8 @@ pub struct CanvasFrame {
     /// RGB → CMYK table of a CMYK document (`painter_core::cmyk::Proofer::lut`)
     /// and a key that changes with it; uploaded when the key changes.
     pub ink_lut: Option<(u64, std::sync::Arc<Vec<u8>>)>,
+    /// Active layer mask preview mode.
+    pub mask_view: Option<(LayerId, MaskViewMode)>,
 }
 
 #[repr(C)]
@@ -216,7 +229,8 @@ struct CompositeParams {
     gradient_shape: u32,
     /// 1: show the source in the layer colour `color1`.
     tint: u32,
-    _pad: u32,
+    /// 0 none, 1 grayscale mask view, 2 rubylith overlay view.
+    mask_view: u32,
     color0: [f32; 4],
     color1: [f32; 4],
     geom: [f32; 4],
@@ -238,7 +252,7 @@ impl CompositeParams {
             clip_kind: 0,
             gradient_shape: 0,
             tint: 0,
-            _pad: 0,
+            mask_view: 0,
             color0: [0.0; 4],
             color1: [0.0; 4],
             geom: [0.0; 4],
@@ -375,6 +389,7 @@ pub struct GpuCanvas {
     transform_plane: Option<Plane>,
     /// Blend passes recorded by the last `prepare`.
     passes: AtomicUsize,
+    mask_view: Option<(LayerId, MaskViewMode)>,
     present_bind_group: Option<wgpu::BindGroup>,
     thumb_bind_group: Option<wgpu::BindGroup>,
 }
@@ -518,6 +533,7 @@ impl GpuCanvas {
             transform_revision: None,
             transform_plane: None,
             passes: AtomicUsize::new(0),
+            mask_view: None,
             present_bind_group: None,
             thumb_bind_group: None,
         }
@@ -550,7 +566,8 @@ impl GpuCanvas {
         }
         self.retired.clear();
         // Anything other than new dabs invalidates the stroke-time caches.
-        let mut content_changed = frame.recomposite || !frame.uploads.is_empty() || frame.selection != self.selection;
+        let mut content_changed = frame.recomposite || !frame.uploads.is_empty() || frame.selection != self.selection || frame.mask_view != self.mask_view;
+        self.mask_view = frame.mask_view;
         if frame.epoch != self.epoch || frame.doc_size != self.size || self.chains.is_empty() {
             self.epoch = frame.epoch;
             self.size = frame.doc_size;
@@ -640,6 +657,14 @@ impl GpuCanvas {
                     gpu::clear(encoder, &self.chains[0][0].view);
                     self.composite_seq(device, encoder, &frame.plan, 0, &mut cur);
                     self.final_index = cur[0];
+                }
+            }
+        }
+
+        if content_changed || preview_changed {
+            if let Some((mask_layer, mask_mode)) = frame.mask_view {
+                if mask_mode != MaskViewMode::Off {
+                    self.apply_mask_view(device, encoder, mask_layer, mask_mode);
                 }
             }
         }
@@ -1217,6 +1242,35 @@ impl GpuCanvas {
         pass.draw(0..3, 0..1);
         drop(pass);
         cur[depth] = to;
+    }
+
+    fn apply_mask_view(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        layer_id: LayerId,
+        mode: MaskViewMode,
+    ) {
+        let mask = self.plane_alpha(Plane::Mask(layer_id)).unwrap_or(Alpha::None);
+        let mut cur = vec![self.final_index; self.chains.len()];
+        let mut params = CompositeParams::new(painter_core::BlendMode::Normal, 1.0);
+        params.mask_view = match mode {
+            MaskViewMode::Off => return,
+            MaskViewMode::Grayscale => 1,
+            MaskViewMode::Rubylith => 2,
+        };
+        self.blend_pass(
+            device,
+            encoder,
+            0,
+            &mut cur,
+            None,
+            Source::Solid([0.0; 4]),
+            mask,
+            Alpha::None,
+            params,
+        );
+        self.final_index = cur[0];
     }
 }
 

@@ -52,6 +52,9 @@ impl PainterApp {
             self.layer_selection = vec![id];
             if self.doc.active != id {
                 self.edit_mask = false;
+                if !self.doc.find(id).is_some_and(|l| l.mask.is_some()) {
+                    self.mask_view_mode = painter_render::MaskViewMode::Off;
+                }
             }
             self.doc.active = id;
         }
@@ -118,6 +121,9 @@ impl PainterApp {
         self.push_comic_history(self.comic.clone());
         self.layer_selection = vec![self.doc.active];
         self.edit_mask = false;
+        if !self.doc.find(self.doc.active).is_some_and(|l| l.mask.is_some()) {
+            self.mask_view_mode = painter_render::MaskViewMode::Off;
+        }
         self.layers_changed();
     }
 

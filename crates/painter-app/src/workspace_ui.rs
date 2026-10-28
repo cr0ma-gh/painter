@@ -1032,7 +1032,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 92] = [
+        let fixed: [FixedCommand; 95] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -1084,6 +1084,9 @@ impl PainterApp {
             ("layer.file_object", "New File Object Layer...", C::Layer, "", &["smart object", "linked", "place", "embed", "reference file"], true),
             ("layer.tone", "New Tone Layer (from selection)", C::Layer, "", &["screentone", "halftone"], has_sel),
             ("layer.add_mask", "Add Layer Mask", C::Layer, "", &[], !has_mask),
+            ("layer.view_mask", "View Mask (Grayscale)", C::Layer, "Alt+Click Mask", &["preview mask", "grayscale"], has_mask),
+            ("layer.rubylith_mask", "Rubylith Mask Overlay", C::Layer, "\\", &["red overlay", "preview mask", "rubylith"], has_mask),
+            ("layer.toggle_mask", "Enable / Disable Mask", C::Layer, "Shift+Click Mask", &["toggle mask"], has_mask),
             ("layer.delete_mask", "Delete Layer Mask", C::Layer, "", &[], has_mask),
             ("layer.delete", "Delete Layer", C::Layer, "", &["remove layer"], true),
             ("view.fit", "Fit to Window", C::View, "Ctrl+0", &["zoom"], true),
@@ -1240,6 +1243,9 @@ impl PainterApp {
             "layer.file_object" => self.new_file_object_dialog(),
             "layer.tone" => self.add_tone_layer(),
             "layer.add_mask" => self.add_mask(),
+            "layer.view_mask" => self.toggle_mask_view(painter_render::MaskViewMode::Grayscale),
+            "layer.rubylith_mask" => self.toggle_mask_view(painter_render::MaskViewMode::Rubylith),
+            "layer.toggle_mask" => self.toggle_mask_enabled(),
             "layer.delete_mask" => self.delete_mask(),
             "layer.delete" => self.delete_active_layer(),
             "view.fit" => self.fit_pending = true,
@@ -1559,7 +1565,7 @@ fn live_command_enabled(id: &str, history: &painter_core::history::History, doc:
         "edit.redo" => history.can_redo(),
         "edit.clear" | "select.none" | "select.save_channel" | "layer.tone" => has_sel(),
         "layer.add_mask" => !has_mask(),
-        "layer.delete_mask" => has_mask(),
+        "layer.view_mask" | "layer.rubylith_mask" | "layer.toggle_mask" | "layer.delete_mask" => has_mask(),
         _ => return None,
     })
 }
@@ -1603,5 +1609,27 @@ mod command_state_tests {
             assert_eq!(live_command_enabled(id, &history, &doc), Some(true), "{id}");
         }
         assert_eq!(live_command_enabled("file.save", &history, &doc), None, "the registry decides the rest");
+    }
+
+    #[test]
+    fn mask_commands_follow_the_active_mask() {
+        let mut doc = Document::new(10, 10);
+        let id = doc.alloc_id();
+        doc.add_layer(painter_core::Layer::raster(id, "L1"));
+        doc.active = id;
+        let history = History::new(10);
+
+        assert_eq!(live_command_enabled("layer.add_mask", &history, &doc), Some(true));
+        assert_eq!(live_command_enabled("layer.view_mask", &history, &doc), Some(false));
+        assert_eq!(live_command_enabled("layer.rubylith_mask", &history, &doc), Some(false));
+        assert_eq!(live_command_enabled("layer.toggle_mask", &history, &doc), Some(false));
+        assert_eq!(live_command_enabled("layer.delete_mask", &history, &doc), Some(false));
+
+        doc.find_mut(id).unwrap().mask = Some(painter_core::Mask::default());
+        assert_eq!(live_command_enabled("layer.add_mask", &history, &doc), Some(false));
+        assert_eq!(live_command_enabled("layer.view_mask", &history, &doc), Some(true));
+        assert_eq!(live_command_enabled("layer.rubylith_mask", &history, &doc), Some(true));
+        assert_eq!(live_command_enabled("layer.toggle_mask", &history, &doc), Some(true));
+        assert_eq!(live_command_enabled("layer.delete_mask", &history, &doc), Some(true));
     }
 }

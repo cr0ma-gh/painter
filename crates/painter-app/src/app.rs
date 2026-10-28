@@ -153,6 +153,8 @@ pub struct PainterApp {
     pub(crate) drag: Option<ToolDrag>,
     /// Paint into the active layer's mask instead of its pixels.
     pub(crate) edit_mask: bool,
+    /// Mode for previewing the active layer mask on canvas (Grayscale, Rubylith, or Off).
+    pub(crate) mask_view_mode: painter_render::MaskViewMode,
     /// Plane changes waiting to reach the GPU on the next frame.
     pub(crate) uploads: Vec<Upload>,
     pub(crate) recomposite: bool,
@@ -419,6 +421,7 @@ impl PainterApp {
             next_stroke_id: 1,
             drag: None,
             edit_mask: false,
+            mask_view_mode: painter_render::MaskViewMode::Off,
             uploads: Vec::new(),
             recomposite: true,
             sent_uploads: (Vec::new(), false),
@@ -883,7 +886,37 @@ impl PainterApp {
             layer.mask = None;
         }
         self.edit_mask = false;
+        self.mask_view_mode = painter_render::MaskViewMode::Off;
         self.recomposite = true;
+    }
+
+    /// Toggles previewing the active layer mask on the canvas (Grayscale or Rubylith).
+    pub(crate) fn toggle_mask_view(&mut self, mode: painter_render::MaskViewMode) {
+        let Some(layer) = self.doc.active_layer() else { return; };
+        if layer.mask.is_none() {
+            self.status = format!("\"{}\" has no mask", layer.name);
+            return;
+        }
+        if self.mask_view_mode == mode {
+            self.mask_view_mode = painter_render::MaskViewMode::Off;
+        } else {
+            self.mask_view_mode = mode;
+            self.edit_mask = true;
+        }
+        self.recomposite = true;
+    }
+
+    /// Toggles the enabled state of the active layer mask.
+    pub(crate) fn toggle_mask_enabled(&mut self) {
+        self.checkpoint();
+        let id = self.doc.active;
+        if let Some(layer) = self.doc.find_mut(id) {
+            if let Some(mask) = &mut layer.mask {
+                mask.enabled = !mask.enabled;
+                self.recomposite = true;
+                self.dirty = true;
+            }
+        }
     }
 
     // ---- strokes -------------------------------------------------------------

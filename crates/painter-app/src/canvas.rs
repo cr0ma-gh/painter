@@ -7,7 +7,10 @@ use painter_core::StrokePoint;
 use painter_render::{build_plan, live_planes, CanvasFrame, GpuCanvas, RenderProfile, ViewUniform};
 
 use crate::app::PainterApp;
+use crate::i18n::tr;
+use crate::icons::Icon;
 use crate::palm::{ContactClass, ContactInput, ContactPhase, InkEvent, InkSample, NavGesture, PalmMode, PalmSettings};
+use crate::theme;
 use crate::tools::Tool;
 use crate::view::ViewTransform;
 
@@ -142,6 +145,9 @@ impl PainterApp {
                     }
                 },
                 ink_lut: if self.proofer.display.is_some() { self.proofer.display.clone() } else { self.proofer.lut.clone() },
+                mask_view: (self.mask_view_mode != painter_render::MaskViewMode::Off
+                    && self.doc.active_layer().is_some_and(|l| l.mask.is_some()))
+                    .then_some((self.doc.active, self.mask_view_mode)),
             };
             ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, CanvasCallback(frame, self.pending_render_profile.take())));
         } else {
@@ -169,6 +175,7 @@ impl PainterApp {
         self.draw_eyedropper(&painter);
         self.palm_overlay(ui, rect);
         self.transform_hud(ui.ctx(), rect);
+        self.mask_view_hud(ui.ctx(), rect);
         self.nav_gizmo(ui, rect);
         self.ruler_bar_ui(ui, full, rect, bar_top, bar_left);
     }
@@ -623,6 +630,78 @@ impl PainterApp {
                 let target = thumb.screen_to_doc(rect, doc, pos);
                 self.view.center_on(doc, target);
             }
+        }
+    }
+
+    pub(crate) fn mask_view_hud(&mut self, ctx: &egui::Context, rect: Rect) {
+        if self.mask_view_mode == painter_render::MaskViewMode::Off {
+            return;
+        }
+        let Some(layer) = self.doc.active_layer() else {
+            self.mask_view_mode = painter_render::MaskViewMode::Off;
+            return;
+        };
+        if layer.mask.is_none() {
+            self.mask_view_mode = painter_render::MaskViewMode::Off;
+            return;
+        }
+
+        let mut exit = false;
+        let mut toggle_to = None;
+        let layer_name = layer.name.clone();
+
+        egui::Area::new(egui::Id::new("mask_view_hud"))
+            .order(egui::Order::Foreground)
+            .pivot(Align2::CENTER_TOP)
+            .fixed_pos(Pos2::new(rect.center().x, rect.top() + 14.0))
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(theme::panel().gamma_multiply(0.96))
+                    .stroke(Stroke::new(1.0_f32, theme::line()))
+                    .corner_radius(16)
+                    .inner_margin(egui::Margin::symmetric(12, 6))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let icon_tint = match self.mask_view_mode {
+                                painter_render::MaskViewMode::Grayscale => Color32::from_rgb(100, 180, 255),
+                                painter_render::MaskViewMode::Rubylith => Color32::from_rgb(255, 90, 110),
+                                _ => theme::text(),
+                            };
+                            Icon::LayerMask.paint(ui, egui::Rect::from_min_size(ui.cursor().min, Vec2::splat(16.0)), 14.0, icon_tint);
+                            ui.add_space(20.0);
+
+                            ui.label(
+                                egui::RichText::new(format!("{}: {}", tr("Mask"), layer_name))
+                                    .strong()
+                            );
+
+                            ui.separator();
+
+                            let is_gray = self.mask_view_mode == painter_render::MaskViewMode::Grayscale;
+                            if ui.selectable_label(is_gray, tr("Grayscale")).clicked() && !is_gray {
+                                toggle_to = Some(painter_render::MaskViewMode::Grayscale);
+                            }
+
+                            let is_ruby = self.mask_view_mode == painter_render::MaskViewMode::Rubylith;
+                            if ui.selectable_label(is_ruby, tr("Rubylith (\\)")).clicked() && !is_ruby {
+                                toggle_to = Some(painter_render::MaskViewMode::Rubylith);
+                            }
+
+                            ui.separator();
+
+                            if ui.small_button(tr("Exit (Esc)")).clicked() {
+                                exit = true;
+                            }
+                        });
+                    });
+            });
+
+        if exit {
+            self.mask_view_mode = painter_render::MaskViewMode::Off;
+            self.recomposite = true;
+        } else if let Some(mode) = toggle_to {
+            self.mask_view_mode = mode;
+            self.recomposite = true;
         }
     }
 }

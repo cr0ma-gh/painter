@@ -14,7 +14,8 @@ struct Params {
     gradient_shape: u32,
     // 1: show the source in the layer colour (color1), as Clip Studio's layer colour
     tint: u32,
-    _pad1: u32,
+    // 0 none, 1 grayscale mask view, 2 rubylith overlay view
+    mask_view: u32,
     // solid colour (premultiplied) | gradient start colour | tone colour (straight)
     color0: vec4<f32>,
     // gradient end colour (straight)
@@ -225,6 +226,34 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let texel = local + params.origin;
     let at = position.xy + vec2<f32>(params.origin);
     let b = textureLoad(backdrop, local, 0);
+
+    // Mask preview mode:
+    // 1: Grayscale mask view (white = reveal, black = hide)
+    // 2: Rubylith overlay view (translucent ruby red tint over masked areas)
+    if (params.mask_view == 1u) {
+        var alpha = 0.0;
+        if (params.mask_kind == 1u) {
+            alpha = atlas_load(mask_index, texel).a;
+        } else if (params.mask_kind == 2u) {
+            alpha = direct_load(mask_direct, mask_index, params.mask_origin, texel).a;
+        }
+        let v = 1.0 - alpha;
+        return vec4<f32>(v, v, v, 1.0);
+    } else if (params.mask_view == 2u) {
+        var alpha = 0.0;
+        if (params.mask_kind == 1u) {
+            alpha = atlas_load(mask_index, texel).a;
+        } else if (params.mask_kind == 2u) {
+            alpha = direct_load(mask_direct, mask_index, params.mask_origin, texel).a;
+        }
+        let ruby_alpha = 0.55 * alpha;
+        let ruby_rgb = vec3<f32>(0.88, 0.12, 0.16);
+        let cb = unpremultiply(b);
+        let mixed = mix(cb, ruby_rgb, ruby_alpha);
+        let out_a = b.a + ruby_alpha * (1.0 - b.a);
+        return vec4<f32>(mixed * out_a, out_a);
+    }
+
     // A correction layer: recolour the backdrop, keep its alpha (io::apply_adjustment).
     if (params.source_kind == 5u) {
         if (b.a <= 0.0) {
