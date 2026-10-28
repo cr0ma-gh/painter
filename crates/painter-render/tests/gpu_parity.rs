@@ -949,3 +949,19 @@ fn brush_blend_modes_preview_matches_commit() {
         check_stroke(sample_document(), settings, StrokeCase { alpha_locked: true, ..StrokeCase::default() });
     }
 }
+
+/// Drawing onto a clipped layer whose base is empty triggers cached composite
+/// fallback (node_pass returning false) and must not fail wgpu texture copy validation.
+#[test]
+fn clipped_layer_preview_with_empty_base_does_not_crash() {
+    let mut doc = Document::new(160, 100);
+    let base = doc.alloc_id();
+    doc.add_layer(Layer::raster(base, "Empty Base"));
+    let clipped = doc.alloc_id();
+    let mut clipped_layer = Layer::raster(clipped, "Clipped");
+    clipped_layer.clip = true;
+    doc.add_layer(clipped_layer);
+    doc.active = clipped;
+    check_stroke(doc, BrushSettings { size: 20.0, ..pen() }, StrokeCase::default());
+}
+
