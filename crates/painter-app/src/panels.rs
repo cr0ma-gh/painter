@@ -210,6 +210,15 @@ impl PainterApp {
                         ui.close_menu();
                     }
                     ui.separator();
+                    if ui.button(tr("Define Brush Preset...")).on_hover_text(tr("Create a custom brush tip from the selection or active layer")).clicked() {
+                        ui.close_menu();
+                        self.define_brush_preset_dialog();
+                    }
+                    if ui.button(tr("Define Pattern...")).on_hover_text(tr("Create a pattern from the selection or active layer")).clicked() {
+                        ui.close_menu();
+                        self.define_pattern();
+                    }
+                    ui.separator();
                     ui.checkbox(&mut self.tools.paste_match_dpi, tr("Paste Keeps Print Size"))
                         .on_hover_text(tr("Between documents at different resolutions, pasted and copied layers are resampled to the same size on paper"));
                 });
@@ -766,7 +775,22 @@ impl PainterApp {
             if import.clicked() {
                 self.import_brushes_dialog();
             }
+            let add_custom = icon_button(
+                ui,
+                Icon::Add,
+                16.0,
+                false,
+                tr("Define Brush Preset from selection or layer..."),
+            );
+            if add_custom.clicked() {
+                self.define_brush_preset_dialog();
+            }
             import.context_menu(|ui| {
+                if ui.button(tr("Define Brush Preset from selection or layer...")).clicked() {
+                    self.define_brush_preset_dialog();
+                    ui.close_menu();
+                }
+                ui.separator();
                 if ui.button(tr("Add Back Missing Default Brushes")).clicked() {
                     self.restore_default_brushes();
                     ui.close_menu();
@@ -1089,7 +1113,13 @@ impl PainterApp {
         if !missing.is_empty() {
             ui.colored_label(Color32::from_rgb(240, 190, 90), format!("{}: {}", tr("Imported features not painted yet"), missing.join(", ")));
         }
-        egui::CollapsingHeader::new(tr("Tip preview")).id_salt("tip_preview").default_open(false).show(ui, |ui| self.tip_preview(ui));
+        egui::CollapsingHeader::new(tr("Tip preview")).id_salt("tip_preview").default_open(false).show(ui, |ui| {
+            self.tip_preview(ui);
+            ui.add_space(2.0);
+            if ui.button(tr("Define Tip from Canvas...")).on_hover_text(tr("Create a new brush tip preset sampled from the active selection or layer")).clicked() {
+                self.define_brush_preset_dialog();
+            }
+        });
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 3.0;
             ui.toggle_value(&mut self.ws.chrome.brush_crosshair, tr("Crosshair")).on_hover_text(tr("Off: only the brush outline shows where you paint"));

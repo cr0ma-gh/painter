@@ -317,6 +317,129 @@ impl DabTip {
     }
 }
 
+/// Bilinear resampler for an 8-bit coverage mask.
+pub fn resample_coverage(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Vec<u8> {
+    if sw == 0 || sh == 0 || dw == 0 || dh == 0 {
+        return Vec::new();
+    }
+    if sw == dw && sh == dh {
+        return src[..((sw * sh) as usize).min(src.len())].to_vec();
+    }
+    let mut dst = Vec::with_capacity((dw * dh) as usize);
+    let sx_scale = sw as f32 / dw as f32;
+    let sy_scale = sh as f32 / dh as f32;
+    for dy in 0..dh {
+        for dx in 0..dw {
+            let src_x = (dx as f32 + 0.5) * sx_scale - 0.5;
+            let src_y = (dy as f32 + 0.5) * sy_scale - 0.5;
+            let x0 = (src_x.floor() as i32).clamp(0, sw as i32 - 1) as u32;
+            let y0 = (src_y.floor() as i32).clamp(0, sh as i32 - 1) as u32;
+            let x1 = (x0 + 1).min(sw - 1);
+            let y1 = (y0 + 1).min(sh - 1);
+            let fx = (src_x - src_x.floor()).clamp(0.0, 1.0);
+            let fy = (src_y - src_y.floor()).clamp(0.0, 1.0);
+
+            let p00 = src[(y0 * sw + x0) as usize] as f32;
+            let p10 = src[(y0 * sw + x1) as usize] as f32;
+            let p01 = src[(y1 * sw + x0) as usize] as f32;
+            let p11 = src[(y1 * sw + x1) as usize] as f32;
+
+            let top = p00 * (1.0 - fx) + p10 * fx;
+            let bottom = p01 * (1.0 - fx) + p11 * fx;
+            let val = (top * (1.0 - fy) + bottom * fy).round().clamp(0.0, 255.0) as u8;
+            dst.push(val);
+        }
+    }
+    dst
+}
+
+/// Samples a custom brush tip from unpremultiplied RGBA8 pixels, converting
+/// luminance to ink coverage (Photoshop convention):
+///
+/// `coverage = ((255 - luminance) * (alpha / 255.0))`
+///
+/// Black `(0, 0, 0)` produces 100% ink coverage (255), white `(255, 255, 255)` produces
+/// 0% ink coverage (0), scaled proportionally by source alpha and selection mask.
+///
+/// - If `trim` is true, automatically crops empty transparent margins where coverage is 0.
+/// - If `max_dimension > 0` and the tip exceeds it, downsamples proportionally.
+/// - Returns `None` if the input is empty or if all sampled pixels have zero ink coverage.
+pub fn sample_tip_coverage(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    selection_alpha: Option<&[u8]>,
+    max_dimension: u32,
+    trim: bool,
+) -> Option<(u32, u32, Vec<u8>)> {
+    if width == 0 || height == 0 || rgba.len() < (width * height * 4) as usize {
+        return None;
+    }
+
+    // 1. Convert to initial coverage grid.
+    let mut coverage = Vec::with_capacity((width * height) as usize);
+    let mut min_x = u32::MAX;
+    let mut min_y = u32::MAX;
+    let mut max_x = 0u32;
+    let mut max_y = 0u32;
+    let mut has_ink = false;
+
+    for y in 0..height {
+        for x in 0..width {
+            let idx = (y * width + x) as usize;
+            let r = rgba[idx * 4] as f32;
+            let g = rgba[idx * 4 + 1] as f32;
+            let b = rgba[idx * 4 + 2] as f32;
+            let a = rgba[idx * 4 + 3] as f32 / 255.0;
+            let sel = selection_alpha.map_or(1.0, |s| s.get(idx).copied().unwrap_or(255) as f32 / 255.0);
+            let total_alpha = a * sel;
+
+            let lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            let cov = ((255.0 - lum) * total_alpha).round().clamp(0.0, 255.0) as u8;
+            coverage.push(cov);
+
+            if cov > 0 {
+                has_ink = true;
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+    }
+
+    if !has_ink {
+        return None;
+    }
+
+    // 2. Crop empty margins if trim is requested.
+    let (cropped_w, cropped_h, cropped_cov) = if trim && (min_x > 0 || min_y > 0 || max_x + 1 < width || max_y + 1 < height) {
+        let cw = max_x - min_x + 1;
+        let ch = max_y - min_y + 1;
+        let mut trimmed = Vec::with_capacity((cw * ch) as usize);
+        for y in min_y..=max_y {
+            let row_start = (y * width + min_x) as usize;
+            trimmed.extend_from_slice(&coverage[row_start..row_start + cw as usize]);
+        }
+        (cw, ch, trimmed)
+    } else {
+        (width, height, coverage)
+    };
+
+    // 3. Downsample proportionally if exceeding max_dimension.
+    let (final_w, final_h, final_cov) = if max_dimension > 0 && (cropped_w > max_dimension || cropped_h > max_dimension) {
+        let scale = max_dimension as f32 / cropped_w.max(cropped_h) as f32;
+        let dw = ((cropped_w as f32 * scale).round() as u32).max(1);
+        let dh = ((cropped_h as f32 * scale).round() as u32).max(1);
+        let resampled = resample_coverage(&cropped_cov, cropped_w, cropped_h, dw, dh);
+        (dw, dh, resampled)
+    } else {
+        (cropped_w, cropped_h, cropped_cov)
+    };
+
+    Some((final_w, final_h, final_cov))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -375,5 +498,48 @@ mod tests {
         };
         let json = serde_json::to_string(&tip).unwrap();
         assert_eq!(serde_json::from_str::<DabTip>(&json).unwrap(), tip);
+    }
+
+    #[test]
+    fn test_sample_tip_coverage_photoshop_luminance() {
+        // 3x3 image with white border and black cross in the center
+        // (x, y) = (1, 1) is black [0, 0, 0, 255]
+        let mut rgba = vec![255u8; 3 * 3 * 4];
+        // Set center pixel to black
+        rgba[4 * 4] = 0;
+        rgba[4 * 4 + 1] = 0;
+        rgba[4 * 4 + 2] = 0;
+        rgba[4 * 4 + 3] = 255;
+
+        // With trim=true, the 3x3 with only center black pixel trims down to 1x1 with coverage 255
+        let (tw, th, tcov) = sample_tip_coverage(&rgba, 3, 3, None, 2500, true).expect("should sample");
+        assert_eq!((tw, th), (1, 1));
+        assert_eq!(tcov, vec![255]);
+
+        // With trim=false, keeps full 3x3 dimensions
+        let (w, h, cov) = sample_tip_coverage(&rgba, 3, 3, None, 2500, false).expect("should sample");
+        assert_eq!((w, h), (3, 3));
+        assert_eq!(cov[4], 255);
+        assert_eq!(cov[0], 0);
+
+        // Pure white is empty -> None
+        let all_white = vec![255u8; 2 * 2 * 4];
+        assert!(sample_tip_coverage(&all_white, 2, 2, None, 2500, true).is_none());
+
+        // Alpha scaling: black with 50% opacity -> coverage ~128
+        let mut semi_black = vec![0u8; 4];
+        semi_black[3] = 128;
+        let (sw, sh, scov) = sample_tip_coverage(&semi_black, 1, 1, None, 2500, true).expect("semi black");
+        assert_eq!((sw, sh), (1, 1));
+        assert_eq!(scov[0], 128);
+    }
+
+    #[test]
+    fn test_resample_coverage_downscale() {
+        let src = vec![255, 0, 0, 255]; // 2x2
+        let dst = resample_coverage(&src, 2, 2, 1, 1);
+        assert_eq!(dst.len(), 1);
+        // Average of 255, 0, 0, 255 is ~128
+        assert!((dst[0] as i32 - 128).abs() <= 2);
     }
 }

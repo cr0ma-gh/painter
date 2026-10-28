@@ -1032,7 +1032,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 95] = [
+        let fixed: [FixedCommand; 96] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -1061,6 +1061,7 @@ impl PainterApp {
             ("edit.redo", "Redo", C::Edit, "Ctrl+Shift+Z", &[], self.history.can_redo()),
             ("edit.image_size", "Image Size...", C::Edit, "", &["resize", "scale", "resample", "pixel art", "nearest", "resolution"], true),
             ("edit.clear", "Clear Selected", C::Edit, "Del", &["delete", "erase"], has_sel),
+            ("edit.define_brush", "Define Brush Preset...", C::Edit, "", &["brush", "preset", "tip", "custom", "stamp", "photoshop"], true),
             ("edit.define_pattern", "Define Pattern", C::Edit, "", &["pattern", "stamp", "texture", "tile"], true),
             ("image.mode.0", "Mode: RGB Color", C::Edit, "", &["colour mode", "color mode", "rgb"], true),
             ("image.mode.1", "Mode: Grayscale", C::Edit, "", &["colour mode", "greyscale", "black and white", "desaturate"], true),
@@ -1220,6 +1221,7 @@ impl PainterApp {
             "edit.image_size" => self.image_size = Some(crate::dialogs::ImageSizeDialog::open(self.doc.canvas(), self.last_resize_filter)),
             "edit.redo" => self.redo(),
             "edit.clear" => self.clear_selected(),
+            "edit.define_brush" => self.define_brush_preset_dialog(),
             "edit.define_pattern" => self.define_pattern(),
             "image.mode.0" => self.set_color_mode(painter_core::color_mode::ColorMode::Rgb),
             "image.mode.1" => self.set_color_mode(painter_core::color_mode::ColorMode::Grayscale),
