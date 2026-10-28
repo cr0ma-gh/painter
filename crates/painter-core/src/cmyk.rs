@@ -213,6 +213,20 @@ impl Proofer {
         out
     }
 
+    /// Returns the maximum channel difference between the RGB color and its CMYK-proofed version.
+    pub fn gamut_distance(&self, rgb: [u8; 3]) -> u32 {
+        let proofed = self.proof(rgb);
+        [rgb[0].abs_diff(proofed[0]), rgb[1].abs_diff(proofed[1]), rgb[2].abs_diff(proofed[2])]
+            .into_iter()
+            .max()
+            .unwrap_or(0) as u32
+    }
+
+    /// Whether this color is out of the print gamut (difference exceeds threshold, default 12).
+    pub fn is_out_of_gamut(&self, rgb: [u8; 3], threshold: u32) -> bool {
+        self.gamut_distance(rgb) > threshold
+    }
+
     /// The printable version of every pixel of the `coords` tiles (all with `None`).
     pub fn proof_tiles(&self, tiles: &mut TileStore, coords: Option<&[crate::tile::TileCoord]>) {
         let all: Vec<crate::tile::TileCoord>;
@@ -355,6 +369,64 @@ impl Proofer {
     }
 }
 
+/// Standard analytical RGB → proofed print RGB simulation and gamut distance,
+/// used when no hardware CMYK profile is installed on the system.
+///
+/// Models standard offset press gamut compression (TAC limiting and cyan/magenta dye imperfections).
+pub fn analytical_proof_rgb(rgb: [u8; 3]) -> [u8; 3] {
+    let r = rgb[0] as f32 / 255.0;
+    let g = rgb[1] as f32 / 255.0;
+    let b = rgb[2] as f32 / 255.0;
+
+    // Convert to simple CMYK
+    let k = 1.0 - r.max(g).max(b);
+    let (c, m, y) = if k < 1.0 {
+        ((1.0 - r - k) / (1.0 - k), (1.0 - g - k) / (1.0 - k), (1.0 - b - k) / (1.0 - k))
+    } else {
+        (0.0, 0.0, 0.0)
+    };
+
+    // Standard offset press gamut boundary: physical inks have lower purity than phosphor/OLED primaries.
+    let c_eff = c.min(0.92);
+    let m_eff = m.min(0.88);
+    let y_eff = y.min(0.95);
+    // Parasitic losses when overlapping primary subtractive dyes:
+    let green_loss = (c * y).sqrt() * 0.18;
+    let red_loss = (m * y).sqrt() * 0.10;
+    let blue_loss = (c * m).sqrt() * 0.22;
+
+    // TAC constraint (max 300% total area coverage)
+    let total = c_eff + m_eff + y_eff + k;
+    let factor = if total > 3.0 { 3.0 / total } else { 1.0 };
+    let c_p = c_eff * factor;
+    let m_p = m_eff * factor;
+    let y_p = y_eff * factor;
+    let k_p = (k * factor).min(1.0);
+
+    // Convert back to simulated printed RGB, accounting for dye contamination
+    let pr = ((1.0 - c_p - red_loss * 0.3) * (1.0 - k_p) * 255.0).round().clamp(0.0, 255.0) as u8;
+    let pg = ((1.0 - m_p - green_loss) * (1.0 - k_p) * 255.0).round().clamp(0.0, 255.0) as u8;
+    let pb = ((1.0 - y_p - blue_loss) * (1.0 - k_p) * 255.0).round().clamp(0.0, 255.0) as u8;
+
+    [pr, pg, pb]
+}
+
+/// Evaluates print gamut for an RGB color using an optional ICC Proofer,
+/// falling back to the standard analytical press model if no proofer is provided.
+///
+/// Returns `(is_out_of_gamut, proofed_rgb, max_channel_difference)`.
+pub fn check_print_gamut(proofer: Option<&Proofer>, rgb: [u8; 3], threshold: u32) -> (bool, [u8; 3], u32) {
+    let proofed = match proofer {
+        Some(p) => p.proof(rgb),
+        None => analytical_proof_rgb(rgb),
+    };
+    let diff = [rgb[0].abs_diff(proofed[0]), rgb[1].abs_diff(proofed[1]), rgb[2].abs_diff(proofed[2])]
+        .into_iter()
+        .max()
+        .unwrap_or(0) as u32;
+    (diff > threshold, proofed, diff)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,5 +465,25 @@ mod tests {
         let p = tiles.pixel(5, 5);
         let ink = proofer.cmyk([p[0], p[1], p[2]]);
         assert!(ink[0] < 40 && ink[2] < 40 && ink[3] < 40 && ink[1] > 100, "{}: {p:?} → {ink:?}", p.len());
+    }
+
+    #[test]
+    fn test_analytical_and_print_gamut_checks() {
+        // Neutral gray (128, 128, 128) is well within any press gamut
+        let (out, proofed, diff) = check_print_gamut(None, [128, 128, 128], 12);
+        assert!(!out, "neutral gray is in gamut");
+        assert!(diff <= 12, "diff {diff}");
+        assert_eq!(proofed, [128, 128, 128]);
+
+        // Pure saturated green [0, 255, 0] is heavily out of CMYK gamut
+        let (out_green, proof_green, diff_green) = check_print_gamut(None, [0, 255, 0], 12);
+        assert!(out_green, "pure green is out of gamut");
+        assert!(diff_green > 12, "diff {diff_green}");
+        assert!(proof_green[1] < 255);
+
+        // Pure cyan [0, 255, 255] is also out of gamut
+        let (out_cyan, _proof_cyan, diff_cyan) = check_print_gamut(None, [0, 255, 255], 12);
+        assert!(out_cyan, "pure cyan is out of gamut");
+        assert!(diff_cyan > 12);
     }
 }

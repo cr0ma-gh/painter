@@ -381,6 +381,17 @@ impl PainterApp {
                     if ui.checkbox(&mut self.view.flip, tr("Flip Horizontally")).clicked() {
                         ui.close_menu();
                     }
+                    ui.separator();
+                    let mut proof = self.proof_colors;
+                    if ui.add(egui::Checkbox::new(&mut proof, tr("Proof Colors (CMYK)"))).on_hover_text(tr("Ctrl+Y")).clicked() {
+                        self.proof_colors = proof;
+                        self.update_proofer();
+                    }
+                    let mut gamut = self.gamut_warning;
+                    if ui.add(egui::Checkbox::new(&mut gamut, tr("Gamut Warning"))).on_hover_text(tr("Ctrl+Shift+Y: highlight unprintable colours")).clicked() {
+                        self.gamut_warning = gamut;
+                        self.update_proofer();
+                    }
                     if ui
                         .checkbox(&mut self.tools.pencil_only, tr("Draw With the Pen Only"))
                         .on_hover_text(tr("Fingers move the view instead of painting (iPad: Apple Pencil draws, fingers navigate)"))
@@ -549,6 +560,19 @@ impl PainterApp {
                 // The mode's own numbers: CMYK inks (and the press's warning), Lab, the table's index.
                 if !self.mode_readout(ui) {
                     let [r, g, b, _] = self.color.to_srgba_unmultiplied();
+                    if self.doc.mode == painter_core::color_mode::ColorMode::Rgb {
+                        let (out_of_gamut, printable, _) = painter_core::cmyk::check_print_gamut(
+                            self.proofer.active_or_rgb_proofer(),
+                            [r, g, b],
+                            12,
+                        );
+                        if out_of_gamut {
+                            let warn = ui.add(egui::Button::new(egui::RichText::new(tr("⚠")).color(Color32::from_rgb(240, 190, 90))).frame(false));
+                            if warn.on_hover_text(tr("Out of print gamut (CMYK): colour will print duller. Click to snap to the closest printable colour")).clicked() {
+                                self.color = Color32::from_rgb(printable[0], printable[1], printable[2]).into();
+                            }
+                        }
+                    }
                     ui.label(egui::RichText::new(format!("#{r:02X}{g:02X}{b:02X}")).monospace().color(theme::text_dim()));
                 }
             });

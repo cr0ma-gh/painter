@@ -367,6 +367,32 @@ pub fn display_lut(doc: &crate::Document, shown: [bool; 4]) -> Option<Vec<u8>> {
     )
 }
 
+/// Builds an RGB → RGB 3D LUT ([`crate::cmyk::LUT_SIZE`]³, RGBA bytes) for
+/// soft-proofing CMYK print output or highlighting out-of-gamut colours on canvas.
+///
+/// - If `gamut_warning` is true, colours outside the print gamut are replaced with
+///   a neutral alert tint `[140, 140, 145, 255]`, while in-gamut colours remain as original.
+/// - If `gamut_warning` is false (soft-proofing), maps every colour to its proofed print simulation.
+pub fn print_proof_lut(proofer: Option<&crate::cmyk::Proofer>, gamut_warning: bool) -> Vec<u8> {
+    let n = crate::cmyk::LUT_SIZE;
+    let step = |i: usize| ((i * 255) as f32 / (n - 1) as f32).round() as u8;
+    (0..n * n * n)
+        .flat_map(|i| {
+            let rgb = [step(i % n), step(i / n % n), step(i / (n * n))];
+            let (out_of_gamut, proofed, _) = crate::cmyk::check_print_gamut(proofer, rgb, 12);
+            if gamut_warning {
+                if out_of_gamut {
+                    [140, 140, 145, 255]
+                } else {
+                    [rgb[0], rgb[1], rgb[2], 255]
+                }
+            } else {
+                [proofed[0], proofed[1], proofed[2], 255]
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -440,5 +466,25 @@ mod tests {
         let t = to_bitmap(&[128u8, 128, 128, 255].repeat(4), 2, 2, BitmapMethod::Threshold);
         assert!(t.as_chunks::<4>().0.iter().all(|p| p[0] == 255));
         assert_eq!(mode_color(ColorMode::Bitmap, [0.2, 0.3, 0.1]), [0.0; 3]);
+    }
+
+    #[test]
+    fn print_proof_and_gamut_warning_lut() {
+        let n = crate::cmyk::LUT_SIZE;
+        // Soft proofing lut without proofer (analytical fallback)
+        let proof_lut = print_proof_lut(None, false);
+        assert_eq!(proof_lut.len(), n * n * n * 4);
+
+        // Gamut warning lut: out-of-gamut gets replaced by [140, 140, 145, 255]
+        let warn_lut = print_proof_lut(None, true);
+        assert_eq!(warn_lut.len(), n * n * n * 4);
+
+        // Pure green: r=0, g=n-1, b=0 -> index in LUT: (0 * n + (n - 1)) * n + 0 = (n - 1) * n
+        let green_idx = (n - 1) * n * 4;
+        assert_eq!(&warn_lut[green_idx..green_idx + 4], &[140, 140, 145, 255], "pure green alerted");
+
+        // White paper: r=n-1, g=n-1, b=n-1 -> last index
+        let white_idx = (n * n * n - 1) * 4;
+        assert_eq!(&warn_lut[white_idx..white_idx + 4], &[255, 255, 255, 255], "white paper remains white");
     }
 }

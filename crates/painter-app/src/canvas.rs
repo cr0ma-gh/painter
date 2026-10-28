@@ -611,8 +611,8 @@ impl PainterApp {
         let thumb = ViewTransform { pan: Vec2::ZERO, zoom: (rect.width() / doc.x).min(rect.height() / doc.y), rotation: 0.0, flip: false };
         if self.gpu_ready {
             let mut uniform = thumb.uniform(rect.size(), doc);
-            // Duotone shows its inks here too (its display table is in place for the canvas).
-            if self.doc.mode == painter_core::color_mode::ColorMode::Duotone && self.proofer.display.is_some() {
+            // Duotone and print soft-proof / gamut warning show through the display table here too.
+            if self.proofer.display.is_some() {
                 uniform = uniform.with_display_lut();
             }
             ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, ThumbnailCallback(uniform)));

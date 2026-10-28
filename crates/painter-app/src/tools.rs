@@ -568,15 +568,17 @@ impl PainterApp {
         // Shift variants first: shortcut matching ignores an extra Shift.
         let mut quit_requested = false;
         let pressed = ctx.input_mut(|i| {
-            let redo = i.consume_shortcut(&shortcut(cmd_shift, Key::Z)) || i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::Y));
+            let redo = i.consume_shortcut(&shortcut(cmd_shift, Key::Z));
             let save_as = i.consume_shortcut(&shortcut(cmd_shift, Key::S));
             let invert = i.consume_shortcut(&shortcut(cmd_shift, Key::I));
+            let gamut_warning = i.consume_shortcut(&shortcut(cmd_shift, Key::Y));
             let quit = i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::Q));
             if quit {
                 quit_requested = true;
             }
             // Before Ctrl+N, which would also match it.
             let new_from_clipboard = i.consume_shortcut(&shortcut(Modifiers::COMMAND | Modifiers::ALT, Key::N));
+            let proof_colors = i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::Y));
             [
                 redo,
                 i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::Z)),
@@ -588,9 +590,11 @@ impl PainterApp {
                 i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::D)),
                 invert,
                 new_from_clipboard,
+                proof_colors,
+                gamut_warning,
             ]
         });
-        let [redo, undo, save_as, save, open, new, all, deselect, invert, new_from_clipboard] = pressed;
+        let [redo, undo, save_as, save, open, new, all, deselect, invert, new_from_clipboard, proof_colors, gamut_warning] = pressed;
         if quit_requested && !cfg!(target_os = "ios") {
             self.quit_requested = true;
         }
@@ -611,6 +615,13 @@ impl PainterApp {
         }
         if group {
             self.group_selected_layers();
+        }
+        if gamut_warning {
+            self.gamut_warning = !self.gamut_warning;
+            self.update_proofer();
+        } else if proof_colors {
+            self.proof_colors = !self.proof_colors;
+            self.update_proofer();
         }
         if redo {
             self.redo();

@@ -24,18 +24,36 @@ pub(crate) struct CmykDialog {
     error: Option<String>,
 }
 
+#[derive(Clone, PartialEq)]
+struct DisplayKey {
+    mode: ColorMode,
+    shown: [bool; 4],
+    duotone: Option<painter_core::duotone::Duotone>,
+    proof: bool,
+    gamut: bool,
+}
+
 /// The proofer for the document's current setup, rebuilt when it changes.
 #[derive(Default)]
 pub(crate) struct ProoferCache {
     key: Option<(usize, CmykIntent, bool, painter_core::color_profile::ColorProfile)>,
     pub proofer: Option<Proofer>,
+    /// Fallback or default press proofer for RGB soft-proofing / gamut warnings.
+    rgb_proofer_key: Option<(String, painter_core::color_profile::ColorProfile)>,
+    pub rgb_proofer: Option<Proofer>,
     /// Its RGB → CMYK table for showing ink channels, with a key that changes with it.
     pub lut: Option<(u64, Arc<Vec<u8>>)>,
     built: u64,
-    /// What the display table was made for: mode, channels shown, inks.
-    display_key: Option<(ColorMode, [bool; 4], Option<painter_core::duotone::Duotone>)>,
-    /// How Duotone, Lab and Multichannel documents show (see `color_mode::display_lut`).
+    /// What the display table was made for: mode, channels shown, inks, proof colors, gamut warning.
+    display_key: Option<DisplayKey>,
+    /// How Duotone, Lab and Multichannel documents show, or RGB proof / gamut warning.
     pub display: Option<(u64, Arc<Vec<u8>>)>,
+}
+
+impl ProoferCache {
+    pub(crate) fn active_or_rgb_proofer(&self) -> Option<&Proofer> {
+        self.proofer.as_ref().or(self.rgb_proofer.as_ref())
+    }
 }
 
 /// Profiles copied in with Load Profile, kept with Painter's settings.
@@ -131,9 +149,39 @@ impl PainterApp {
         p.icc()
     }
 
+    fn ensure_rgb_proofer(&mut self) {
+        if self.doc.mode != ColorMode::Rgb {
+            return;
+        }
+        let profile_name = self.doc.cmyk.as_ref().map(|c| c.name.clone()).unwrap_or_else(|| "default".to_string());
+        let key = (profile_name, self.doc.profile);
+        if self.proofer.rgb_proofer_key.as_ref() == Some(&key) {
+            return;
+        }
+        self.proofer.rgb_proofer_key = Some(key);
+        self.proofer.rgb_proofer = None;
+
+        let setup = if let Some(setup) = &self.doc.cmyk {
+            Some(setup.clone())
+        } else {
+            let profiles = all_profiles();
+            let chosen = profiles.iter().position(|p| p.name.contains("FOGRA39"))
+                .or_else(|| profiles.iter().position(|p| p.name.contains("SWOP")))
+                .or_else(|| (!profiles.is_empty()).then_some(0));
+            chosen.and_then(|idx| cmyk::load_setup(&profiles[idx].path, CmykIntent::RelativeColorimetric, true).ok())
+        };
+
+        if let Some(setup) = setup {
+            if let Ok(p) = Proofer::new(&self.rgb_icc(), &setup) {
+                self.proofer.rgb_proofer = Some(p);
+            }
+        }
+    }
+
     /// Keeps the proofer in step with the document's CMYK setup. Every frame.
     pub(crate) fn update_proofer(&mut self) {
         self.sync_channels();
+        self.ensure_rgb_proofer();
         self.update_display_lut();
         let key = match (&self.doc.cmyk, self.doc.mode) {
             (Some(c), ColorMode::Cmyk) => Some((Arc::as_ptr(&c.icc) as usize, c.intent, c.black_point, self.doc.profile)),
@@ -159,18 +207,32 @@ impl PainterApp {
         self.proofer.lut = self.proofer.proofer.as_ref().map(|p| (built, Arc::new(p.lut())));
     }
 
-    /// The display table, rebuilt when the mode, the channels shown or the inks change.
+    /// The display table, rebuilt when the mode, the channels shown or the inks change,
+    /// or when Proof Colors (CMYK) / Gamut Warning are active.
     fn update_display_lut(&mut self) {
         let shown = self.channels.shown();
         let duotone = if self.doc.mode == ColorMode::Duotone { self.doc.duotone.clone() } else { None };
-        let key = Some((self.doc.mode, shown, duotone));
+        let proof = self.proof_colors;
+        let gamut = self.gamut_warning;
+        let key = Some(DisplayKey {
+            mode: self.doc.mode,
+            shown,
+            duotone,
+            proof,
+            gamut,
+        });
         if key == self.proofer.display_key {
             return;
         }
         self.proofer.display_key = key;
         self.proofer.built += 1;
         let built = self.proofer.built;
-        self.proofer.display = color_mode::display_lut(&self.doc, shown).map(|lut| (built, Arc::new(lut)));
+        if proof || gamut {
+            let lut = color_mode::print_proof_lut(self.proofer.active_or_rgb_proofer(), gamut);
+            self.proofer.display = Some((built, Arc::new(lut)));
+        } else {
+            self.proofer.display = color_mode::display_lut(&self.doc, shown).map(|lut| (built, Arc::new(lut)));
+        }
     }
 
     /// Edit → Mode → CMYK Color: converts the document with the dialog's setup.

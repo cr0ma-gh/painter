@@ -45,6 +45,8 @@ pub(crate) struct DocSession {
     pub(crate) dirty: bool,
     pub(crate) edit_mask: bool,
     pub(crate) mask_view_mode: painter_render::MaskViewMode,
+    pub(crate) proof_colors: bool,
+    pub(crate) gamut_warning: bool,
     /// When it was parked (or last brought back), for suspending tabs left alone.
     pub(crate) parked_at: Instant,
     /// Whether its pixels and undo history are in RAM.
@@ -435,6 +437,8 @@ impl PainterApp {
             dirty: std::mem::replace(&mut self.dirty, false),
             edit_mask: std::mem::replace(&mut self.edit_mask, false),
             mask_view_mode: std::mem::take(&mut self.mask_view_mode),
+            proof_colors: self.proof_colors,
+            gamut_warning: self.gamut_warning,
             parked_at: Instant::now(),
             residency: Residency::Resident,
             thumbnail: None,
@@ -458,6 +462,8 @@ impl PainterApp {
         self.dirty = s.dirty;
         self.edit_mask = s.edit_mask;
         self.mask_view_mode = s.mask_view_mode;
+        self.proof_colors = s.proof_colors;
+        self.gamut_warning = s.gamut_warning;
         self.stroke = None;
         self.model_paint = None;
         self.drag = None;
@@ -1022,6 +1028,8 @@ mod tests {
             dirty: true,
             edit_mask: false,
             mask_view_mode: painter_render::MaskViewMode::Off,
+            proof_colors: false,
+            gamut_warning: false,
             parked_at: Instant::now(),
             residency: Residency::Resident,
             thumbnail: None,

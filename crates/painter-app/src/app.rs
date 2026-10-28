@@ -155,6 +155,10 @@ pub struct PainterApp {
     pub(crate) edit_mask: bool,
     /// Mode for previewing the active layer mask on canvas (Grayscale, Rubylith, or Off).
     pub(crate) mask_view_mode: painter_render::MaskViewMode,
+    /// View → Proof Colors (CMYK): soft-proof print colours on screen (Ctrl+Y).
+    pub(crate) proof_colors: bool,
+    /// View → Gamut Warning: highlight out-of-gamut colours in grey tint (Ctrl+Shift+Y).
+    pub(crate) gamut_warning: bool,
     /// Plane changes waiting to reach the GPU on the next frame.
     pub(crate) uploads: Vec<Upload>,
     pub(crate) recomposite: bool,
@@ -424,6 +428,8 @@ impl PainterApp {
             drag: None,
             edit_mask: false,
             mask_view_mode: painter_render::MaskViewMode::Off,
+            proof_colors: false,
+            gamut_warning: false,
             uploads: Vec::new(),
             recomposite: true,
             sent_uploads: (Vec::new(), false),

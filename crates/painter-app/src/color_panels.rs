@@ -357,6 +357,19 @@ impl PainterApp {
                     }
                 }
             }
+            if self.doc.mode == painter_core::color_mode::ColorMode::Rgb {
+                let (out_of_gamut, printable, _) = painter_core::cmyk::check_print_gamut(
+                    self.proofer.active_or_rgb_proofer(),
+                    [r, g, b],
+                    12,
+                );
+                if out_of_gamut {
+                    let warn = ui.add(egui::Button::new(egui::RichText::new(tr("⚠")).color(Color32::from_rgb(240, 190, 90))).frame(false));
+                    if warn.on_hover_text(tr("Out of print gamut (CMYK): colour will print duller. Click to snap to the closest printable colour")).clicked() {
+                        self.color = from_rgb(printable);
+                    }
+                }
+            }
         });
     }
 
