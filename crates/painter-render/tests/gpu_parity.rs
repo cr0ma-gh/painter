@@ -53,6 +53,7 @@ fn frame(doc: &Document, upload: bool, stroke: Option<StrokePreview>) -> CanvasF
         scenes: Vec::new(),
         view: ViewUniform::new(size, size, [0.0, 0.0], 1.0, 0.0, 8.0),
         ink_lut: None,
+        mask_view: None,
     }
 }
 
@@ -963,5 +964,64 @@ fn clipped_layer_preview_with_empty_base_does_not_crash() {
     doc.add_layer(clipped_layer);
     doc.active = clipped;
     check_stroke(doc, BrushSettings { size: 20.0, ..pen() }, StrokeCase::default());
+}
+
+#[test]
+fn mask_preview_grayscale_and_rubylith_render_accurately() {
+    use painter_render::MaskViewMode;
+    let Some((device, queue, _turn)) = gpu() else { return };
+    let mut doc = Document::new(64, 64);
+    let base = doc.alloc_id();
+    doc.add_layer(Layer::raster_with(
+        base,
+        "Base",
+        TileStore::from_rgba(64, 64, &vec![255u8; 64 * 64 * 4]),
+    ));
+    let masked_id = doc.alloc_id();
+    let mut masked_layer = Layer::raster_with(
+        masked_id,
+        "Masked",
+        TileStore::from_rgba(64, 64, &vec![200u8; 64 * 64 * 4]),
+    );
+    // Mask covering left half: hides left half (alpha = 255), reveals right half (alpha = 0)
+    let mut mask_rgba = vec![0u8; 64 * 64 * 4];
+    for y in 0..64 {
+        for x in 0..32 {
+            let i = ((y * 64 + x) * 4) as usize;
+            mask_rgba[i..i + 4].copy_from_slice(&[255, 255, 255, 255]);
+        }
+    }
+    masked_layer.mask = Some(painter_core::Mask {
+        tiles: TileStore::from_rgba(64, 64, &mask_rgba),
+        enabled: true,
+    });
+    doc.add_layer(masked_layer);
+    doc.active = masked_id;
+
+    let mut canvas = GpuCanvas::new(device, wgpu::TextureFormat::Rgba8Unorm);
+
+    // 1. Grayscale Mask View
+    let mut f_gray = frame(&doc, true, None);
+    f_gray.mask_view = Some((masked_id, MaskViewMode::Grayscale));
+    run(device, queue, &mut canvas, &f_gray);
+    let gray_rgba = canvas.read_composite(device, queue).unwrap();
+    // Left half is masked (hidden) -> displayed as BLACK
+    let left_pixel = &gray_rgba[(32 * 64 + 10) * 4..][..4];
+    assert!(left_pixel[0] < 5 && left_pixel[1] < 5 && left_pixel[2] < 5, "masked area should be black in grayscale view: {left_pixel:?}");
+    // Right half is unmasked (revealed) -> displayed as WHITE
+    let right_pixel = &gray_rgba[(32 * 64 + 50) * 4..][..4];
+    assert!(right_pixel[0] > 250 && right_pixel[1] > 250 && right_pixel[2] > 250, "unmasked area should be white in grayscale view: {right_pixel:?}");
+
+    // 2. Rubylith Mask View
+    let mut f_ruby = frame(&doc, true, None);
+    f_ruby.mask_view = Some((masked_id, MaskViewMode::Rubylith));
+    run(device, queue, &mut canvas, &f_ruby);
+    let ruby_rgba = canvas.read_composite(device, queue).unwrap();
+    // Left half (masked) has ruby red tint
+    let left_ruby = &ruby_rgba[(32 * 64 + 10) * 4..][..4];
+    assert!(left_ruby[0] > left_ruby[1] + 50, "left half should have ruby red tint: {left_ruby:?}");
+    // Right half (unmasked) should not have ruby tint
+    let right_ruby = &ruby_rgba[(32 * 64 + 50) * 4..][..4];
+    assert!(right_ruby[0].abs_diff(right_ruby[1]) < 10, "right half should not have ruby tint: {right_ruby:?}");
 }
 

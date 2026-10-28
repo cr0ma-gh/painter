@@ -44,6 +44,7 @@ pub(crate) struct DocSession {
     pub(crate) file_path: Option<PathBuf>,
     pub(crate) dirty: bool,
     pub(crate) edit_mask: bool,
+    pub(crate) mask_view_mode: painter_render::MaskViewMode,
     /// When it was parked (or last brought back), for suspending tabs left alone.
     pub(crate) parked_at: Instant,
     /// Whether its pixels and undo history are in RAM.
@@ -433,6 +434,7 @@ impl PainterApp {
             file_path: self.file_path.take(),
             dirty: std::mem::replace(&mut self.dirty, false),
             edit_mask: std::mem::replace(&mut self.edit_mask, false),
+            mask_view_mode: std::mem::take(&mut self.mask_view_mode),
             parked_at: Instant::now(),
             residency: Residency::Resident,
             thumbnail: None,
@@ -455,6 +457,7 @@ impl PainterApp {
         self.file_path = s.file_path;
         self.dirty = s.dirty;
         self.edit_mask = s.edit_mask;
+        self.mask_view_mode = s.mask_view_mode;
         self.stroke = None;
         self.model_paint = None;
         self.drag = None;
@@ -1018,6 +1021,7 @@ mod tests {
             file_path: Some(PathBuf::from("page 12.painter")),
             dirty: true,
             edit_mask: false,
+            mask_view_mode: painter_render::MaskViewMode::Off,
             parked_at: Instant::now(),
             residency: Residency::Resident,
             thumbnail: None,

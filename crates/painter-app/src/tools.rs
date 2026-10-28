@@ -780,6 +780,15 @@ impl PainterApp {
         if fit {
             self.fit_pending = true;
         }
+        let backslash = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Backslash))
+            || ctx.input(|i| !i.modifiers.command && !i.modifiers.alt && i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t == "\\")));
+        if backslash {
+            self.toggle_mask_view(painter_render::MaskViewMode::Rubylith);
+        }
+        if self.mask_view_mode != painter_render::MaskViewMode::Off && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+            self.mask_view_mode = painter_render::MaskViewMode::Off;
+            self.recomposite = true;
+        }
     }
 
     /// One step of Clip Studio's rotation keys (5°), `dir` −1 left, 1 right.

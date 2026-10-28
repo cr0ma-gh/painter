@@ -572,6 +572,7 @@ mod tests {
             file_path: None,
             dirty: false,
             edit_mask: false,
+            mask_view_mode: painter_render::MaskViewMode::Off,
             parked_at: Instant::now(),
             residency: crate::document_manager::session_store::Residency::Resident,
             thumbnail: None,

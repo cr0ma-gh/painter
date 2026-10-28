@@ -257,6 +257,18 @@ impl PainterApp {
                         self.add_mask();
                         ui.close_menu();
                     }
+                    if ui.add_enabled(has_mask, egui::Button::new(tr("View Mask (Grayscale)"))).clicked() {
+                        self.toggle_mask_view(painter_render::MaskViewMode::Grayscale);
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(has_mask, egui::Button::new(tr("Rubylith Mask Overlay (\\)"))).clicked() {
+                        self.toggle_mask_view(painter_render::MaskViewMode::Rubylith);
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(has_mask, egui::Button::new(tr("Enable / Disable Mask"))).clicked() {
+                        self.toggle_mask_enabled();
+                        ui.close_menu();
+                    }
                     if ui.add_enabled(has_mask, egui::Button::new(tr("Delete Layer Mask"))).clicked() {
                         self.delete_mask();
                         ui.close_menu();
@@ -1395,6 +1407,8 @@ impl PainterApp {
         let mut renamed: Option<(painter_core::LayerId, String)> = None;
         // Checkbox clicks: toggle the layer in the selection (Shift: the range).
         let mut checked: Option<(painter_core::LayerId, bool)> = None;
+        let mut set_edit_mask: Option<bool> = None;
+        let mut toggle_mask_mode: Option<painter_render::MaskViewMode> = None;
         egui::Frame::new().fill(theme::well()).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             for (id, depth) in rows {
@@ -1526,7 +1540,57 @@ impl PainterApp {
                             ui.painter().rect_filled(badge, 2.0, theme::panel());
                             Icon::Path.paint(ui, badge, 10.0, theme::text());
                         }
-                        x += side + 6.0;
+                        if id == active && !self.edit_mask {
+                            ui.painter().rect_stroke(shown.expand(1.0), 0.0, Stroke::new(1.8_f32, Color32::WHITE), egui::StrokeKind::Outside);
+                        }
+                        let hit_content = ui.interact(shown, response.id.with("thumb_content"), Sense::click());
+                        if hit_content.on_hover_text(tr("Layer pixels: click to edit")).clicked() {
+                            select = Some(id);
+                            set_edit_mask = Some(false);
+                        }
+                        x += side + 4.0;
+
+                        // Dual thumbnail: render mask thumbnail if the layer has a mask
+                        if let Some(mask) = &mut layer.mask {
+                            let mframe = egui::Rect::from_min_size(egui::pos2(x, rect.top() + 3.0), Vec2::new(side, side));
+                            let mshown = if let Some(mtex) = self.layer_thumbs.get_mask(id) {
+                                let ms = mtex.size_vec2();
+                                let mfit = Vec2::new(ms.x, ms.y) * (side / ms.x.max(ms.y));
+                                let mshown = egui::Rect::from_center_size(mframe.center(), mfit);
+                                ui.painter().image(mtex.id(), mshown, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+                                mshown
+                            } else {
+                                ui.painter().rect_filled(mframe, 0.0, Color32::WHITE);
+                                mframe
+                            };
+                            ui.painter().rect_stroke(mshown, 0.0, Stroke::new(1.0_f32, theme::line()), egui::StrokeKind::Outside);
+                            if !mask.enabled {
+                                let red = Stroke::new(2.0_f32, Color32::from_rgb(230, 45, 45));
+                                ui.painter().line_segment([mshown.left_top(), mshown.right_bottom()], red);
+                                ui.painter().line_segment([mshown.left_bottom(), mshown.right_top()], red);
+                            }
+                            if self.mask_view_mode != painter_render::MaskViewMode::Off && id == active {
+                                let dot = if self.mask_view_mode == painter_render::MaskViewMode::Grayscale { Color32::from_rgb(100, 180, 255) } else { Color32::from_rgb(255, 80, 100) };
+                                ui.painter().circle_filled(mshown.right_top() + Vec2::new(-4.0, 4.0), 3.5, dot);
+                            }
+                            if id == active && self.edit_mask {
+                                ui.painter().rect_stroke(mshown.expand(1.0), 0.0, Stroke::new(1.8_f32, Color32::WHITE), egui::StrokeKind::Outside);
+                            }
+                            let hit_mask = ui.interact(mshown, response.id.with("thumb_mask"), Sense::click());
+                            if hit_mask.on_hover_text(tr("Layer mask: click to edit, Alt-click to view mask, Shift-click to disable")).clicked() {
+                                select = Some(id);
+                                if modifiers.alt {
+                                    toggle_mask_mode = Some(painter_render::MaskViewMode::Grayscale);
+                                } else if modifiers.shift {
+                                    mask.enabled = !mask.enabled;
+                                    changed = true;
+                                } else {
+                                    set_edit_mask = Some(true);
+                                }
+                            }
+                            x += side + 4.0;
+                        }
+                        x += 2.0;
                     }
                     (Some(side), None) => {
                         kind_icon.paint(ui, egui::Rect::from_min_size(egui::pos2(x, rect.top()), Vec2::new(side, rect.height())), 16.0, theme::text_dim());
@@ -1582,8 +1646,32 @@ impl PainterApp {
                 if layer.alpha_locked {
                     badge(Icon::LockAlpha, true);
                 }
-                if let Some(mask) = &layer.mask {
-                    badge(Icon::LayerMask, mask.enabled);
+                if let Some(mask) = &mut layer.mask {
+                    let r = egui::Rect::from_min_max(egui::pos2(right - 18.0, rect.top()), egui::pos2(right, rect.bottom()));
+                    let tint = if mask.enabled {
+                        if id == active && self.edit_mask { Color32::from_rgb(120, 200, 255) } else { theme::text() }
+                    } else {
+                        Color32::from_rgb(230, 45, 45)
+                    };
+                    Icon::LayerMask.paint(ui, r, 13.0, tint);
+                    if !mask.enabled {
+                        let red = Stroke::new(1.5_f32, Color32::from_rgb(230, 45, 45));
+                        ui.painter().line_segment([r.left_top() + Vec2::new(3.0, 3.0), r.right_bottom() - Vec2::new(3.0, 3.0)], red);
+                        ui.painter().line_segment([r.left_bottom() + Vec2::new(3.0, -3.0), r.right_top() + Vec2::new(-3.0, 3.0)], red);
+                    }
+                    let hit = ui.interact(r, response.id.with("mask_badge"), Sense::click());
+                    if hit.on_hover_text(tr("Layer mask: click to edit, Alt-click to view mask, Shift-click to disable")).clicked() {
+                        select = Some(id);
+                        if modifiers.alt {
+                            toggle_mask_mode = Some(painter_render::MaskViewMode::Grayscale);
+                        } else if modifiers.shift {
+                            mask.enabled = !mask.enabled;
+                            changed = true;
+                        } else {
+                            set_edit_mask = Some(!self.edit_mask);
+                        }
+                    }
+                    right -= 20.0;
                 }
                 if let Some(&shown) = ruler_layers.get(&id.0) {
                     let r = egui::Rect::from_min_max(egui::pos2(right - 18.0, rect.top()), egui::pos2(right, rect.bottom()));
@@ -1627,6 +1715,14 @@ impl PainterApp {
                     item("Lock / Unlock", "lock");
                     item("Reference / Not", "reference");
                     item("Layer Colour on / off", "layer_color");
+                    if layer.mask.is_some() {
+                        item(if self.mask_view_mode == painter_render::MaskViewMode::Grayscale { "Exit Mask View" } else { "View Mask (Grayscale)" }, "mask_view_gray");
+                        item(if self.mask_view_mode == painter_render::MaskViewMode::Rubylith { "Exit Rubylith Overlay" } else { "Rubylith Mask Overlay (\\)" }, "mask_view_ruby");
+                        item(if layer.mask.as_ref().is_some_and(|m| m.enabled) { "Disable Layer Mask" } else { "Enable Layer Mask" }, "mask_toggle");
+                        item("Delete Layer Mask", "delete_mask");
+                    } else {
+                        item("Add Layer Mask", "add_mask");
+                    }
                 });
             }
         });
@@ -1665,6 +1761,11 @@ impl PainterApp {
                         l.layer_color = (!first.4).then_some(DEFAULT_LAYER_COLOR);
                     }
                 }),
+                "mask_view_gray" => self.toggle_mask_view(painter_render::MaskViewMode::Grayscale),
+                "mask_view_ruby" => self.toggle_mask_view(painter_render::MaskViewMode::Rubylith),
+                "mask_toggle" => self.toggle_mask_enabled(),
+                "add_mask" => self.add_mask(),
+                "delete_mask" => self.delete_mask(),
                 _ => {}
             }
         }
@@ -1680,6 +1781,12 @@ impl PainterApp {
             self.dirty = true;
         } else if let Some(id) = select {
             self.click_layer(id, modifiers);
+        }
+        if let Some(em) = set_edit_mask {
+            self.edit_mask = em;
+        }
+        if let Some(mode) = toggle_mask_mode {
+            self.toggle_mask_view(mode);
         }
 
         ui.separator();
