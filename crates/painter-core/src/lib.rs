@@ -57,4 +57,4 @@ pub use selection::SelectionOp;
 pub use smoothing::{Smoother, StrokePoint};
 pub use stroke::StrokeEngine;
 pub use tile::{Tile, TileCoord, TileStore, TILE_BYTES, TILE_SIZE};
-pub use tip::{DabTexture, DabTip, DualTip, TipBitmap, TipKind, TipShape};
+pub use tip::{resample_coverage, sample_tip_coverage, DabTexture, DabTip, DualTip, TipBitmap, TipKind, TipShape};

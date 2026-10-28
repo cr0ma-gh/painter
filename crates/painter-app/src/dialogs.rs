@@ -1112,6 +1112,204 @@ impl PainterApp {
     }
 }
 
+/// Edit → Define Brush Preset dialog state.
+pub(crate) struct DefineBrushDialog {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) alpha: Vec<u8>,
+    pub(crate) name: String,
+    pub(crate) preview_texture: Option<egui::TextureHandle>,
+}
+
+impl DefineBrushDialog {
+    pub(crate) fn new(width: u32, height: u32, alpha: Vec<u8>, name: String) -> Self {
+        Self { width, height, alpha, name, preview_texture: None }
+    }
+}
+
+impl PainterApp {
+    /// Edit → Define Brush Preset: samples a custom tip from the selection or layer
+    /// and opens the definition dialog with an interactive preview.
+    pub(crate) fn define_brush_preset_dialog(&mut self) {
+        let (cw, ch) = self.doc.canvas();
+        if cw == 0 || ch == 0 {
+            self.status = tr("No canvas open").into();
+            return;
+        }
+
+        let active_layer = self.doc.active_layer();
+        let active_tiles = active_layer.and_then(|l| l.tiles());
+
+        let area = match &self.doc.selection {
+            Some(sel) => painter_core::selection::bounds(sel),
+            None => active_tiles.and_then(painter_core::selection::bounds),
+        };
+
+        let [x0, y0, x1, y1] = match area {
+            Some(b) => b,
+            None => {
+                self.status = tr("Define Brush Preset: no artwork found in active layer or selection").into();
+                return;
+            }
+        };
+
+        let x0 = (x0.max(0) as u32).min(cw.saturating_sub(1));
+        let y0 = (y0.max(0) as u32).min(ch.saturating_sub(1));
+        let x1 = (x1.max(x0 as i32) as u32).min(cw.saturating_sub(1));
+        let y1 = (y1.max(y0 as i32) as u32).min(ch.saturating_sub(1));
+
+        let w = x1 - x0 + 1;
+        let h = y1 - y0 + 1;
+        if w == 0 || h == 0 {
+            self.status = tr("Define Brush Preset: selected area is empty").into();
+            return;
+        }
+
+        let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+        if let Some(tiles) = active_tiles {
+            for y in 0..h {
+                for x in 0..w {
+                    let px = painter_core::blend::unpremultiply(tiles.pixel((x0 + x) as i32, (y0 + y) as i32));
+                    rgba.extend_from_slice(&px);
+                }
+            }
+        } else {
+            let flat = painter_core::io::flatten_region(&self.doc, x0, y0, w, h);
+            for chunk in flat.as_chunks::<4>().0 {
+                rgba.extend_from_slice(&painter_core::blend::unpremultiply(*chunk));
+            }
+        }
+
+        let sel_alpha = self.doc.selection.as_ref().map(|sel| {
+            let mut alpha = Vec::with_capacity((w * h) as usize);
+            for y in 0..h {
+                for x in 0..w {
+                    alpha.push(sel.pixel((x0 + x) as i32, (y0 + y) as i32)[3]);
+                }
+            }
+            alpha
+        });
+
+        let sampled = painter_core::sample_tip_coverage(&rgba, w, h, sel_alpha.as_deref(), 2500, true);
+        let Some((tip_w, tip_h, tip_alpha)) = sampled else {
+            self.status = tr("Define Brush Preset: area contains no dark markings to sample").into();
+            return;
+        };
+
+        let default_name = active_layer
+            .map(|l| format!("{} Tip", l.name))
+            .unwrap_or_else(|| format!("Sampled Brush {}", self.brushes.len() + 1));
+
+        self.define_brush = Some(DefineBrushDialog::new(tip_w, tip_h, tip_alpha, default_name));
+    }
+
+    /// Renders the Define Brush Preset modal window if active.
+    pub(crate) fn define_brush_window(&mut self, ctx: &egui::Context) {
+        let Some(mut dialog) = self.define_brush.take() else { return };
+        let mut open = true;
+        let mut apply = false;
+        let mut cancel = false;
+
+        if dialog.preview_texture.is_none() {
+            let (pw, ph) = (dialog.width as usize, dialog.height as usize);
+            let mut pixels = Vec::with_capacity(pw * ph);
+            for &a in &dialog.alpha {
+                pixels.push(Color32::from_rgba_unmultiplied(20, 20, 25, a));
+            }
+            let image = egui::ColorImage { size: [pw, ph], pixels };
+            dialog.preview_texture = Some(ctx.load_texture("define_brush_preview", image, egui::TextureOptions::LINEAR));
+        }
+
+        egui::Window::new(tr("Define Brush Preset"))
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    if let Some(tex) = &dialog.preview_texture {
+                        let max_side = 160.0;
+                        let longest = (dialog.width.max(dialog.height) as f32).max(1.0);
+                        let w = (dialog.width as f32 / longest * max_side).max(16.0);
+                        let h = (dialog.height as f32 / longest * max_side).max(16.0);
+
+                        let (rect, _response) = ui.allocate_exact_size(Vec2::new(w, h), Sense::hover());
+                        ui.painter().rect_filled(rect, 4.0, Color32::from_gray(248));
+                        ui.painter().rect_stroke(rect, 4.0, Stroke::new(1.0_f32, Color32::from_gray(180)), egui::StrokeKind::Inside);
+                        ui.painter().image(
+                            tex.id(),
+                            rect,
+                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                            Color32::WHITE,
+                        );
+                    }
+                    ui.add_space(4.0);
+                    ui.label(format!("{} × {} px", dialog.width, dialog.height));
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label(tr("Brush Name:"));
+                    let field = egui::TextEdit::singleline(&mut dialog.name).desired_width(220.0);
+                    let edit = ui.add(field);
+                    if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        apply = true;
+                    }
+                });
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr("Cancel")).clicked() {
+                        cancel = true;
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button(tr("OK")).clicked() {
+                            apply = true;
+                        }
+                    });
+                });
+            });
+
+        if cancel {
+            open = false;
+        }
+
+        if apply {
+            let brush_name = if dialog.name.trim().is_empty() {
+                format!("Sampled Brush {}", self.brushes.len() + 1)
+            } else {
+                dialog.name.trim().to_string()
+            };
+            let (bw, bh) = (dialog.width, dialog.height);
+            let brush_tip = brush_io::BrushTip::new(bw, bh, dialog.alpha)
+                .expect("valid sampled tip");
+            let mut preset = brush_io::BrushPreset::new(painter_core::BrushSettings {
+                name: brush_name.clone(),
+                size: (bw.max(bh) as f32).clamp(1.0, 5000.0),
+                spacing: 0.15,
+                hardness: 1.0,
+                pressure_size: true,
+                stabilization: 0,
+                ..painter_core::BrushSettings::g_pen()
+            });
+            preset.tip = Some(brush_tip);
+            preset.apply_tip();
+
+            self.brushes.push(preset);
+            let new_index = self.brushes.len() - 1;
+            self.select_brush(new_index);
+            self.tool = crate::tools::Tool::Brush;
+            self.brush_library.autosave(&self.brushes, false);
+            self.status = format!(
+                "{} “{}” ({} × {} px)",
+                tr("Defined brush preset"),
+                brush_name,
+                bw,
+                bh
+            );
+        } else if open {
+            self.define_brush = Some(dialog);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1152,5 +1350,35 @@ mod tests {
         let p = SaveAsPrompt::new("Sketch.KRA");
         assert_eq!((p.stem.as_str(), p.format), ("Sketch", 1));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn define_brush_dialog_and_preset_generation() {
+        let (w, h) = (8, 8);
+        let alpha = vec![255u8; (w * h) as usize];
+        let dialog = DefineBrushDialog::new(w, h, alpha.clone(), "Sampled Tip".to_string());
+        assert_eq!((dialog.width, dialog.height), (8, 8));
+        assert_eq!(dialog.name, "Sampled Tip");
+        assert_eq!(dialog.alpha, alpha);
+        assert!(dialog.preview_texture.is_none());
+
+        let brush_tip = brush_io::BrushTip::new(w, h, dialog.alpha).expect("valid brush tip");
+        let mut preset = brush_io::BrushPreset::new(painter_core::BrushSettings {
+            name: dialog.name,
+            size: 8.0,
+            spacing: 0.15,
+            hardness: 1.0,
+            pressure_size: true,
+            stabilization: 0,
+            ..painter_core::BrushSettings::g_pen()
+        });
+        preset.tip = Some(brush_tip);
+        preset.apply_tip();
+
+        assert_eq!(preset.name(), "Sampled Tip");
+        assert!(matches!(preset.settings.tip.shape, painter_core::TipShape::Sampled(_)));
+        let bitmap = preset.settings.tip.bitmap().expect("bitmap exists");
+        assert_eq!((bitmap.width(), bitmap.height()), (8, 8));
+        assert_eq!(bitmap.alpha().len(), 64);
     }
 }

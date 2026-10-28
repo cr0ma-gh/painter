@@ -175,6 +175,8 @@ pub struct PainterApp {
     pub(crate) scanner: Option<ScannerDialog>,
     /// Edit → Image Size, when open.
     pub(crate) image_size: Option<crate::dialogs::ImageSizeDialog>,
+    /// Edit → Define Brush Preset, when open.
+    pub(crate) define_brush: Option<crate::dialogs::DefineBrushDialog>,
     /// Save As on iPad: the name and format, when open.
     pub(crate) save_as_prompt: Option<crate::dialogs::SaveAsPrompt>,
     /// A file to offer to the system picker once its save finishes (iPad).
@@ -525,6 +527,7 @@ impl PainterApp {
             clipboard_dpi: painter_core::DEFAULT_DPI,
             whole_pixels: true,
             image_size: None,
+            define_brush: None,
             save_as_prompt: None,
             export_after_save: None,
             quit_requested: false,
@@ -2027,6 +2030,7 @@ impl eframe::App for PainterApp {
         self.new_canvas_window(ctx);
         self.scanner_window(ctx);
         self.image_size_window(ctx);
+        self.define_brush_window(ctx);
         self.reset_settings_window(ctx);
         self.bitmap_window(ctx);
         self.duotone_window(ctx);
