@@ -2480,7 +2480,7 @@ dependencies = [
 
 [[package]]
 name = "painter-android"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "eframe",
  "painter-app",
@@ -2489,7 +2489,7 @@ dependencies = [
 
 [[package]]
 name = "painter-app"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arboard",
  "cc",
@@ -2520,7 +2520,7 @@ dependencies = [
 
 [[package]]
 name = "painter-brush-io"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "base64 0.22.1",
  "crc32fast",
@@ -2535,7 +2535,7 @@ dependencies = [
 
 [[package]]
 name = "painter-comic-layout"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "painter-core",
  "serde",
@@ -2544,7 +2544,7 @@ dependencies = [
 
 [[package]]
 name = "painter-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ab_glyph",
  "crc32fast",
@@ -2561,7 +2561,7 @@ dependencies = [
 
 [[package]]
 name = "painter-installer"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "eframe",
  "flate2",
@@ -2572,7 +2572,7 @@ dependencies = [
 
 [[package]]
 name = "painter-render"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "bytemuck",
  "painter-core",
@@ -2584,7 +2584,7 @@ dependencies = [
 
 [[package]]
 name = "painter-scanner-io"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "image",
  "libloading",
@@ -2594,7 +2594,7 @@ dependencies = [
 
 [[package]]
 name = "painter-scene-3d"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "flate2",
  "image",
@@ -2605,7 +2605,7 @@ dependencies = [
 
 [[package]]
 name = "painter-shell"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "flate2",
  "image",
@@ -2615,14 +2615,14 @@ dependencies = [
 
 [[package]]
 name = "painter-transform-tools"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "painter-core",
 ]
 
 [[package]]
 name = "painter-ui-workspace"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2630,7 +2630,7 @@ dependencies = [
 
 [[package]]
 name = "painter-vector-export"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "painter-core",
  "resvg",
