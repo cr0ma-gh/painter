@@ -12,9 +12,10 @@ pub(crate) const TARGET_USAGE: wgpu::TextureUsages = wgpu::TextureUsages::TEXTUR
     .union(wgpu::TextureUsages::COPY_SRC)
     .union(wgpu::TextureUsages::COPY_DST);
 
-/// Cached intermediate composites: filled by copy, read by blend passes.
-pub(crate) const CACHE_USAGE: wgpu::TextureUsages =
-    wgpu::TextureUsages::TEXTURE_BINDING.union(wgpu::TextureUsages::COPY_DST);
+/// Cached intermediate composites: filled by copy, read by blend passes, and restored by copy.
+pub(crate) const CACHE_USAGE: wgpu::TextureUsages = wgpu::TextureUsages::TEXTURE_BINDING
+    .union(wgpu::TextureUsages::COPY_DST)
+    .union(wgpu::TextureUsages::COPY_SRC);
 
 pub(crate) struct Target {
     pub texture: wgpu::Texture,
