@@ -128,7 +128,9 @@ pub fn parse_effector(blob: &[u8]) -> Option<Effector> {
         if stride < 16 || head + count * stride > len {
             return None;
         }
-        let f = |i: usize| block.get(i..i + 8).map(|b| f64::from_be_bytes(b.try_into().unwrap()));
+        // A non-finite point (a damaged file) makes the effector unreadable, so it's
+        // left out: a brush can't be saved with a NaN.
+        let f = |i: usize| block.get(i..i + 8).map(|b| f64::from_be_bytes(b.try_into().unwrap())).filter(|v| v.is_finite());
         let points = (0..count).map(|i| Some([f(head + i * stride)?, f(head + i * stride + 8)?])).collect::<Option<Vec<_>>>()?;
         curves.push(Some(points));
         offset += len;
@@ -146,10 +148,11 @@ fn int(row: &Row, key: &str) -> Option<i64> {
     }
 }
 
+/// A finite number (SQLite keeps infinities; a brush can't be saved with one).
 fn real(row: &Row, key: &str) -> Option<f64> {
     match row.get(key)? {
         Value::Integer(v) => Some(*v as f64),
-        Value::Real(v) => Some(*v),
+        Value::Real(v) => Some(*v).filter(|v| v.is_finite()),
         _ => None,
     }
 }
@@ -462,6 +465,14 @@ pub fn write_with_template(template: &Path, preset: &BrushPreset, out: &Path) ->
             AntiAlias::Strong => 3,
         };
         let template_mode: Option<i64> = db.query_row("SELECT CompositeMode FROM Variant WHERE rowid = ?1", [variant], |r| r.get(0)).ok().flatten();
+        // A spraying template: Clip Studio's brush size is the spray's area, which
+        // import turned into the particle size and its spread (see `map_effects`).
+        let template_sprays = db
+            .query_row("SELECT BrushUseSpray FROM Variant WHERE rowid = ?1", [variant], |r| r.get::<_, Option<i64>>(0))
+            .ok()
+            .flatten()
+            == Some(1);
+        let brush_size = if template_sprays && s.scatter.is_on() { 2.0 * s.scatter.amount.max(0.0) * s.size } else { s.size };
         let mode = match (s.mode, s.blend.layer_mode()) {
             (BrushMode::Erase, _) => COMPOSITE_ERASE,
             // A blend mode Clip Studio numbers the same as its layer modes.
@@ -478,7 +489,7 @@ pub fn write_with_template(template: &Path, preset: &BrushPreset, out: &Path) ->
             rotation_mask |= 0x80;
         }
         let values: Vec<(&str, Value)> = vec![
-            ("BrushSize", Value::Real(s.size as f64)),
+            ("BrushSize", Value::Real(brush_size.max(0.01) as f64)),
             ("Opacity", Value::Integer(percent(s.opacity))),
             ("BrushFlow", Value::Integer(percent(s.density))),
             ("BrushHardness", Value::Integer(percent(s.hardness))),
@@ -505,7 +516,7 @@ pub fn write_with_template(template: &Path, preset: &BrushPreset, out: &Path) ->
         // Pressure curves: size (with its minimum), flow, opacity.
         let size_curve = s.pressure_size.then(|| curve_points(&s.size_curve, s.min_size_ratio));
         let flow_curve = s.pressure_density.then(|| curve_points(&s.density_curve, 0.0));
-        let opacity_curve = s.opacity_dynamics.pressure.as_ref().map(|c| curve_points(c, 0.0));
+        let opacity_curve = s.opacity_dynamics.pressure.as_ref().map(|c| curve_points(c, s.opacity_dynamics.minimum));
         for (column, curve) in [("BrushSizeEffector", size_curve), ("BrushFlowEffector", flow_curve), ("BrushOpacityEffector", opacity_curve)] {
             if !variant_columns.contains(column) {
                 if curve.is_some() {
@@ -756,11 +767,12 @@ fn map_variant(row: &Row, materials: &[BrushTip], library: &MaterialLibrary, war
                     None
                 }
             },
-            // A round second tip.
-            _ => BrushTip::new(1, 1, vec![255]).ok(),
+            // A round second tip, as hard as the second shape is set.
+            _ => Some(crate::abr::disc_tip(real(row, "DualHardness").map_or(1.0, |h| (h / 100.0) as f32))),
         };
         if let Some(tip) = tip {
-            let main = size.max(0.5);
+            // Relative to the dab the engine stamps (a spray's particle, not its area).
+            let main = preset.settings.size.max(0.5);
             let dual = real(row, "DualSize").map_or(main, |d| d as f32).max(0.5);
             let mode = match int(row, "DualBrushCompositeMode").and_then(painter_core::clip::blend_of) {
                 Some(painter_core::BlendMode::Darken) => painter_core::MaskMode::Darken,
@@ -1153,6 +1165,27 @@ mod tests {
         let mut out: Vec<u8> = words.iter().flat_map(|w| w.to_be_bytes()).collect();
         out.extend(blocks.concat());
         out
+    }
+
+    #[test]
+    fn round_second_shape_is_a_disc_and_damaged_effectors_are_left_out() {
+        let db = fixture();
+        db.execute_batch(
+            "ALTER TABLE Variant ADD COLUMN UseDualBrush INTEGER; ALTER TABLE Variant ADD COLUMN DualSize REAL;
+             ALTER TABLE Variant ADD COLUMN DualHardness INTEGER;
+             UPDATE Variant SET UseDualBrush = 1, DualSize = 5, DualHardness = 40 WHERE VariantID = 10;",
+        )
+        .unwrap();
+        let g = &read_db(&db).unwrap()[0];
+        let dual = g.dual.as_ref().expect("a round second shape");
+        assert_eq!((dual.tip.width, dual.tip.height), (64, 64), "a disc, not a 1x1 pixel");
+        assert_eq!(dual.tip.alpha[32 * 64 + 32], 255, "solid centre");
+        assert_eq!(dual.tip.alpha[0], 0, "clear corner");
+        assert!(dual.tip.alpha[32 * 64 + 4] < 200, "soft rim at 40% hardness");
+        // A NaN point (a damaged file) can't reach a brush, which couldn't be saved with it.
+        let mut blob = bytes(&G_PEN_SIZE_EFFECTOR);
+        blob[60..68].copy_from_slice(&f64::NAN.to_be_bytes());
+        assert_eq!(parse_effector(&blob), None);
     }
 
     #[test]

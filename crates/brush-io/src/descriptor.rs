@@ -47,9 +47,12 @@ impl Descriptor {
     }
 
     /// A numeric value regardless of its encoding (unit, double or integer).
+    /// A number, if the item is one and finite: a NaN or infinity from a
+    /// damaged file would reach brush settings that can't be saved (JSON has
+    /// no NaN), so it counts as missing.
     pub fn number(&self, key: &str) -> Option<f64> {
         match self.get(key)? {
-            Value::Double(v) | Value::Unit(_, v) => Some(*v),
+            Value::Double(v) | Value::Unit(_, v) => Some(*v).filter(|v| v.is_finite()),
             Value::Integer(v) => Some(*v as f64),
             _ => None,
         }
@@ -310,6 +313,13 @@ pub(crate) mod build {
 mod tests {
     use super::build::*;
     use super::*;
+
+    #[test]
+    fn non_finite_numbers_count_as_missing() {
+        let items = [("nan", Value::Double(f64::NAN)), ("inf", Value::Unit("#Prc".into(), f64::INFINITY)), ("ok", Value::Double(2.5))];
+        let d = Descriptor { class: String::new(), items: items.into_iter().map(|(k, v)| (k.to_string(), v)).collect() };
+        assert_eq!((d.number("nan"), d.number("inf"), d.number("ok")), (None, None, Some(2.5)));
+    }
 
     #[test]
     fn reads_nested_values() {

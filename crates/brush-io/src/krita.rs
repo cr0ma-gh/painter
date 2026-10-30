@@ -253,8 +253,9 @@ fn xml(s: &str) -> Option<roxmltree::Document<'_>> {
     roxmltree::Document::parse_with_options(s, roxmltree::ParsingOptions { allow_dtd: true, ..Default::default() }).ok()
 }
 
+/// A finite number ("nan" and "inf" parse, but a brush can't be saved with them).
 fn num(p: &BTreeMap<String, String>, key: &str) -> Option<f32> {
-    p.get(key)?.trim().parse().ok()
+    p.get(key)?.trim().parse::<f32>().ok().filter(|v| v.is_finite())
 }
 
 /// A boolean param ("true" / "false", or 1 / 0).

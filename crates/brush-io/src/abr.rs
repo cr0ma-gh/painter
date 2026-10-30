@@ -362,8 +362,12 @@ fn read_pattern(c: &mut Cursor<'_>) -> Result<Pattern, BrushIoError> {
         return Err(BrushIoError::Corrupt(format!("pattern \"{name}\" channel data doesn't match {width}×{height}")));
     }
     let gray: Vec<u8> = match (mode, &palette) {
-        // Indexed: luminance of the palette entry.
-        (2, Some(table)) => planes[0].iter().map(|&i| luma(table[i as usize], table[256 + i as usize], table[512 + i as usize])).collect(),
+        // Indexed: luminance of the palette entry (256 RGB triplets; read as three
+        // planes, Photoshop's 50% grey dither came out solid black).
+        (2, Some(table)) => planes[0].iter().map(|&i| {
+            let e = 3 * i as usize;
+            luma(table[e], table[e + 1], table[e + 2])
+        }).collect(),
         // RGB (and others with ≥3 channels): luminance.
         (_, _) if planes.len() >= 3 && mode != 1 => (0..n).map(|i| luma(planes[0][i], planes[1][i], planes[2][i])).collect(),
         // Grayscale / bitmap / single channel.
@@ -424,7 +428,7 @@ fn sample_for<'a>(tip: Option<&Descriptor>, samples: &'a [Sample]) -> (Option<St
 }
 
 /// A soft disc bitmap, for a computed (round) dual brush.
-fn disc_tip(hardness: f32) -> BrushTip {
+pub(crate) fn disc_tip(hardness: f32) -> BrushTip {
     const N: u32 = 64;
     let alpha = (0..N * N)
         .map(|i| {
@@ -978,15 +982,25 @@ mod tests {
     }
 
     fn pattern(id: &str, name: &str, w: usize, h: usize, gray: &[u8], rgb: bool) -> Vec<u8> {
+        pattern_in(id, name, w, h, gray, if rgb { 3 } else { 1 }, None)
+    }
+
+    /// A pattern in image `mode` (1 grey, 2 indexed with `palette`, 3 RGB) whose
+    /// channels all hold `gray`.
+    fn pattern_in(id: &str, name: &str, w: usize, h: usize, gray: &[u8], mode: u32, palette: Option<&[u8]>) -> Vec<u8> {
         let mut p = Vec::new();
         p.extend(1u32.to_be_bytes());
-        p.extend((if rgb { 3u32 } else { 1u32 }).to_be_bytes());
+        p.extend(mode.to_be_bytes());
         p.extend((h as u16).to_be_bytes());
         p.extend((w as u16).to_be_bytes());
         crate::descriptor::build::unicode(&mut p, name);
         p.push(id.len() as u8);
         p.extend(id.as_bytes());
-        let channels = if rgb { 3 } else { 1 };
+        if let Some(table) = palette {
+            p.extend(table);
+            p.extend([0u8; 4]);
+        }
+        let channels = if mode == 3 { 3 } else { 1 };
         let mut vmal = Vec::new();
         for v in [0u32, 0, h as u32, w as u32] {
             vmal.extend(v.to_be_bytes());
@@ -1015,6 +1029,18 @@ mod tests {
             out.push(0);
         }
         out
+    }
+
+    #[test]
+    fn indexed_patterns_are_rgb_triplets() {
+        // Photoshop's 50% grey: palette entries 0 (black) and 1 (white) in a dither.
+        let mut table = [0u8; 768];
+        table[3..6].copy_from_slice(&[255; 3]);
+        let patt = pattern_in("pat-index", "50% Gray", 2, 2, &[0, 1, 1, 0], 2, Some(&table));
+        let mut warnings = Vec::new();
+        let patterns = read_patterns(&patt, &mut warnings);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(patterns[0].image.alpha, [0, 255, 255, 0]);
     }
 
     fn section(key: &[u8; 4], body: &[u8]) -> Vec<u8> {

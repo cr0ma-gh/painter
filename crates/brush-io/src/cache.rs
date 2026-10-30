@@ -14,7 +14,7 @@ use crate::types::{BrushIoError, ImportReport};
 use crate::{import_report_with, native, sut::MaterialLibrary};
 
 /// Bumped when readers change what they produce, invalidating old entries.
-const CACHE_VERSION: &str = "brush-cache-6";
+const CACHE_VERSION: &str = "brush-cache-7";
 
 /// `%LOCALAPPDATA%\Painter\brush-cache`, or a temp folder elsewhere.
 pub fn default_dir() -> PathBuf {
