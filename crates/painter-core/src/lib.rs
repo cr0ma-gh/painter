@@ -47,7 +47,7 @@ pub mod zipfile;
 
 pub use adjust::{AdjustOp, Adjustment};
 pub use blend::BlendMode;
-pub use brush::{AntiAlias, BrushBlend, BrushMode, BrushSettings, ColorJitter, Dab, PressureCurve, Scatter, SmoothingMethod};
+pub use brush::{AntiAlias, BrushBlend, BrushMode, BrushSettings, ColorJitter, Dab, PressureCurve, Scatter, SmoothingMethod, WaterEdge};
 pub use document::{Document, SavedChannel, DEFAULT_DPI, MAX_CANVAS_SIZE};
 pub use history::History;
 pub use layer::{clip_targets, ClipTo, FileObject, Folder, Layer, LayerId, LayerKind, Mask, VectorLayer, VectorStroke};
@@ -57,4 +57,4 @@ pub use selection::SelectionOp;
 pub use smoothing::{Smoother, StrokePoint};
 pub use stroke::StrokeEngine;
 pub use tile::{Tile, TileCoord, TileStore, TILE_BYTES, TILE_SIZE};
-pub use tip::{resample_coverage, sample_tip_coverage, DabTexture, DabTip, DualTip, TipBitmap, TipKind, TipShape};
+pub use tip::{resample_coverage, sample_tip_coverage, DabTexture, DabTip, DualTip, MaskMode, TipBitmap, TipKind, TipShape};

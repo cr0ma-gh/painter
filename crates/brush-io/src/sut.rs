@@ -8,12 +8,12 @@
 //!   `BrushFlow`, `BrushHardness`, `BrushInterval`, `AntiAlias`,
 //!   `FlickerReduction`, `CompositeMode`, ...). Brushes are the rows with a
 //!   `BrushSize`. Columns differ between versions, so they are discovered at runtime.
-//! - `*Effector` BLOBs hold dynamics: a 48-byte header of big-endian words
-//!   (word 2 is the enabled-source mask, words 8 and 9 are the byte lengths of
-//!   two curve blocks that follow), then curve blocks `[12, n, 16]` + n points
-//!   of big-endian `f64` (x, y). Bit `0x10` with the first curve is pen
-//!   pressure. The second curve and the other bits aren't mapped (their meaning
-//!   isn't confirmed); they're kept in `extras`.
+//! - `*Effector` BLOBs hold dynamics: a 48-byte header of big-endian words,
+//!   then up to three curve blocks `[12, n, 16]` + n points of big-endian
+//!   `f64` (x, y). Word 2 is the enabled-source mask: `0x10` pen pressure
+//!   (first curve), `0x20` tilt (second), `0x40` velocity (third), `0x80`
+//!   random. Words 3–6 are those sources' minimums (%), words 8, 9 and 11
+//!   the three blocks' byte lengths. Every effector is also kept in `extras`.
 //! - `CompositeMode = 27` marks erasers.
 //! - Tip and texture images are references to installed materials
 //!   (`…:PaintNNN:<uuid>:data:material.layer`). Clip Studio's `material.layer`
@@ -32,19 +32,29 @@ use painter_core::{AntiAlias, BrushMode, BrushSettings, PressureCurve, Smoothing
 use rusqlite::types::Value;
 use rusqlite::{Connection, OpenFlags};
 
-use crate::types::{BrushIoError, BrushPreset, BrushTexture, BrushTip, ImportReport, PresetSource};
+use crate::types::{BrushIoError, BrushPreset, BrushTexture, BrushTip, Dynamic, DualBrush, ImportReport, PresetSource};
 
 /// `CompositeMode` value Clip Studio uses for erasers.
 const COMPOSITE_ERASE: i64 = 27;
-/// Effector enabled-mask bit for pen pressure (first curve block).
+/// Effector enabled-mask bits: pen pressure (first curve block), tilt
+/// (second), velocity (third) and random.
 const EFFECT_PRESSURE: u32 = 0x10;
+const EFFECT_TILT: u32 = 0x20;
+const EFFECT_VELOCITY: u32 = 0x40;
+const EFFECT_RANDOM: u32 = 0x80;
+/// Header words holding the curve blocks' byte lengths, in block order.
+const CURVE_LENGTH_WORDS: [usize; 3] = [8, 9, 11];
+/// `BrushInOutTarget` ids of the parameters the starting and ending act on.
+const IN_OUT_SIZE: i32 = 1001;
+const IN_OUT_FLOW: i32 = 1021;
+const IN_OUT_OPACITY: i32 = 112;
 
 /// A decoded `*Effector` BLOB.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Effector {
     /// Header words (big-endian `i32`).
     pub header: [i32; 12],
-    /// Curves in file order; `curves[0]` is the pressure curve when present.
+    /// Pressure, tilt and velocity curves, in file order (`None` when absent).
     pub curves: Vec<Option<Vec<[f64; 2]>>>,
 }
 
@@ -60,6 +70,31 @@ impl Effector {
         }
         let points = self.curves.first()?.as_ref()?;
         Some(PressureCurve::from_points(points.iter().map(|p| [p[0] as f32, p[1] as f32]).collect()))
+    }
+
+    /// What this effector does, each enabled source from its minimum up to
+    /// full: pen pressure, tilt and velocity as curves with the minimum folded
+    /// in (`min + (1 − min) · curve`), random as jitter (`1 − min`). A source
+    /// whose minimum is 100% does nothing and is left out.
+    pub fn dynamic(&self) -> Dynamic {
+        let mask = self.enabled_mask();
+        let minimum = |word: usize| (self.header[word] as f32 / 100.0).clamp(0.0, 1.0);
+        let curve = |bit: u32, index: usize, word: usize, default: [[f64; 2]; 2]| {
+            let min = minimum(word);
+            if mask & bit == 0 || min >= 1.0 {
+                return None;
+            }
+            let points = self.curves.get(index).cloned().flatten().unwrap_or_else(|| default.to_vec());
+            Some(PressureCurve::from_points(points.iter().map(|p| [p[0] as f32, min + (1.0 - min) * p[1] as f32]).collect()))
+        };
+        Dynamic {
+            pressure: curve(EFFECT_PRESSURE, 0, 3, [[0.0, 0.0], [1.0, 1.0]]),
+            tilt: curve(EFFECT_TILT, 1, 4, [[0.0, 1.0], [1.0, 0.0]]),
+            velocity: curve(EFFECT_VELOCITY, 2, 5, [[0.0, 1.0], [1.0, 0.0]]),
+            random: (mask & EFFECT_RANDOM != 0).then(|| 1.0 - minimum(6)).filter(|j| *j > 0.0),
+            minimum: None,
+            fade: None,
+        }
     }
 
     fn to_json(&self) -> serde_json::Value {
@@ -81,7 +116,7 @@ pub fn parse_effector(blob: &[u8]) -> Option<Effector> {
     }
     let mut curves = Vec::new();
     let mut offset = 48usize;
-    for len in [header[8], header[9]] {
+    for len in CURVE_LENGTH_WORDS.map(|w| header[w]) {
         let len = usize::try_from(len).ok()?;
         if len == 0 {
             curves.push(None);
@@ -342,6 +377,8 @@ fn effector_blob(template: Option<&[u8]>, curve: Option<&[[f32; 2]]>) -> Vec<u8>
     match curve {
         Some(points) => {
             header[2] = (mask | EFFECT_PRESSURE) as i32;
+            // The minimum is folded into the points written.
+            header[3] = 0;
             for v in [12u32, points.len() as u32, 16] {
                 block.extend(v.to_be_bytes());
             }
@@ -352,20 +389,22 @@ fn effector_blob(template: Option<&[u8]>, curve: Option<&[[f32; 2]]>) -> Vec<u8>
         }
         None => header[2] = (mask & !EFFECT_PRESSURE) as i32,
     }
-    // The second curve block, as the template had it.
-    let second: Vec<u8> = match (template, old.as_ref()) {
-        (Some(blob), Some(e)) if e.header[9] > 0 => {
-            let start = 48 + e.header[8].max(0) as usize;
-            blob.get(start..start + e.header[9] as usize).map(<[u8]>::to_vec).unwrap_or_default()
-        }
-        _ => Vec::new(),
+    // The tilt and velocity blocks, as the template had them.
+    let kept = |n: usize| -> Vec<u8> {
+        let (Some(blob), Some(e)) = (template, old.as_ref()) else { return Vec::new() };
+        let len = e.header[CURVE_LENGTH_WORDS[n]].max(0) as usize;
+        let start = 48 + CURVE_LENGTH_WORDS[..n].iter().map(|w| e.header[*w].max(0) as usize).sum::<usize>();
+        blob.get(start..start + len).map(<[u8]>::to_vec).unwrap_or_default()
     };
+    let (second, third) = (kept(1), kept(2));
     header[0] = 48;
     header[8] = block.len() as i32;
     header[9] = second.len() as i32;
+    header[11] = third.len() as i32;
     let mut out: Vec<u8> = header.iter().flat_map(|w| w.to_be_bytes()).collect();
     out.extend(block);
     out.extend(second);
+    out.extend(third);
     out
 }
 
@@ -487,8 +526,8 @@ pub fn write_with_template(template: &Path, preset: &BrushPreset, out: &Path) ->
         if preset.tip.is_some() || preset.texture.is_some() || preset.dual.is_some() {
             notes.push("tip, texture and second brush images stay the template's (Clip Studio materials can't be written)".into());
         }
-        if s.scatter.is_on() || !s.color_jitter.is_default() || s.taper_start > 0.0 {
-            notes.push("spray, colour jitter and starting taper aren't carried (their Clip Studio settings aren't mapped)".into());
+        if s.scatter.is_on() || !s.color_jitter.is_default() || s.taper_start > 0.0 || s.taper_end > 0.0 || s.water_edge.is_some() {
+            notes.push("spray, colour jitter, starting and ending and the watercolor edge stay the template's".into());
         }
         Ok(notes)
     })();
@@ -629,17 +668,15 @@ fn map_variant(row: &Row, materials: &[BrushTip], library: &MaterialLibrary, war
     preset.thickness = percent("BrushThickness", 1.0).max(0.01);
     preset.angle = real(row, "BrushRotation").unwrap_or(0.0) as f32;
 
-    // Dynamics: pressure curves of size, flow and opacity are mapped; every
-    // effector is kept verbatim. The thickness effector is NOT mapped: on real
-    // presets (Mechanical pencil) its first curve falls to 0 at high pressure,
-    // which as "pressure → thickness" flattens dabs into slivers. Clip Studio
-    // clearly reads it differently (its header carries extra range values whose
-    // meaning isn't confirmed), so it stays in `extras` only.
+    // Dynamics: pressure, tilt, velocity and random of size, flow, opacity
+    // and thickness, each from its minimum (Mechanical pencil's thickness
+    // falls to 45% at full pressure); every effector is kept verbatim too.
     let effectors = [
         ("BrushSizeEffector", 0usize),
         ("BrushFlowEffector", 1),
         ("BrushOpacityEffector", 2),
         ("BrushThicknessEffector", 3),
+        ("TextureDensityEffector", 4),
     ];
     for (key, target) in effectors {
         let Some(effector) = blob(row, key).and_then(parse_effector) else {
@@ -650,9 +687,10 @@ fn map_variant(row: &Row, materials: &[BrushTip], library: &MaterialLibrary, war
             0 => &mut preset.dynamics.size,
             1 => &mut preset.dynamics.flow,
             2 => &mut preset.dynamics.opacity,
-            _ => continue,
+            3 => &mut preset.dynamics.thickness,
+            _ => &mut preset.dynamics.texture,
         };
-        dynamic.pressure = effector.pressure();
+        *dynamic = effector.dynamic();
     }
     // Tip direction and flips. `BrushRotationEffector` is an integer source
     // mask here; across the stock presets bit 0x80 marks the scatter brushes
@@ -669,6 +707,7 @@ fn map_variant(row: &Row, materials: &[BrushTip], library: &MaterialLibrary, war
     preset.dynamics.random_flip_x = int(row, "BrushPatternReverseHorizontal") == Some(2);
     preset.dynamics.random_flip_y = int(row, "BrushPatternReverseVertical") == Some(2);
     preset.apply_dynamics();
+    map_effects(row, &mut preset);
 
     // Tip: an embedded image, else the installed material's thumbnail, else round.
     let tip_refs = blob(row, "BrushPatternImageArray").map(material_refs).unwrap_or_default();
@@ -693,16 +732,43 @@ fn map_variant(row: &Row, materials: &[BrushTip], library: &MaterialLibrary, war
         preset.extras.insert("sut.texture_material".into(), serde_json::json!(texture));
         match library.texture(&texture[0]) {
             Ok(image) => {
-                preset.texture = Some(BrushTexture {
-                    image,
-                    // Newer databases leave `TextureScale` NULL and store the
-                    // scale in `TextureScale2` (Mechanical pencil: 20%).
-                    scale: real(row, "TextureScale2").or_else(|| real(row, "TextureScale")).unwrap_or(100.0) as f32,
-                    density: percent("TextureDensity", 0.5),
-                    invert: int(row, "TextureReverseDensity") == Some(1),
-                });
+                // Newer databases leave `TextureScale` NULL and store the
+                // scale in `TextureScale2` (Mechanical pencil: 20%).
+                let scale = real(row, "TextureScale2").or_else(|| real(row, "TextureScale")).unwrap_or(100.0) as f32;
+                let mut t = BrushTexture::new(image, scale, percent("TextureDensity", 0.5), int(row, "TextureReverseDensity") == Some(1));
+                t.mode = texture_mode(int(row, "TextureCompositeMode").unwrap_or(0));
+                t.brightness = real(row, "TextureBrightness").map_or(0.0, |b| (b as f32 / 100.0).clamp(-1.0, 1.0));
+                t.contrast = real(row, "TextureContrast").map_or(1.0, |c| (1.0 + c as f32 / 100.0).clamp(0.0, 3.0));
+                t.each_dab = int(row, "TextureForPlot").is_none_or(|v| v != 0);
+                preset.texture = Some(t);
             }
             Err(err) => warnings.push(format!("\"{}\": texture {err}; painting without texture", preset.settings.name)),
+        }
+    }
+    // Second brush shape: its own tip, a size relative to the main one, a composite mode.
+    if int(row, "UseDualBrush") == Some(1) {
+        let refs = blob(row, "DualPatternImageArray").map(material_refs).unwrap_or_default();
+        let tip = match refs.first() {
+            Some(reference) if int(row, "DualUsePatternImage") == Some(1) => match library.tip(reference) {
+                Ok(tip) => Some(tip),
+                Err(err) => {
+                    warnings.push(format!("\"{}\": second brush tip {err}; second brush dropped", preset.settings.name));
+                    None
+                }
+            },
+            // A round second tip.
+            _ => BrushTip::new(1, 1, vec![255]).ok(),
+        };
+        if let Some(tip) = tip {
+            let main = size.max(0.5);
+            let dual = real(row, "DualSize").map_or(main, |d| d as f32).max(0.5);
+            let mode = match int(row, "DualBrushCompositeMode").and_then(painter_core::clip::blend_of) {
+                Some(painter_core::BlendMode::Darken) => painter_core::MaskMode::Darken,
+                Some(painter_core::BlendMode::ColorBurn) => painter_core::MaskMode::ColorBurn,
+                Some(painter_core::BlendMode::LinearBurn) => painter_core::MaskMode::Subtract,
+                _ => painter_core::MaskMode::Multiply,
+            };
+            preset.dual = Some(DualBrush { tip, scale: (dual / main).clamp(0.05, 8.0), mode });
         }
     }
 
@@ -710,7 +776,8 @@ fn map_variant(row: &Row, materials: &[BrushTip], library: &MaterialLibrary, war
     let mapped: HashSet<&str> = [
         "NodeName", "VariantID", "BrushSize", "Opacity", "BrushFlow", "BrushHardness", "BrushInterval",
         "BrushAutoIntervalType", "AntiAlias", "FlickerReduction", "CompositeMode", "BrushThickness", "BrushRotation",
-        "BrushPatternImageArray", "TextureImage", "BrushUsePatternImage",
+        "BrushPatternImageArray", "TextureImage", "BrushUsePatternImage", "TextureCompositeMode", "TextureBrightness",
+        "TextureContrast", "TextureForPlot",
     ]
     .into_iter()
     .collect();
@@ -733,6 +800,100 @@ fn map_variant(row: &Row, materials: &[BrushTip], library: &MaterialLibrary, war
     }
     preset.extras.extend(extras);
     preset
+}
+
+/// Clip Studio's texture composite modes (Multiply, Subtract, Comparative, Comparative 2…) as ours.
+fn texture_mode(n: i64) -> painter_core::MaskMode {
+    match n {
+        1 => painter_core::MaskMode::Subtract,
+        2 | 3 => painter_core::MaskMode::Darken,
+        _ => painter_core::MaskMode::Multiply,
+    }
+}
+
+/// A length in Clip Studio's unit `unit` (0 px, 1 cm, 2 mm, 3 inch, 4 pt) as
+/// canvas pixels at 300 dpi, the resolution its stock brushes are made for.
+fn length_px(value: f64, unit: Option<i64>) -> f32 {
+    let px = match unit.unwrap_or(0) {
+        1 => value * 300.0 / 2.54,
+        2 => value * 300.0 / 25.4,
+        3 => value * 300.0,
+        4 => value * 300.0 / 72.0,
+        _ => value,
+    };
+    px.clamp(0.0, 10_000.0) as f32
+}
+
+/// Starting and ending, spray, watercolor edge, colour jitter and build-up.
+fn map_effects(row: &Row, preset: &mut BrushPreset) {
+    let s = &mut preset.settings;
+    // Starting and ending: lengths in px (or another unit); the targets list
+    // says which parameters it acts on, and without one it does nothing.
+    let targets = blob(row, "BrushInOutTarget").map(in_out_targets).unwrap_or_default();
+    let acts = targets.iter().any(|t| [IN_OUT_SIZE, IN_OUT_FLOW, IN_OUT_OPACITY].contains(t));
+    if acts {
+        if int(row, "BrushUseIn") == Some(1) {
+            s.taper_start = length_px(real(row, "BrushInLength").unwrap_or(0.0), int(row, "BrushInLengthUnit"));
+        }
+        if int(row, "BrushUseOut") == Some(1) {
+            s.taper_end = length_px(real(row, "BrushOutLength").unwrap_or(0.0), int(row, "BrushOutLengthUnit"));
+        }
+    }
+    // Spray: particles of their own size thrown over the brush's area.
+    if int(row, "BrushUseSpray") == Some(1) {
+        let area = s.size.max(0.5);
+        let mut particle = real(row, "BrushSpraySize").unwrap_or(2.0) as f32;
+        if int(row, "BrushSpraySizeSyncBrushSize") == Some(1) {
+            particle = area * particle / 100.0;
+        }
+        let particle = particle.clamp(0.5, area);
+        s.size = particle;
+        s.scatter = painter_core::Scatter {
+            amount: (area / (2.0 * particle)).clamp(0.0, 10.0),
+            count: int(row, "BrushSprayDensity").unwrap_or(5).clamp(1, 16) as u32,
+            count_jitter: 0.0,
+            both_axes: true,
+        };
+    }
+    // Watercolor edge: a rim of pooled ink, its width in px.
+    if int(row, "BrushUseWaterEdge") == Some(1) {
+        let percent = |key: &str| real(row, key).map_or(0.0, |v| (v as f32 / 100.0).clamp(0.0, 1.0));
+        s.water_edge = Some(painter_core::WaterEdge {
+            radius: length_px(real(row, "BrushWaterEdgeRadius").unwrap_or(3.0), int(row, "BrushWaterEdgeRadiusUnit")).max(0.5),
+            thinning: 0.0,
+            rim: percent("BrushWaterEdgeAlphaPower"),
+            darkening: percent("BrushWaterEdgeValuePower"),
+        });
+    }
+    // Color jitter: hue (degrees), saturation and value (%), sub colour mix,
+    // per dab unless "per stroke" is on.
+    let per_stroke = int(row, "BrushChangeStrokeColor") == Some(1);
+    let key = |dab: &str, stroke: &str| if per_stroke { real(row, stroke) } else { real(row, dab) };
+    let hue = key("BrushHueChange", "BrushStrokeHueChange").unwrap_or(0.0) as f32 / 180.0;
+    let saturation = key("BrushSaturationChange", "BrushStrokeSaturationChange").unwrap_or(0.0) as f32 / 100.0;
+    let value = key("BrushValueChange", "BrushStrokeValueChange").unwrap_or(0.0) as f32 / 100.0;
+    let sub = key("BrushSubColor", "BrushStrokeSubColor").unwrap_or(0.0) as f32 / 100.0;
+    if int(row, "BrushChangePatternColor") == Some(1) || per_stroke {
+        s.color_jitter = painter_core::ColorJitter {
+            hue: hue.clamp(0.0, 1.0),
+            saturation: saturation.clamp(0.0, 1.0),
+            value: value.clamp(0.0, 1.0),
+            per_dab: !per_stroke,
+            sub_mix: sub.clamp(0.0, 1.0),
+            sub_by_pressure: false,
+            purity: 0.0,
+        };
+    }
+    // Continuous spray: ink keeps coming while the pen rests.
+    s.build_up = int(row, "BrushContinuousPlot") == Some(1) && int(row, "BrushUseSpray") == Some(1);
+}
+
+/// The enabled parameter ids of a `BrushInOutTarget` BLOB: `[12, n, 12]`, then
+/// n entries `(id, enabled, value)` of big-endian `i32`.
+fn in_out_targets(bytes: &[u8]) -> Vec<i32> {
+    let word = |i: usize| bytes.get(i * 4..i * 4 + 4).map(|b| i32::from_be_bytes(b.try_into().unwrap()));
+    let (Some(12), Some(n)) = (word(0), word(1)) else { return Vec::new() };
+    (0..n.clamp(0, 256) as usize).filter_map(|e| Some((word(3 + e * 3)?, word(4 + e * 3)?))).filter(|(_, on)| *on != 0).map(|(id, _)| id).collect()
 }
 
 #[cfg(test)]
@@ -762,7 +923,8 @@ mod tests {
     #[test]
     fn decodes_real_effectors() {
         let g = parse_effector(&bytes(&G_PEN_SIZE_EFFECTOR)).unwrap();
-        assert_eq!(g.curves.len(), 2);
+        assert_eq!(g.curves.len(), 3, "pressure, tilt, velocity");
+        assert!(g.curves[2].is_none());
         assert_eq!(g.curves[0].as_ref().unwrap(), &vec![[0.0, 0.0], [1.0, 1.0]]);
         assert_eq!(g.curves[1].as_ref().unwrap().len(), 5);
         assert_eq!(g.pressure().unwrap(), PressureCurve::from_points(vec![[0.0, 0.0], [1.0, 1.0]]));
@@ -994,22 +1156,61 @@ mod tests {
     }
 
     #[test]
-    fn thickness_effector_is_kept_but_not_applied() {
+    fn maps_starting_and_ending_spray_water_edge_and_colour_jitter() {
+        let db = fixture();
+        db.execute_batch(
+            "ALTER TABLE Variant ADD COLUMN BrushInOutTarget BLOB;
+             ALTER TABLE Variant ADD COLUMN BrushUseIn INTEGER; ALTER TABLE Variant ADD COLUMN BrushInLength REAL;
+             ALTER TABLE Variant ADD COLUMN BrushInLengthUnit INTEGER; ALTER TABLE Variant ADD COLUMN BrushUseOut INTEGER;
+             ALTER TABLE Variant ADD COLUMN BrushOutLength REAL; ALTER TABLE Variant ADD COLUMN BrushOutLengthUnit INTEGER;
+             ALTER TABLE Variant ADD COLUMN BrushUseSpray INTEGER; ALTER TABLE Variant ADD COLUMN BrushSpraySize REAL;
+             ALTER TABLE Variant ADD COLUMN BrushSprayDensity INTEGER; ALTER TABLE Variant ADD COLUMN BrushUseWaterEdge INTEGER;
+             ALTER TABLE Variant ADD COLUMN BrushWaterEdgeRadius REAL; ALTER TABLE Variant ADD COLUMN BrushWaterEdgeAlphaPower INTEGER;
+             ALTER TABLE Variant ADD COLUMN BrushWaterEdgeValuePower INTEGER; ALTER TABLE Variant ADD COLUMN BrushChangePatternColor INTEGER;
+             ALTER TABLE Variant ADD COLUMN BrushHueChange REAL; ALTER TABLE Variant ADD COLUMN BrushSubColor REAL;
+             UPDATE Variant SET BrushUseIn = 1, BrushInLength = 2, BrushInLengthUnit = 2, BrushUseOut = 1, BrushOutLength = 30,
+                BrushOutLengthUnit = 0, BrushUseSpray = 1, BrushSpraySize = 2, BrushSprayDensity = 6, BrushUseWaterEdge = 1,
+                BrushWaterEdgeRadius = 4, BrushWaterEdgeAlphaPower = 20, BrushWaterEdgeValuePower = 10,
+                BrushChangePatternColor = 1, BrushHueChange = 18, BrushSubColor = 40 WHERE VariantID = 10;",
+        )
+        .unwrap();
+        // Starting and ending on size only (Real G-pen: size 1001 on).
+        let targets: Vec<u8> = [12, 2, 12, 112, 0, 0, 1001, 1, 80].iter().flat_map(|w: &i32| w.to_be_bytes()).collect();
+        db.execute("UPDATE Variant SET BrushInOutTarget = ?1 WHERE VariantID = 10", [&targets]).unwrap();
+        let g = &read_db(&db).unwrap()[0];
+        let s = &g.settings;
+        assert!((s.taper_start - 2.0 * 300.0 / 25.4).abs() < 1e-3, "2 mm at 300 dpi: {}", s.taper_start);
+        assert_eq!(s.taper_end, 30.0);
+        assert_eq!((s.size, s.scatter.count, s.scatter.both_axes), (2.0, 6, true));
+        assert!((s.scatter.amount - 2.5).abs() < 1e-4, "a 10 px area of 2 px particles");
+        let edge = s.water_edge.expect("water edge");
+        assert_eq!(edge.radius, 4.0);
+        assert!((edge.rim - 0.2).abs() < 1e-4 && (edge.darkening - 0.1).abs() < 1e-4);
+        assert!(s.color_jitter.per_dab && (s.color_jitter.hue - 0.1).abs() < 1e-4 && (s.color_jitter.sub_mix - 0.4).abs() < 1e-4);
+        // No targets: the starting and ending do nothing.
+        db.execute("UPDATE Variant SET BrushInOutTarget = NULL WHERE VariantID = 10", []).unwrap();
+        let g = &read_db(&db).unwrap()[0];
+        assert_eq!((g.settings.taper_start, g.settings.taper_end), (0.0, 0.0));
+    }
+
+    #[test]
+    fn thickness_effector_keeps_its_minimum() {
         // Mechanical pencil's real thickness effector (Clip Studio Paint 1.5):
-        // pressure enabled, curve falling from 1 to 0.
+        // pressure enabled with a 45% minimum, curve falling from 1 to 0.
         let blob = effector_blob(
             [48, 45, 100, 63, 0, 0, 0, 0, 200, 0],
             &[&[[0.0, 1.0], [0.2364, 0.8636], [0.6727, 0.0], [1.0, 0.0]], &[[0.0, 0.0], [0.3364, 0.0], [0.5455, 0.0636], [0.8273, 0.8273], [1.0, 1.0]]],
         );
-        let curve = parse_effector(&blob).expect("parses").pressure().expect("pressure bit set");
-        assert!(curve.eval(1.0) < 0.01, "as pressure → thickness it would flatten every firm dab");
-        // Importing keeps it verbatim but doesn't turn it into per-dab flattening.
+        let effector = parse_effector(&blob).expect("parses");
+        assert!(effector.pressure().expect("pressure bit set").eval(1.0) < 0.01, "the raw curve falls to 0");
+        // Read with its minimum, firm pressure flattens the tip to 45%, never to a sliver.
         let db = fixture();
         db.execute("ALTER TABLE Variant ADD COLUMN BrushThicknessEffector BLOB", []).unwrap();
         db.execute("UPDATE Variant SET BrushThicknessEffector = ?1 WHERE VariantID = 10", [&blob]).unwrap();
         let g = &read_db(&db).unwrap()[0];
-        assert!(g.dynamics.thickness.is_empty());
-        assert!(g.settings.thickness_dynamics.is_default());
+        let curve = g.settings.thickness_dynamics.pressure.as_ref().expect("thickness from pressure");
+        assert!((curve.eval(1.0) - 0.45).abs() < 1e-4 && (curve.eval(0.0) - 1.0).abs() < 1e-4);
+        assert!(g.dynamics.thickness.tilt.is_none(), "tilt's minimum is 100%: no effect");
         assert!(g.extras.contains_key("sut.BrushThicknessEffector"));
     }
 

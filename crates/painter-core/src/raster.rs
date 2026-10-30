@@ -93,6 +93,34 @@ fn sampled_coverage(bitmap: &TipBitmap, x: f32, y: f32, radius: f32, level: u32)
     bitmap.sample(level, fx * w as f32 - 0.5, fy * h as f32 - 0.5)
 }
 
+/// Coverage of a dual tip smaller than the dab, tiled over the canvas: a
+/// field of second-tip stamps (Photoshop scatters many of them along the
+/// stroke), each cell one dual diameter across, `(x, y)` a pixel centre.
+/// Mirrored by `tiled_coverage` in painter-render's `dab.wgsl`.
+fn tiled_coverage(bitmap: &TipBitmap, x: f32, y: f32, radius: f32, level: u32) -> f32 {
+    let aspect = bitmap.aspect();
+    let (w, h) = bitmap.level_size(level);
+    let (cw, ch) = (2.0 * radius * aspect[0], 2.0 * radius * aspect[1]);
+    bitmap.sample_wrapped_level(level, x / cw * w as f32 - 0.5, y / ch * h as f32 - 0.5)
+}
+
+/// Uniform grain in 0..1 fixed to canvas pixel `(x, y)` (Photoshop's brush noise).
+/// Mirrored by `grain` in painter-render's `dab.wgsl`.
+pub fn grain(x: u32, y: u32) -> f32 {
+    let mut h = x.wrapping_mul(1_664_525).wrapping_add(y.wrapping_mul(1_013_904_223)).wrapping_add(7u32.wrapping_mul(2_654_435_769));
+    h ^= h >> 16;
+    h = h.wrapping_mul(2_246_822_519);
+    h ^= h >> 13;
+    h = h.wrapping_mul(3_266_489_917);
+    h ^= h >> 16;
+    (h >> 8) as f32 / 16_777_216.0
+}
+
+/// Noise on a coverage: none where it is 0 or 1, ±½ at half coverage.
+pub fn noisy(cov: f32, grain: f32) -> f32 {
+    (cov + (grain - 0.5) * 4.0 * cov * (1.0 - cov)).clamp(0.0, 1.0)
+}
+
 /// Relative slack on the squared-distance bounds, far wider than the few ulps by
 /// which `dx² + dy²` and `hypot` can disagree, so the fast paths never change a pixel.
 const BOUND_SLACK: f32 = 1e-3;
@@ -173,6 +201,9 @@ pub fn stamp_dab(
     if alpha <= 0.0 {
         return;
     }
+    let color = dab.color.unwrap_or(color);
+    // A whole-stroke texture is applied once the stroke is done (see `finish_stroke`).
+    let texture = settings.texture.as_ref().filter(|t| t.each_dab);
     let aa = settings.antialias.width();
     let tip = &settings.tip;
 
@@ -223,16 +254,26 @@ pub fn stamp_dab(
                             None => ellipse_coverage(x, y, radius, flatness, settings.hardness, aa),
                         }
                     };
-                    // Dual tip: an unrotated second bitmap centred on the dab masks it.
+                    // Noise: grain in the soft parts of the tip.
+                    if settings.noise && cov > 0.0 {
+                        cov = noisy(cov, grain(px as u32, py as u32));
+                    }
+                    // Dual tip: an unrotated second bitmap centred on the dab (or,
+                    // smaller than it, tiled over the canvas) combined by its mode.
                     if let Some((dual, dual_radius, dual_level)) = &dual {
                         if cov > 0.0 {
-                            cov *= sampled_coverage(&dual.bitmap, dx, dy, *dual_radius, *dual_level);
+                            let t = if dual.scale() < 1.0 {
+                                tiled_coverage(&dual.bitmap, px as f32 + 0.5, py as f32 + 0.5, *dual_radius, *dual_level)
+                            } else {
+                                sampled_coverage(&dual.bitmap, dx, dy, *dual_radius, *dual_level)
+                            };
+                            cov = dual.mode.mix(cov, t);
                         }
                     }
                     // Paper texture, fixed to the canvas.
-                    if let Some(texture) = &settings.texture {
+                    if let Some(texture) = texture {
                         if cov > 0.0 {
-                            cov *= texture.factor(px as f32 + 0.5, py as f32 + 0.5);
+                            cov = texture.apply_at(cov, px as f32 + 0.5, py as f32 + 0.5, dab.texture);
                         }
                     }
                     if cov <= 0.0 {
@@ -431,6 +472,7 @@ pub fn paint_stroke(
     for dab in dabs {
         stamp_dab(&mut stroke.buffer, dab, color, settings, canvas, &mut stroke.dirty);
     }
+    finish_stroke(&mut stroke, settings);
     let before = tiles.clone();
     commit_stroke(tiles, &before, &stroke, settings.opacity, settings.mode, settings.blend, alpha_locked, selection);
     stroke.dirty
@@ -440,6 +482,145 @@ pub fn paint_stroke(
 pub struct RasterizedStroke {
     pub buffer: StrokeBuffer,
     pub dirty: BTreeSet<TileCoord>,
+}
+
+/// What happens to a stroke once its dabs are all down, before it merges:
+/// a whole-stroke texture shapes it (the GPU preview applies it as it
+/// merges, in `stroke_merge.wgsl`), then the watercolor edge pools its rim
+/// (shown when the pen lifts, as in Clip Studio).
+pub fn finish_stroke(stroke: &mut RasterizedStroke, settings: &BrushSettings) {
+    if let Some(texture) = settings.texture.as_ref().filter(|t| !t.each_dab) {
+        texture_stroke(stroke, texture);
+    }
+    if let Some(edge) = &settings.water_edge {
+        water_edge(stroke, edge);
+    }
+}
+
+/// A texture applied to a whole stroke: every pixel's coverage shaped once,
+/// so overlapping dabs don't fill the grain in. Runs as the pen lifts, so
+/// broad strokes are split across the cores.
+pub fn texture_stroke(stroke: &mut RasterizedStroke, texture: &crate::tip::DabTexture) {
+    let dirty = &stroke.dirty;
+    let mut tiles: Vec<(TileCoord, &mut Box<[Rgba]>)> =
+        stroke.buffer.tiles.iter_mut().filter(|(coord, _)| dirty.contains(coord)).map(|(coord, tile)| (*coord, tile)).collect();
+    let shape = |batch: &mut [(TileCoord, &mut Box<[Rgba]>)]| {
+        for (coord, tile) in batch {
+            let (ox, oy) = coord.origin();
+            for (i, p) in tile.iter_mut().enumerate() {
+                if p[3] <= 0.0 {
+                    continue;
+                }
+                let (x, y) = ((ox + (i as u32 % TILE_SIZE) as i32) as f32 + 0.5, (oy + (i as u32 / TILE_SIZE) as i32) as f32 + 0.5);
+                let a = texture.apply(p[3], x, y);
+                let k = a / p[3];
+                *p = [p[0] * k, p[1] * k, p[2] * k, a];
+            }
+        }
+    };
+    let threads = thread::available_parallelism().map_or(1, |n| n.get()).min(tiles.len() / PARALLEL_COMMIT_TILES);
+    if threads <= 1 {
+        shape(&mut tiles);
+    } else {
+        let per_thread = tiles.len().div_ceil(threads);
+        let shape = &shape;
+        thread::scope(|scope| {
+            for batch in tiles.chunks_mut(per_thread) {
+                scope.spawn(move || shape(batch));
+            }
+        });
+    }
+}
+
+/// Ink pooling at a stroke's rim: within `edge.radius` of it the stroke is
+/// denser and darker, deeper in it thins (see [`crate::brush::WaterEdge`]).
+/// Runs as the pen lifts, so broad washes are split across the cores.
+pub fn water_edge(stroke: &mut RasterizedStroke, edge: &crate::brush::WaterEdge) {
+    let r = edge.radius.round().clamp(1.0, TILE_SIZE as f32) as i32;
+    let coords: Vec<TileCoord> = stroke.dirty.iter().copied().collect();
+    let buffer = &stroke.buffer;
+    let pool = |batch: &[TileCoord]| -> Vec<(TileCoord, Box<[Rgba]>)> {
+        let mut scratch = (Vec::new(), Vec::new());
+        batch.iter().filter_map(|&coord| Some((coord, water_edge_tile(buffer, coord, r, edge, &mut scratch)?))).collect()
+    };
+    let threads = thread::available_parallelism().map_or(1, |n| n.get()).min(coords.len() / PARALLEL_COMMIT_TILES);
+    let pooled: Vec<(TileCoord, Box<[Rgba]>)> = if threads <= 1 {
+        pool(&coords)
+    } else {
+        let pool = &pool;
+        thread::scope(|scope| {
+            let handles: Vec<_> = coords.chunks(coords.len().div_ceil(threads)).map(|batch| scope.spawn(move || pool(batch))).collect();
+            handles.into_iter().flat_map(|h| h.join().expect("water edge thread panicked")).collect()
+        })
+    };
+    for (coord, tile) in pooled {
+        stroke.buffer.tile_mut(coord).copy_from_slice(&tile);
+    }
+}
+
+/// One tile of [`water_edge`] with its rim pooled (`None` where the stroke
+/// has no tile). `scratch` holds the alpha window and its summed areas
+/// between calls, `r` is at most a tile.
+fn water_edge_tile(
+    buffer: &StrokeBuffer,
+    coord: TileCoord,
+    r: i32,
+    edge: &crate::brush::WaterEdge,
+    scratch: &mut (Vec<f32>, Vec<f64>),
+) -> Option<Box<[Rgba]>> {
+    let own = buffer.get(coord)?;
+    let t = TILE_SIZE as i32;
+    let side = t + 2 * r;
+    let (window, sum) = scratch;
+    // Alpha over the tile and `r` around it: the tile and its eight neighbours, row by row.
+    window.clear();
+    window.resize((side * side) as usize, 0.0);
+    for ny in -1..=1 {
+        for nx in -1..=1 {
+            let Some(tile) = buffer.get(TileCoord::new(coord.x + nx, coord.y + ny)) else { continue };
+            // Where that tile's top-left pixel falls in the window.
+            let (bx, by) = (nx * t + r, ny * t + r);
+            let (x0, x1) = (bx.max(0), (bx + t).min(side));
+            for wy in by.max(0)..(by + t).min(side) {
+                let (src, dst) = (((wy - by) * t - bx) as isize, (wy * side) as usize);
+                for wx in x0..x1 {
+                    window[dst + wx as usize] = tile[(src + wx as isize) as usize][3];
+                }
+            }
+        }
+    }
+    // Its box averages by summed areas.
+    let stride = (side + 1) as usize;
+    sum.clear();
+    sum.resize(stride * stride, 0.0);
+    for wy in 0..side as usize {
+        let mut row = 0.0f64;
+        for wx in 0..side as usize {
+            row += window[wy * side as usize + wx] as f64;
+            let i = (wy + 1) * stride + wx + 1;
+            sum[i] = sum[i - stride] + row;
+        }
+    }
+    let area = ((2 * r + 1) * (2 * r + 1)) as f64;
+    let (thinning, rim, darkening) = (edge.thinning.clamp(0.0, 1.0), edge.rim.clamp(0.0, 1.0), edge.darkening.clamp(0.0, 1.0));
+    let at = |x: i32, y: i32| sum[y as usize * stride + x as usize];
+    let mut out = own.to_vec().into_boxed_slice();
+    for (i, p) in out.iter_mut().enumerate() {
+        let a = p[3];
+        if a <= 0.0 {
+            continue;
+        }
+        let (lx, ly) = ((i as i32 % t) + r, (i as i32 / t) + r);
+        let box_sum = at(lx + r + 1, ly + r + 1) - at(lx - r, ly + r + 1) - at(lx + r + 1, ly - r) + at(lx - r, ly - r);
+        let mean = (box_sum / area) as f32;
+        // 0 deep inside the stroke, 1 at its rim.
+        let e = ((a - mean) / a.max(1e-4) * 4.0).clamp(0.0, 1.0);
+        let thinned = a * ((1.0 - thinning) + thinning * e);
+        let pooled = thinned + (1.0 - thinned) * rim * e;
+        let k = pooled / a * (1.0 - darkening * e);
+        *p = [p[0] * k, p[1] * k, p[2] * k, pooled];
+    }
+    Some(out)
 }
 
 /// Most idle stroke workers kept alive between strokes: one serves a single
@@ -551,7 +732,7 @@ mod tests {
 
     fn stamp(buffer: &mut StrokeBuffer, x: f32, y: f32, alpha: f32) -> BTreeSet<TileCoord> {
         let mut dirty = BTreeSet::new();
-        let dab = Dab { x, y, radius: 5.0, alpha, angle: 0.0, thickness: 1.0, mirror: false };
+        let dab = Dab { x, y, radius: 5.0, alpha, angle: 0.0, thickness: 1.0, mirror: false, color: None, texture: 1.0 };
         stamp_dab(buffer, &dab, [1.0, 0.0, 0.0], &BrushSettings::g_pen(), (128, 128), &mut dirty);
         dirty
     }
@@ -560,7 +741,7 @@ mod tests {
     fn background_matches_inline_stamping() {
         let settings = BrushSettings::airbrush();
         let dabs: Vec<Dab> =
-            (0..50).map(|i| Dab { x: 20.0 + i as f32 * 1.7, y: 40.0, radius: 18.0, alpha: 0.2, angle: 0.0, thickness: 1.0, mirror: false }).collect();
+            (0..50).map(|i| Dab { x: 20.0 + i as f32 * 1.7, y: 40.0, radius: 18.0, alpha: 0.2, angle: 0.0, thickness: 1.0, mirror: false, color: None, texture: 1.0 }).collect();
         let worker = BackgroundRasterizer::spawn([0.2, 0.4, 0.9], settings.clone(), (200, 100));
         for chunk in dabs.chunks(7) {
             worker.push(chunk.to_vec());
@@ -607,7 +788,7 @@ mod tests {
             }
         }
         let dabs: Vec<Dab> =
-            (0..60).map(|i| Dab { x: 20.0 + i as f32 * 16.0, y: 30.0 + i as f32 * 15.0, radius: 120.0, alpha: 0.7, angle: 0.0, thickness: 1.0, mirror: false }).collect();
+            (0..60).map(|i| Dab { x: 20.0 + i as f32 * 16.0, y: 30.0 + i as f32 * 15.0, radius: 120.0, alpha: 0.7, angle: 0.0, thickness: 1.0, mirror: false, color: None, texture: 1.0 }).collect();
         for mode in [BrushMode::Paint, BrushMode::Erase] {
             let settings = BrushSettings { mode, ..BrushSettings::airbrush() };
             let mut stroke = RasterizedStroke { buffer: StrokeBuffer::new(), dirty: BTreeSet::new() };
@@ -706,7 +887,7 @@ mod tests {
     fn stamp_tip(tip: DabTip, radius: f32) -> StrokeBuffer {
         let mut buffer = StrokeBuffer::new();
         let settings = BrushSettings { tip, ..BrushSettings::g_pen() };
-        let dab = Dab { x: 32.0, y: 32.0, radius, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false };
+        let dab = Dab { x: 32.0, y: 32.0, radius, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false, color: None, texture: 1.0 };
         stamp_dab(&mut buffer, &dab, [1.0, 0.0, 0.0], &settings, (64, 64), &mut BTreeSet::new());
         buffer
     }
@@ -780,12 +961,12 @@ mod tests {
         // Dual tip: left half solid, right half empty → the dab keeps only its left side.
         let half = Arc::new(TipBitmap::new(2, 1, vec![255, 0]).unwrap());
         let settings = BrushSettings {
-            dual: Some(crate::tip::DualTip { bitmap: half, scale: 1.0 }),
+            dual: Some(crate::tip::DualTip::new(half, 1.0)),
             ..BrushSettings::g_pen()
         };
         let mut buffer = StrokeBuffer::new();
         let mut dirty = BTreeSet::new();
-        stamp_dab(&mut buffer, &Dab { x: 32.0, y: 32.0, radius: 8.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false }, [1.0; 3], &settings, (64, 64), &mut dirty);
+        stamp_dab(&mut buffer, &Dab { x: 32.0, y: 32.0, radius: 8.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false, color: None, texture: 1.0 }, [1.0; 3], &settings, (64, 64), &mut dirty);
         // Solid half of the dual tip (a 1-px-tall bitmap is bilinearly softened ~6% vertically).
         assert!(buffer.pixel(28, 31)[3] > 0.8);
         assert_eq!(buffer.pixel(38, 31)[3], 0.0);
@@ -793,11 +974,11 @@ mod tests {
         // Texture: alternating dark/light columns at full density.
         let stripes = Arc::new(TipBitmap::new(2, 1, vec![0, 255]).unwrap());
         let settings = BrushSettings {
-            texture: Some(crate::tip::DabTexture { bitmap: stripes, scale: 1.0, density: 1.0, invert: false }),
+            texture: Some(crate::tip::DabTexture::new(stripes, 1.0, 1.0, false)),
             ..BrushSettings::g_pen()
         };
         let mut buffer = StrokeBuffer::new();
-        stamp_dab(&mut buffer, &Dab { x: 32.0, y: 32.0, radius: 8.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false }, [1.0; 3], &settings, (64, 64), &mut dirty);
+        stamp_dab(&mut buffer, &Dab { x: 32.0, y: 32.0, radius: 8.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false, color: None, texture: 1.0 }, [1.0; 3], &settings, (64, 64), &mut dirty);
         assert_eq!(buffer.pixel(30, 32)[3], 0.0, "dark column");
         assert_eq!(buffer.pixel(31, 32)[3], 1.0, "light column");
     }
@@ -809,7 +990,7 @@ mod tests {
         let stamp = |angle: f32, settings: &BrushSettings| {
             let mut buffer = StrokeBuffer::new();
             let mut dirty = BTreeSet::new();
-            stamp_dab(&mut buffer, &Dab { x: 32.0, y: 32.0, radius: 12.0, alpha: 1.0, angle, thickness: 1.0, mirror: false }, [1.0; 3], settings, (64, 64), &mut dirty);
+            stamp_dab(&mut buffer, &Dab { x: 32.0, y: 32.0, radius: 12.0, alpha: 1.0, angle, thickness: 1.0, mirror: false, color: None, texture: 1.0 }, [1.0; 3], settings, (64, 64), &mut dirty);
             (0..64 * 64).map(|i| buffer.pixel(i % 64, i / 64)[3]).collect::<Vec<f32>>()
         };
         let combined = stamp(60.0, &settings);
@@ -869,7 +1050,7 @@ mod tests {
     #[test]
     fn paint_stroke_commits_to_tiles() {
         let mut tiles = TileStore::new();
-        let dabs = [Dab { x: 5.5, y: 5.5, radius: 3.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false }];
+        let dabs = [Dab { x: 5.5, y: 5.5, radius: 3.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false, color: None, texture: 1.0 }];
         let dirty = paint_stroke(&mut tiles, &dabs, [0.0, 1.0, 0.0], &BrushSettings::g_pen(), (32, 32), false, None);
         assert_eq!(dirty.len(), 1);
         assert_eq!(tiles.pixel(5, 5), [0, 255, 0, 255]);
@@ -879,7 +1060,7 @@ mod tests {
     fn selection_limits_commit() {
         let mut tiles = TileStore::new();
         let selection = crate::selection::rect_mask([0.0, 0.0], [6.0, 32.0], (32, 32));
-        let dabs = [Dab { x: 6.0, y: 6.0, radius: 4.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false }];
+        let dabs = [Dab { x: 6.0, y: 6.0, radius: 4.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false, color: None, texture: 1.0 }];
         paint_stroke(&mut tiles, &dabs, [0.0, 1.0, 0.0], &BrushSettings::g_pen(), (32, 32), false, Some(&selection));
         assert_eq!(tiles.pixel(5, 6), [0, 255, 0, 255]);
         assert_eq!(tiles.pixel(7, 6), [0, 0, 0, 0]);
@@ -936,5 +1117,169 @@ mod blend_tests {
         // Screen lightens.
         let screen = merge_stroke(Some(&filled([100, 100, 100, 255])), &stroke_of([0.5, 0.5, 0.5, 1.0]), 1.0, BrushMode::Paint, BrushBlend::Screen, false, None);
         assert!(screen.bytes()[0] > 100);
+    }
+}
+
+#[cfg(test)]
+mod effect_tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::brush::WaterEdge;
+    use crate::tip::{DabTexture, DualTip, MaskMode, TipBitmap};
+
+    fn square_stroke(settings: &BrushSettings) -> RasterizedStroke {
+        let mut stroke = RasterizedStroke { buffer: StrokeBuffer::new(), dirty: BTreeSet::new() };
+        for y in 0..8 {
+            for x in 0..8 {
+                let dab = Dab::at(30.0 + x as f32 * 5.0, 30.0 + y as f32 * 5.0, 6.0, 0.6);
+                stamp_dab(&mut stroke.buffer, &dab, [0.8, 0.4, 0.2], settings, (128, 128), &mut stroke.dirty);
+            }
+        }
+        stroke
+    }
+
+    #[test]
+    fn water_edge_pools_at_the_rim() {
+        let settings = BrushSettings { hardness: 1.0, ..BrushSettings::g_pen() };
+        let mut stroke = square_stroke(&settings);
+        let (inside, rim) = (stroke.buffer.pixel(47, 47)[3], stroke.buffer.pixel(25, 47)[3]);
+        water_edge(&mut stroke, &WaterEdge { radius: 4.0, thinning: 0.5, rim: 0.5, darkening: 0.3 });
+        let (inside2, rim2) = (stroke.buffer.pixel(47, 47), stroke.buffer.pixel(25, 47));
+        assert!(inside2[3] < inside * 0.6, "the inside thins: {inside} -> {}", inside2[3]);
+        assert!(rim2[3] >= rim * 0.95, "the rim keeps its ink: {rim} -> {}", rim2[3]);
+        assert!(rim2[0] / rim2[3] < 0.8 * 0.95, "and darkens");
+        assert_eq!(stroke.buffer.pixel(5, 5), [0.0; 4], "nothing outside");
+    }
+
+    #[test]
+    fn whole_stroke_texture_keeps_its_grain() {
+        let stripes = Arc::new(TipBitmap::new(2, 1, vec![0, 255]).unwrap());
+        let each = DabTexture { mode: MaskMode::Subtract, density: 0.6, ..DabTexture::new(stripes, 1.0, 1.0, false) };
+        let whole = DabTexture { each_dab: false, ..each.clone() };
+        let settings = BrushSettings { texture: Some(whole), ..BrushSettings::g_pen() };
+        let mut b = square_stroke(&settings);
+        finish_stroke(&mut b, &settings);
+        let (dark, light) = (b.buffer.pixel(46, 47)[3], b.buffer.pixel(47, 47)[3]);
+        assert!(dark < light, "{dark} vs {light}");
+        // Subtract takes the texture's darkness off the stroke once: a full one keeps 0.4 there.
+        assert!((dark - (light - 0.6).max(0.0)).abs() < 0.02, "{dark} {light}");
+        // Per dab, every dab loses it and the overlaps build back up.
+        let per_dab = BrushSettings { texture: Some(each), ..BrushSettings::g_pen() };
+        let a = square_stroke(&per_dab);
+        assert!(a.buffer.pixel(46, 47)[3] > 0.0);
+    }
+
+    #[test]
+    fn modes_noise_and_tiled_duals() {
+        assert_eq!(MaskMode::Multiply.mix(0.5, 0.5), 0.25);
+        assert!((MaskMode::Subtract.mix(0.8, 0.5) - 0.3).abs() < 1e-6);
+        assert_eq!(MaskMode::Darken.mix(0.8, 0.5), 0.5);
+        assert_eq!(MaskMode::HardMix.mix(0.4, 0.5), 0.0);
+        assert_eq!(MaskMode::HardMix.mix(0.6, 0.5), 0.6);
+        assert!((MaskMode::ColorBurn.mix(0.75, 0.5) - 0.5).abs() < 1e-6);
+        // Noise only touches soft coverage, the same way every time.
+        assert_eq!(noisy(1.0, 0.9), 1.0);
+        assert_eq!(noisy(0.0, 0.9), 0.0);
+        assert_eq!(grain(3, 4), grain(3, 4));
+        assert_ne!(grain(3, 4), grain(4, 3));
+        // A dual tip a quarter of the dab repeats inside it.
+        let dot = Arc::new(TipBitmap::new(3, 3, vec![0, 0, 0, 0, 255, 0, 0, 0, 0]).unwrap());
+        let settings = BrushSettings { size: 40.0, dual: Some(DualTip::new(dot, 0.25)), ..BrushSettings::g_pen() };
+        let mut buffer = StrokeBuffer::new();
+        stamp_dab(&mut buffer, &Dab::at(32.0, 32.0, 20.0, 1.0), [1.0; 3], &settings, (64, 64), &mut BTreeSet::new());
+        // On a row through the dots' centres (every 10 px, from 4.5).
+        let inked = (12..52).filter(|x| buffer.pixel(*x, 34)[3] > 0.5).count();
+        assert!((4..30).contains(&inked), "dots, not a solid run: {inked}");
+    }
+
+    /// A broad wash: soft dabs over most of a `w`×`h` canvas.
+    fn wash(w: u32, h: u32) -> RasterizedStroke {
+        let settings = BrushSettings { hardness: 0.3, ..BrushSettings::airbrush() };
+        let mut stroke = RasterizedStroke { buffer: StrokeBuffer::new(), dirty: BTreeSet::new() };
+        let mut y = 60.0;
+        while y < h as f32 - 60.0 {
+            let mut x = 60.0;
+            while x < w as f32 - 60.0 {
+                stamp_dab(&mut stroke.buffer, &Dab::at(x, y, 70.0, 0.4), [0.3, 0.5, 0.8], &settings, (w, h), &mut stroke.dirty);
+                x += 45.0;
+            }
+            y += 45.0 + (y * 0.37) % 9.0;
+        }
+        stroke
+    }
+
+    /// The first [`water_edge`]: a pixel lookup per window pixel, one thread.
+    fn water_edge_reference(stroke: &mut RasterizedStroke, edge: &WaterEdge) {
+        let r = edge.radius.round().clamp(1.0, TILE_SIZE as f32) as i32;
+        let t = TILE_SIZE as i32;
+        let side = t + 2 * r;
+        let mut out: Vec<(TileCoord, Box<[Rgba]>)> = Vec::new();
+        for &coord in &stroke.dirty {
+            let Some(own) = stroke.buffer.get(coord) else { continue };
+            let (ox, oy) = coord.origin();
+            let mut sum = vec![0.0f64; ((side + 1) * (side + 1)) as usize];
+            for wy in 0..side {
+                let mut row = 0.0f64;
+                for wx in 0..side {
+                    row += stroke.buffer.pixel(ox - r + wx, oy - r + wy)[3] as f64;
+                    let i = ((wy + 1) * (side + 1) + wx + 1) as usize;
+                    sum[i] = sum[i - (side + 1) as usize] + row;
+                }
+            }
+            let area = ((2 * r + 1) * (2 * r + 1)) as f64;
+            let mut tile = own.to_vec().into_boxed_slice();
+            for (i, p) in tile.iter_mut().enumerate() {
+                let a = p[3];
+                if a <= 0.0 {
+                    continue;
+                }
+                let (lx, ly) = ((i as i32 % t) + r, (i as i32 / t) + r);
+                let at = |x: i32, y: i32| sum[(y * (side + 1) + x) as usize];
+                let box_sum = at(lx + r + 1, ly + r + 1) - at(lx - r, ly + r + 1) - at(lx + r + 1, ly - r) + at(lx - r, ly - r);
+                let mean = (box_sum / area) as f32;
+                let e = ((a - mean) / a.max(1e-4) * 4.0).clamp(0.0, 1.0);
+                let thinned = a * ((1.0 - edge.thinning.clamp(0.0, 1.0)) + edge.thinning.clamp(0.0, 1.0) * e);
+                let pooled = thinned + (1.0 - thinned) * edge.rim.clamp(0.0, 1.0) * e;
+                let k = pooled / a * (1.0 - edge.darkening.clamp(0.0, 1.0) * e);
+                *p = [p[0] * k, p[1] * k, p[2] * k, pooled];
+            }
+            out.push((coord, tile));
+        }
+        for (coord, tile) in out {
+            stroke.buffer.tile_mut(coord).copy_from_slice(&tile);
+        }
+    }
+
+    #[test]
+    fn water_edge_matches_the_reference_exactly() {
+        // ~40 tiles, so the work is split across threads, with gaps and ragged edges.
+        for radius in [1.0, 5.0, 64.0] {
+            let edge = WaterEdge { radius, thinning: 0.5, rim: 0.4, darkening: 0.2 };
+            let (mut fast, mut slow) = (wash(420, 330), wash(420, 330));
+            water_edge(&mut fast, &edge);
+            water_edge_reference(&mut slow, &edge);
+            assert_eq!(fast.dirty, slow.dirty);
+            for coord in &slow.dirty {
+                assert_eq!(fast.buffer.get(*coord), slow.buffer.get(*coord), "tile {coord:?}, radius {radius}");
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "timing; run with --release -- --ignored --nocapture"]
+    fn water_edge_timing() {
+        for radius in [4.0, 32.0, 64.0] {
+            let mut s = wash(3000, 3000);
+            println!("{} tiles", s.dirty.len());
+            let t = std::time::Instant::now();
+            water_edge(&mut s, &WaterEdge { radius, thinning: 0.5, rim: 0.3, darkening: 0.1 });
+            println!("radius {radius}: {:?}", t.elapsed());
+        }
+        let paper = Arc::new(TipBitmap::new(4, 4, (0..16).map(|i| (i * 16) as u8).collect()).unwrap());
+        let mut s = wash(3000, 3000);
+        let t = std::time::Instant::now();
+        texture_stroke(&mut s, &DabTexture { each_dab: false, ..DabTexture::new(paper, 3.0, 0.8, false) });
+        println!("whole-stroke texture: {:?}", t.elapsed());
     }
 }

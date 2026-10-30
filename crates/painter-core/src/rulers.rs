@@ -873,7 +873,7 @@ mod tests {
         assert_eq!(symmetry_copies(&set).len(), 5);
 
         // A rotated dab turns with the copy.
-        let dab = Dab { x: 10.0, y: 0.0, radius: 3.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false };
+        let dab = Dab { x: 10.0, y: 0.0, radius: 3.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false, color: None, texture: 1.0 };
         let quarter = rotation_about([0.0, 0.0], 90.0);
         let d = quarter.dab(&dab, 0.0);
         assert!(close([d.x, d.y], [0.0, 10.0]));

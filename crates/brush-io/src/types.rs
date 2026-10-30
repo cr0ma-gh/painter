@@ -5,7 +5,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use painter_core::brush::{InputDynamics, RotationDynamics};
-use painter_core::{BrushSettings, DabTexture, DabTip, DualTip, PressureCurve, TipBitmap, TipShape};
+use painter_core::{BrushSettings, DabTexture, DabTip, DualTip, MaskMode, PressureCurve, TipBitmap, TipShape};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
@@ -86,6 +86,29 @@ pub struct BrushTexture {
     pub density: f32,
     #[serde(default)]
     pub invert: bool,
+    /// How it meets the ink (see `painter_core::MaskMode`).
+    #[serde(default)]
+    pub mode: MaskMode,
+    /// −1..=1, added to the texture's lightness.
+    #[serde(default)]
+    pub brightness: f32,
+    /// Spread round mid grey (1 = as is).
+    #[serde(default = "one")]
+    pub contrast: f32,
+    /// Applied to each dab (else to the whole stroke).
+    #[serde(default = "yes")]
+    pub each_dab: bool,
+}
+
+impl BrushTexture {
+    /// A multiplying texture applied to each dab, neutral brightness and contrast.
+    pub fn new(image: BrushTip, scale: f32, density: f32, invert: bool) -> Self {
+        Self { image, scale, density, invert, mode: MaskMode::Multiply, brightness: 0.0, contrast: 1.0, each_dab: true }
+    }
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// A second tip masking every dab ("dual brush").
@@ -94,6 +117,9 @@ pub struct DualBrush {
     pub tip: BrushTip,
     /// Dual tip diameter over the main diameter.
     pub scale: f32,
+    /// How it combines with the main tip.
+    #[serde(default)]
+    pub mode: MaskMode,
 }
 
 /// What an import produced, including what it had to fall back on.
@@ -116,6 +142,9 @@ pub struct Dynamic {
     pub random: Option<f32>,
     /// Value at zero input as a fraction of the base value, when the source states it.
     pub minimum: Option<f32>,
+    /// Photoshop's Fade control: down to the minimum over this many dabs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fade: Option<u32>,
 }
 
 impl Dynamic {
@@ -137,6 +166,9 @@ pub struct Dynamics {
     pub thickness: Dynamic,
     #[serde(default, skip_serializing_if = "Dynamic::is_empty")]
     pub rotation: Dynamic,
+    /// Texture density per dab.
+    #[serde(default, skip_serializing_if = "Dynamic::is_empty")]
+    pub texture: Dynamic,
     /// The tip turns with the stroke direction.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub rotation_follows_direction: bool,
@@ -232,19 +264,32 @@ impl BrushPreset {
         }
         if let Some(curve) = &d.flow.pressure {
             self.settings.pressure_density = true;
-            self.settings.density_curve = curve.clone();
+            // The minimum folded into the curve: `min + (1 − min) · curve`.
+            let min = d.flow.minimum.unwrap_or(0.0).clamp(0.0, 1.0);
+            self.settings.density_curve = if min > 0.0 {
+                PressureCurve::from_points(curve.points().iter().map(|p| [p[0], min + (1.0 - min) * p[1]]).collect())
+            } else {
+                curve.clone()
+            };
         }
-        // Size and flow pressure already went to their own curves above.
-        let input = |dynamic: &Dynamic, with_pressure: bool| InputDynamics {
-            pressure: if with_pressure { dynamic.pressure.clone() } else { None },
-            velocity: dynamic.velocity.clone(),
-            tilt: dynamic.tilt.clone(),
-            jitter: dynamic.random.unwrap_or(0.0).clamp(0.0, 1.0),
+        // Size and flow pressure already went to their own curves above (with
+        // their minimums); the other inputs bring their own minimum.
+        let input = |dynamic: &Dynamic, with_pressure: bool| {
+            let any = dynamic.velocity.is_some() || dynamic.tilt.is_some() || dynamic.fade.is_some() || (with_pressure && dynamic.pressure.is_some());
+            InputDynamics {
+                pressure: if with_pressure { dynamic.pressure.clone() } else { None },
+                velocity: dynamic.velocity.clone(),
+                tilt: dynamic.tilt.clone(),
+                jitter: dynamic.random.unwrap_or(0.0).clamp(0.0, 1.0),
+                minimum: if any { dynamic.minimum.unwrap_or(0.0).clamp(0.0, 1.0) } else { 0.0 },
+                fade: dynamic.fade.unwrap_or(0),
+            }
         };
         self.settings.size_dynamics = input(&d.size, false);
         self.settings.density_dynamics = input(&d.flow, false);
         self.settings.opacity_dynamics = input(&d.opacity, true);
         self.settings.thickness_dynamics = input(&d.thickness, true);
+        self.settings.texture_dynamics = input(&d.texture, true);
         self.settings.rotation = RotationDynamics {
             follow_direction: d.rotation_follows_direction,
             // No file format here carries it: kept from the brush.
@@ -266,9 +311,18 @@ impl BrushPreset {
         let shape = self.tip.as_ref().and_then(bitmap).map_or(TipShape::Round, TipShape::Sampled);
         self.settings.tip = DabTip { shape, thickness: self.thickness, angle: self.angle };
         self.settings.texture = self.texture.as_ref().and_then(|t| {
-            Some(DabTexture { bitmap: bitmap(&t.image)?, scale: t.scale / 100.0, density: t.density, invert: t.invert })
+            Some(DabTexture {
+                bitmap: bitmap(&t.image)?,
+                scale: t.scale / 100.0,
+                density: t.density,
+                invert: t.invert,
+                mode: t.mode,
+                brightness: t.brightness,
+                contrast: t.contrast,
+                each_dab: t.each_dab,
+            })
         });
-        self.settings.dual = self.dual.as_ref().and_then(|d| Some(DualTip { bitmap: bitmap(&d.tip)?, scale: d.scale }));
+        self.settings.dual = self.dual.as_ref().and_then(|d| Some(DualTip { bitmap: bitmap(&d.tip)?, scale: d.scale, mode: d.mode }));
     }
 
     /// A hash of everything the engine uses, to tell whether the preset was
@@ -309,10 +363,14 @@ impl BrushPreset {
 
     /// Features of this preset the brush engine doesn't apply.
     pub fn unsupported_features(&self) -> Vec<&'static str> {
-        let d = &self.dynamics;
         let mut out = Vec::new();
-        if [&d.opacity, &d.thickness, &d.rotation].iter().any(|x| x.minimum.is_some()) {
-            out.push("minimum of opacity/thickness/rotation");
+        let flag = |key: &str| self.extras.get(key).and_then(|v| v.as_i64().or(v.as_bool().map(i64::from))).unwrap_or(0);
+        // Clip Studio's colour mixing (blend / running colour), and Photoshop's mixer brushes.
+        if flag("sut.BrushWaterColor") > 0 {
+            out.push("colour mixing with the canvas (Clip Studio's Blend / Running color)");
+        }
+        if flag("abr.mixer") > 0 {
+            out.push("mixer brush (paint picked up from the canvas)");
         }
         out
     }

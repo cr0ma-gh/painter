@@ -137,17 +137,17 @@ impl ThemeColors {
 
     /// The current look (see the app's `theme.rs`).
     pub const DARK: ThemeColors = ThemeColors {
-        backdrop: Rgba::gray(38),
-        panel: Rgba::gray(48),
-        title: Rgba::gray(58),
-        well: Rgba::gray(36),
-        line: Rgba::gray(30),
-        text: Rgba::gray(214),
-        text_dim: Rgba::gray(150),
-        selected: Rgba::rgb(74, 90, 120),
-        accent: Rgba::rgb(98, 132, 196),
-        canvas_backdrop: Rgba::gray(44),
-        canvas_border: Rgba::gray(20),
+        backdrop: Rgba::rgb(29, 30, 33),
+        panel: Rgba::rgb(42, 43, 47),
+        title: Rgba::rgb(49, 50, 55),
+        well: Rgba::rgb(33, 34, 38),
+        line: Rgba::rgb(24, 25, 28),
+        text: Rgba::rgb(222, 224, 228),
+        text_dim: Rgba::rgb(146, 150, 158),
+        selected: Rgba::rgb(52, 76, 122),
+        accent: Rgba::rgb(84, 142, 255),
+        canvas_backdrop: Rgba::rgb(37, 38, 42),
+        canvas_border: Rgba::gray(18),
         selection: Rgba::gray(0),
         handles: Rgba::rgb(255, 170, 40),
         wireframe: Rgba::rgb(240, 150, 60),
@@ -155,16 +155,16 @@ impl ThemeColors {
     };
 
     pub const LIGHT: ThemeColors = ThemeColors {
-        backdrop: Rgba::gray(196),
-        panel: Rgba::gray(232),
-        title: Rgba::gray(214),
-        well: Rgba::gray(246),
-        line: Rgba::gray(180),
-        text: Rgba::gray(28),
-        text_dim: Rgba::gray(96),
-        selected: Rgba::rgb(184, 204, 238),
-        accent: Rgba::rgb(48, 98, 196),
-        canvas_backdrop: Rgba::gray(176),
+        backdrop: Rgba::rgb(204, 206, 211),
+        panel: Rgba::rgb(238, 239, 242),
+        title: Rgba::rgb(226, 228, 233),
+        well: Rgba::rgb(250, 250, 252),
+        line: Rgba::rgb(194, 197, 204),
+        text: Rgba::rgb(30, 32, 36),
+        text_dim: Rgba::rgb(98, 102, 112),
+        selected: Rgba::rgb(198, 215, 246),
+        accent: Rgba::rgb(38, 102, 228),
+        canvas_backdrop: Rgba::rgb(184, 187, 193),
         canvas_border: Rgba::gray(120),
         selection: Rgba::gray(0),
         handles: Rgba::rgb(220, 120, 0),
@@ -240,7 +240,7 @@ impl Theme {
             ThemeBase::Light => "Light",
             ThemeBase::HighContrast => "High Contrast",
         };
-        Self { name: name.into(), base, colors: base.colors(), font_size: 12.5, rounding: 3 }
+        Self { name: name.into(), base, colors: base.colors(), font_size: 12.5, rounding: 5 }
     }
 
     pub fn presets() -> Vec<Theme> {

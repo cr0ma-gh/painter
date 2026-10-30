@@ -225,6 +225,12 @@ pub struct InputDynamics {
     pub tilt: Option<PressureCurve>,
     /// Random reduction per dab, 0..=1: the factor is uniform in `1 − jitter ..= 1`.
     pub jitter: f32,
+    /// What the inputs bring the factor down to at most, 0..=1 (Photoshop's
+    /// and Clip Studio's "minimum"): the factor is `minimum + (1 − minimum) × inputs`.
+    pub minimum: f32,
+    /// Photoshop's Fade: the inputs' factor falls to `minimum` over this many
+    /// dabs from the start of the stroke (0 = off).
+    pub fade: u32,
 }
 
 impl InputDynamics {
@@ -234,6 +240,14 @@ impl InputDynamics {
 
     /// `random` is uniform in 0..1.
     pub fn factor(&self, pressure: f32, velocity: f32, tilt: f32, random: f32) -> f32 {
+        self.factor_at(pressure, velocity, Some(tilt), random, 0)
+    }
+
+    /// [`Self::factor`] for the stroke's `step`-th dab (for the fade). `tilt`
+    /// is `None` for a pen that doesn't report it (a mouse, a tablet without
+    /// tilt): its curve is left out, as Clip Studio and Photoshop do, rather
+    /// than read as an upright pen.
+    pub fn factor_at(&self, pressure: f32, velocity: f32, tilt: Option<f32>, random: f32, step: u32) -> f32 {
         let mut f = 1.0;
         if let Some(curve) = &self.pressure {
             f *= curve.eval(pressure);
@@ -241,8 +255,15 @@ impl InputDynamics {
         if let Some(curve) = &self.velocity {
             f *= curve.eval(velocity);
         }
-        if let Some(curve) = &self.tilt {
+        if let (Some(curve), Some(tilt)) = (&self.tilt, tilt) {
             f *= curve.eval(tilt);
+        }
+        if self.fade > 0 {
+            f *= (1.0 - step as f32 / self.fade as f32).max(0.0);
+        }
+        let min = self.minimum.clamp(0.0, 1.0);
+        if min > 0.0 {
+            f = min + (1.0 - min) * f;
         }
         f * (1.0 - self.jitter.clamp(0.0, 1.0) * random)
     }
@@ -351,6 +372,10 @@ pub struct BrushSettings {
     /// Tip thickness (flattening) per dab; multiplies the tip's own thickness.
     #[serde(default, skip_serializing_if = "InputDynamics::is_default")]
     pub thickness_dynamics: InputDynamics,
+    /// Texture density per dab (Clip Studio's texture density effector,
+    /// Photoshop's texture depth control); multiplies the texture's density.
+    #[serde(default, skip_serializing_if = "InputDynamics::is_default")]
+    pub texture_dynamics: InputDynamics,
     #[serde(default, skip_serializing_if = "RotationDynamics::is_default")]
     pub rotation: RotationDynamics,
     /// Dabs sprayed around the stroke (Clip Studio's spraying effect,
@@ -369,6 +394,48 @@ pub struct BrushSettings {
     /// a pencil's side: wider, flatter across, lighter. 0 = off.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub tilt_side: f32,
+    /// Ending (Clip Studio's "Starting and ending"): size and density fall
+    /// over this many canvas pixels at the end of a stroke (0 = off). The
+    /// last stretch of the stroke is drawn once the pen lifts.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub taper_end: f32,
+    /// What the starting and ending tapers bring size and density down to, 0..=1.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub taper_minimum: f32,
+    /// Build-up (Photoshop's airbrush, Clip Studio's continuous spray): ink
+    /// keeps coming while the pen rests.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub build_up: bool,
+    /// Photoshop's Noise: grain in the soft parts of the tip.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub noise: bool,
+    /// Watercolor edge (Clip Studio) / wet edges (Photoshop): ink pools at the
+    /// rim of a stroke, applied when the pen lifts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub water_edge: Option<WaterEdge>,
+}
+
+/// Ink pooling at the rim of a stroke, as watercolour dries.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WaterEdge {
+    /// How far in from the rim the pooling reaches, canvas pixels.
+    pub radius: f32,
+    /// How much the inside thins, 0..=1 (Photoshop's wet edges halve it).
+    #[serde(default)]
+    pub thinning: f32,
+    /// How much denser the rim gets, 0..=1 (Clip Studio's "darkening of transparency").
+    #[serde(default)]
+    pub rim: f32,
+    /// How much the rim's colour darkens, 0..=1 (Clip Studio's "darkening of brightness").
+    #[serde(default)]
+    pub darkening: f32,
+}
+
+impl WaterEdge {
+    /// Photoshop's Wet Edges: the inside at about half strength, the rim full.
+    pub fn wet_edges(brush_size: f32) -> Self {
+        Self { radius: (brush_size * 0.12).clamp(1.5, 32.0), thinning: 0.5, rim: 0.0, darkening: 0.0 }
+    }
 }
 
 fn is_zero(v: &f32) -> bool {
@@ -399,7 +466,8 @@ impl Scatter {
     }
 }
 
-/// Random change of the main colour, per stroke.
+/// Random change of the main colour (Clip Studio's color jitter, Photoshop's
+/// color dynamics): per stroke, or per dab with `per_dab`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ColorJitter {
@@ -408,6 +476,15 @@ pub struct ColorJitter {
     /// Saturation and value change either way, 0..=1.
     pub saturation: f32,
     pub value: f32,
+    /// Every dab its own colour (Photoshop's "Apply Per Tip"); off, one per stroke.
+    pub per_dab: bool,
+    /// Mixing towards the sub colour, 0..=1 (Photoshop's foreground/background
+    /// jitter, Clip Studio's sub color): a random amount per dab, or by pen
+    /// pressure with `sub_by_pressure` (light pressure, more sub colour).
+    pub sub_mix: f32,
+    pub sub_by_pressure: bool,
+    /// Saturation shift for every dab, −1..=1 (Photoshop's purity).
+    pub purity: f32,
 }
 
 impl ColorJitter {
@@ -415,16 +492,29 @@ impl ColorJitter {
         *self == Self::default()
     }
 
+    /// Whether colours vary at all.
+    pub fn is_on(&self) -> bool {
+        self.hue > 0.0 || self.saturation > 0.0 || self.value > 0.0 || self.sub_mix > 0.0 || self.purity != 0.0
+    }
+
     /// `rgb` (0..1) varied with three uniform random numbers in 0..1.
     pub fn apply(&self, rgb: [f32; 3], r: [f32; 3]) -> [f32; 3] {
-        if self.is_default() {
+        if !self.is_on() {
             return rgb;
         }
         let [h, s, v] = rgb_to_hsv(rgb);
         let h = (h + (r[0] * 2.0 - 1.0) * self.hue.clamp(0.0, 1.0) * 0.5).rem_euclid(1.0);
-        let s = (s + (r[1] * 2.0 - 1.0) * self.saturation.clamp(0.0, 1.0)).clamp(0.0, 1.0);
+        let s = (s + (r[1] * 2.0 - 1.0) * self.saturation.clamp(0.0, 1.0) + self.purity.clamp(-1.0, 1.0)).clamp(0.0, 1.0);
         let v = (v + (r[2] * 2.0 - 1.0) * self.value.clamp(0.0, 1.0)).clamp(0.0, 1.0);
         hsv_to_rgb([h, s, v])
+    }
+
+    /// One dab's colour from the main and sub colours: mixed towards the sub
+    /// colour by `mix` (0..=1, see `sub_mix`), then varied with `r`.
+    pub fn dab_color(&self, main: [f32; 3], sub: [f32; 3], mix: f32, r: [f32; 3]) -> [f32; 3] {
+        let t = (mix * self.sub_mix).clamp(0.0, 1.0);
+        let base = [0, 1, 2].map(|i| main[i] + (sub[i] - main[i]) * t);
+        self.apply(base, r)
     }
 }
 
@@ -506,11 +596,17 @@ impl BrushSettings {
             density_dynamics: InputDynamics::default(),
             opacity_dynamics: InputDynamics::default(),
             thickness_dynamics: InputDynamics::default(),
+            texture_dynamics: InputDynamics::default(),
             rotation: RotationDynamics::default(),
             scatter: Scatter::default(),
             color_jitter: ColorJitter::default(),
             taper_start: 0.0,
             tilt_side: 0.0,
+            taper_end: 0.0,
+            taper_minimum: 0.0,
+            build_up: false,
+            noise: false,
+            water_edge: None,
         }
     }
 
@@ -605,9 +701,19 @@ pub struct Dab {
     pub thickness: f32,
     /// Mirror the tip left-right (in tip space, before rotation) for this dab.
     pub mirror: bool,
+    /// This dab's own straight sRGB colour (colour dynamics per dab); `None`
+    /// paints the stroke's colour.
+    pub color: Option<[f32; 3]>,
+    /// Multiplies the texture's density for this dab (texture dynamics); 1 = unchanged.
+    pub texture: f32,
 }
 
 impl Dab {
+    /// A round, unrotated dab of the stroke's colour.
+    pub fn at(x: f32, y: f32, radius: f32, alpha: f32) -> Dab {
+        Dab { x, y, radius, alpha, angle: 0.0, thickness: 1.0, mirror: false, color: None, texture: 1.0 }
+    }
+
     /// Sub-pixel tips are drawn at radius 0.5 with alpha scaled by area, so
     /// thin strokes fade instead of vanishing. CPU and GPU rasterisers both
     /// stamp the normalised dab.

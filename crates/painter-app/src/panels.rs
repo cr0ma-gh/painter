@@ -238,14 +238,14 @@ impl PainterApp {
                 });
                 ui.menu_button(tr("Layer"), |ui| {
                     for (label, action) in [
-                        ("New Raster Layer", PainterApp::add_raster_layer as fn(&mut PainterApp)),
-                        ("New Vector Layer", PainterApp::add_vector_layer),
-                        ("New Folder", PainterApp::add_folder),
-                        ("New Gradient Layer", PainterApp::add_gradient_layer),
-                        ("New 3D Layer from Model...", PainterApp::new_scene_layer_dialog),
-                        ("New 3D Layer from Perspective Ruler", PainterApp::new_scene_layer_from_ruler),
-                        ("New File Object Layer...", PainterApp::new_file_object_dialog),
-                        ("New Tone Layer (from selection)", PainterApp::add_tone_layer),
+                        (tr("New Raster Layer"), PainterApp::add_raster_layer as fn(&mut PainterApp)),
+                        (tr("New Vector Layer"), PainterApp::add_vector_layer),
+                        (tr("New Folder"), PainterApp::add_folder),
+                        (tr("New Gradient Layer"), PainterApp::add_gradient_layer),
+                        (tr("New 3D Layer from Model..."), PainterApp::new_scene_layer_dialog),
+                        (tr("New 3D Layer from Perspective Ruler"), PainterApp::new_scene_layer_from_ruler),
+                        (tr("New File Object Layer..."), PainterApp::new_file_object_dialog),
+                        (tr("New Tone Layer (from selection)"), PainterApp::add_tone_layer),
                     ] {
                         if ui.button(label).clicked() {
                             action(self);
@@ -549,19 +549,22 @@ impl PainterApp {
                 ui.separator();
                 ui.label(format!("{:.0}°", self.view.rotation.to_degrees()));
                 ui.separator();
+                // Memory in one figure; the details (tiles, GPU atlas) on hover.
                 let tiles = self.doc.tile_count();
-                ui.label(format!("{tiles} tiles · {:.1} MB", (tiles * TILE_BYTES) as f64 / 1_048_576.0))
-                    .on_hover_text(tr("Painted layer tiles held in memory"));
+                let mut detail = format!("{tiles} {} · {:.1} MB", tr("painted tiles in memory"), (tiles * TILE_BYTES) as f64 / 1_048_576.0);
                 if let Some((slots, bytes)) = self.gpu_stats {
-                    ui.separator();
-                    ui.label(format!("GPU atlas {slots} tiles / {:.0} MB", bytes as f64 / 1_048_576.0))
-                        .on_hover_text(tr("Shared GPU tile atlas: grows with painted area, not layer count"));
+                    detail.push_str(&format!("\n{} {slots} {} · {:.0} MB", tr("GPU atlas:"), tr("tiles"), bytes as f64 / 1_048_576.0));
                 }
+                ui.label(egui::RichText::new(format!("{:.0} MB", (tiles * TILE_BYTES) as f64 / 1_048_576.0)).color(theme::text_dim()))
+                    .on_hover_text(detail);
                 ui.separator();
-                ui.label(self.tablet.describe());
+                ui.label(egui::RichText::new(self.tablet.describe()).color(theme::text_dim()));
                 if self.edit_mask {
                     ui.separator();
-                    ui.colored_label(Color32::from_rgb(120, 200, 255), "Editing mask");
+                    // A pill, so painting on the mask can't be missed.
+                    egui::Frame::new().fill(theme::accent_soft(0.35)).corner_radius(theme::radius()).inner_margin(egui::Margin::symmetric(6, 0)).show(ui, |ui| {
+                        ui.label(egui::RichText::new(tr("Editing mask")).color(theme::strong()));
+                    });
                 }
                 ui.separator();
                 ui.label(&self.status);
@@ -1306,6 +1309,11 @@ impl PainterApp {
                     ui.selectable_value(&mut brush.smoothing, method, tr(method.name()));
                 }
             });
+            // Clip Studio's Starting and ending, on the Tool Property as there.
+            prop_slider_reset(ui, "Starting", &mut brush.taper_start, b.taper_start, 0.0..=1000.0, " px", 0, true);
+            prop_slider_reset(ui, "Ending", &mut brush.taper_end, b.taper_end, 0.0..=1000.0, " px", 0, true);
+            ui.checkbox(&mut brush.build_up, tr("Build-up"))
+                .on_hover_text(tr("Ink keeps coming while the pen rests (Photoshop's airbrush, Clip Studio's continuous spray)"));
         }) {
             reset = Some(PropertyGroup::Correction);
         }
@@ -1354,7 +1362,7 @@ impl PainterApp {
                 CurveTarget::Density => &mut brush.density_curve,
             };
             ui.horizontal(|ui| {
-                for (label, gamma) in [("Soft", 0.6), ("Linear", 1.0), ("Firm", 1.7)] {
+                for (label, gamma) in [(tr("Soft"), 0.6), (tr("Linear"), 1.0), (tr("Firm"), 1.7)] {
                     if ui.small_button(label).clicked() {
                         *curve = PressureCurve::gamma(gamma);
                     }
@@ -1828,31 +1836,31 @@ impl PainterApp {
                             ui.close_menu();
                         }
                     };
-                    item("Duplicate (Ctrl+J)", "duplicate");
-                    item("Group into Folder (Ctrl+G)", "group");
-                    item("Merge Down (Ctrl+E)", "merge_down");
-                    item("Delete", "delete");
-                    item(if draft { "Not a Draft" } else { "Set as Draft (left out of exports)" }, "draft");
-                    item("Show / Hide", "visible");
-                    item("Lock / Unlock", "lock");
-                    item("Reference / Not", "reference");
-                    item("Layer Colour on / off", "layer_color");
+                    item(tr("Duplicate (Ctrl+J)"), "duplicate");
+                    item(tr("Group into Folder (Ctrl+G)"), "group");
+                    item(tr("Merge Down (Ctrl+E)"), "merge_down");
+                    item(tr("Delete"), "delete");
+                    item(if draft { tr("Not a Draft") } else { tr("Set as Draft (left out of exports)") }, "draft");
+                    item(tr("Show / Hide"), "visible");
+                    item(tr("Lock / Unlock"), "lock");
+                    item(tr("Reference / Not"), "reference");
+                    item(tr("Layer Colour on / off"), "layer_color");
                     if layer.mask.is_some() {
-                        item(if self.mask_view_mode == painter_render::MaskViewMode::Grayscale { "Exit Mask View" } else { "View Mask (Grayscale)" }, "mask_view_gray");
-                        item(if self.mask_view_mode == painter_render::MaskViewMode::Rubylith { "Exit Rubylith Overlay" } else { "Rubylith Mask Overlay (\\)" }, "mask_view_ruby");
-                        item(if layer.mask.as_ref().is_some_and(|m| m.enabled) { "Disable Layer Mask" } else { "Enable Layer Mask" }, "mask_toggle");
-                        item("Invert Layer Mask (Ctrl+I)", "mask_invert");
-                        item("Mask to Selection (Ctrl-click the mask)", "mask_selection");
+                        item(if self.mask_view_mode == painter_render::MaskViewMode::Grayscale { tr("Exit Mask View") } else { tr("View Mask (Grayscale)") }, "mask_view_gray");
+                        item(if self.mask_view_mode == painter_render::MaskViewMode::Rubylith { tr("Exit Rubylith Overlay") } else { tr("Rubylith Mask Overlay (\\)") }, "mask_view_ruby");
+                        item(if layer.mask.as_ref().is_some_and(|m| m.enabled) { tr("Disable Layer Mask") } else { tr("Enable Layer Mask") }, "mask_toggle");
+                        item(tr("Invert Layer Mask (Ctrl+I)"), "mask_invert");
+                        item(tr("Mask to Selection (Ctrl-click the mask)"), "mask_selection");
                         if matches!(layer.kind, LayerKind::Raster(_)) {
-                            item("Apply Layer Mask", "mask_apply");
+                            item(tr("Apply Layer Mask"), "mask_apply");
                         }
-                        item("Delete Layer Mask", "delete_mask");
+                        item(tr("Delete Layer Mask"), "delete_mask");
                     } else {
-                        item("Add Layer Mask (Reveal)", "add_mask");
-                        item("Add Layer Mask (Hide)", "add_mask_hide");
+                        item(tr("Add Layer Mask (Reveal)"), "add_mask");
+                        item(tr("Add Layer Mask (Hide)"), "add_mask_hide");
                     }
                     if layer.has_pixels() {
-                        item("Selection from Layer (Ctrl-click the thumbnail)", "layer_selection");
+                        item(tr("Selection from Layer (Ctrl-click the thumbnail)"), "layer_selection");
                     }
                 });
             }
@@ -2017,20 +2025,20 @@ impl PainterApp {
                     }
                     false
                 };
-                toggle(ui, &mut layer.locked, Icon::Lock, "Lock the layer");
+                toggle(ui, &mut layer.locked, Icon::Lock, tr("Lock the layer"));
                 if layer.has_pixels() && !layer.is_vector() {
-                    toggle(ui, &mut layer.alpha_locked, Icon::LockAlpha, "Lock transparency: paint only where there are pixels");
+                    toggle(ui, &mut layer.alpha_locked, Icon::LockAlpha, tr("Lock transparency: paint only where there are pixels"));
                 }
                 let small = |ui: &mut egui::Ui, on: &mut bool, label: &str, hint: &str| ui.toggle_value(on, egui::RichText::new(label).small()).on_hover_text(hint).changed();
-                changed |= small(ui, &mut layer.clip, "Clip", "Clip to the layer below");
-                changed |= small(ui, &mut layer.reference, "Ref", "Reference: the fill bucket can read its boundaries from it");
-                changed |= small(ui, &mut layer.draft, "Draft", "Shown while you work, left out of exports and prints (sketches, notes, guides)");
+                changed |= small(ui, &mut layer.clip, tr("Clip"), tr("Clip to the layer below"));
+                changed |= small(ui, &mut layer.reference, tr("Ref"), tr("Reference: the fill bucket can read its boundaries from it"));
+                changed |= small(ui, &mut layer.draft, tr("Draft"), tr("Shown while you work, left out of exports and prints (sketches, notes, guides)"));
                 // Layer colour (Clip Studio): the layer shown in one colour, on screen only.
                 if layer.has_pixels() {
                     let mut on = layer.layer_color.is_some();
-                    let hint = "Layer colour: the layer's lines in one colour (light pixels stay white) to tell layers apart. \
-                                On screen only: saving and exporting keep the real colours";
-                    if small(ui, &mut on, "Colour", hint) {
+                    let hint = tr("Layer colour: the layer's lines in one colour (light pixels stay white) to tell layers apart. \
+                                On screen only: saving and exporting keep the real colours");
+                    if small(ui, &mut on, tr("Colour"), hint) {
                         layer.layer_color = on.then_some(DEFAULT_LAYER_COLOR);
                         changed = true;
                     }
@@ -2156,35 +2164,31 @@ fn property_section(ui: &mut egui::Ui, id: &str, title: &'static str, open: bool
 }
 
 /// Slider showing a 0..1 value as a percentage. Returns whether it changed.
+/// A 0..1 value as a percentage, in Tool Property's slider row (translated label).
 pub(crate) fn percent_slider(ui: &mut egui::Ui, value: &mut f32, label: &str, range: RangeInclusive<f32>) -> bool {
-    let mut pct = *value * 100.0;
-    let changed = ui.add(egui::Slider::new(&mut pct, range).text(label).suffix("%")).changed();
-    if changed {
-        *value = pct / 100.0;
-    }
-    changed
+    prop_percent(ui, label, value, range)
 }
 
 /// Speed and tilt responses offered for a dynamic, as (label, curve).
 fn response_presets() -> [(&'static str, Option<PressureCurve>); 3] {
     [
-        ("Off", None),
-        ("Less", Some(PressureCurve::from_points(vec![[0.0, 1.0], [1.0, 0.3]]))),
-        ("More", Some(PressureCurve::from_points(vec![[0.0, 0.3], [1.0, 1.0]]))),
+        (tr("Off"), None),
+        (tr("Less"), Some(PressureCurve::from_points(vec![[0.0, 1.0], [1.0, 0.3]]))),
+        (tr("More"), Some(PressureCurve::from_points(vec![[0.0, 0.3], [1.0, 1.0]]))),
     ]
 }
 
 /// Rotation responses: none, up to a quarter turn, up to a full turn.
 pub(crate) fn rotation_presets() -> [(&'static str, Option<PressureCurve>); 3] {
-    [("Off", None), ("90°", Some(PressureCurve::from_points(vec![[0.0, 0.0], [1.0, 0.25]]))), ("360°", Some(PressureCurve::linear()))]
+    [(tr("Off"), None), ("90°", Some(PressureCurve::from_points(vec![[0.0, 0.0], [1.0, 0.25]]))), ("360°", Some(PressureCurve::linear()))]
 }
 
 /// A labelled row of curve presets; marks a curve that matches none (e.g. imported).
 pub(crate) fn preset_buttons(ui: &mut egui::Ui, label: &str, curve: &mut Option<PressureCurve>, presets: &[(&str, Option<PressureCurve>)]) {
     ui.horizontal(|ui| {
-        ui.label(label);
+        ui.add_sized([96.0, 18.0], egui::Label::new(egui::RichText::new(crate::i18n::tr_str(label)).color(theme::text_dim())).truncate());
         for (name, preset) in presets {
-            if ui.selectable_label(curve == preset, *name).clicked() {
+            if ui.selectable_label(curve == preset, crate::i18n::tr_str(name)).clicked() {
                 *curve = preset.clone();
             }
         }
@@ -2196,7 +2200,7 @@ pub(crate) fn preset_buttons(ui: &mut egui::Ui, label: &str, curve: &mut Option<
 
 /// One row of pressure / speed / tilt / jitter controls for a brush parameter.
 pub(crate) fn dynamics_row(ui: &mut egui::Ui, label: &str, dynamics: &mut painter_core::brush::InputDynamics, with_pressure: bool) {
-    ui.label(label);
+    ui.label(egui::RichText::new(crate::i18n::tr_str(label)).strong());
     ui.indent(label, |ui| {
         let presets = response_presets();
         if with_pressure {
@@ -2205,5 +2209,11 @@ pub(crate) fn dynamics_row(ui: &mut egui::Ui, label: &str, dynamics: &mut painte
         preset_buttons(ui, "with speed", &mut dynamics.velocity, &presets);
         preset_buttons(ui, "with tilt", &mut dynamics.tilt, &presets);
         percent_slider(ui, &mut dynamics.jitter, "Jitter", 0.0..=100.0);
+        // Photoshop's and Clip Studio's minimum, and Photoshop's Fade control.
+        percent_slider(ui, &mut dynamics.minimum, "Minimum", 0.0..=100.0);
+        let mut fade = dynamics.fade as f32;
+        if prop_slider(ui, "Fade (dabs, 0 = off)", &mut fade, 0.0..=1000.0, "", 0, true) {
+            dynamics.fade = fade.round() as u32;
+        }
     });
 }

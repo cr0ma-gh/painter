@@ -5,11 +5,26 @@
 //! comes from a generator seeded per stroke, so a vector stroke replays the
 //! same way.
 
+use std::collections::VecDeque;
+
 use crate::brush::{BrushSettings, Dab, FAST_SPEED};
 use crate::smoothing::{Smoother, StrokePoint};
 
 /// Seed used by [`StrokeEngine::new`].
 pub const DEFAULT_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
+
+/// Seconds between the dabs a resting pen lays with build-up on.
+pub const BUILD_UP_INTERVAL: f32 = 0.025;
+
+/// A dab waiting to learn whether it lies in the stroke's ending taper.
+#[derive(Clone, Copy, Debug)]
+struct Held {
+    dab: Dab,
+    /// Distance along the stroke at the dab.
+    travelled: f32,
+    /// The stroke's direction there, for scattering.
+    direction: f32,
+}
 
 pub struct StrokeEngine {
     settings: BrushSettings,
@@ -31,6 +46,18 @@ pub struct StrokeEngine {
     scatter_rng: u64,
     /// The last few input points, for the curve through them (see `feed`).
     curve: Vec<StrokePoint>,
+    /// Dabs made so far (before scattering), for the fade.
+    step: u32,
+    /// Dabs held back while they may still fall in the ending taper.
+    held: VecDeque<Held>,
+    /// Main and sub colour, for colours per dab (see [`StrokeEngine::set_colors`]).
+    colors: Option<([f32; 3], [f32; 3])>,
+    /// A third generator, for colours per dab.
+    color_rng: u64,
+    /// Time of the last dab, for build-up.
+    last_dab_time: f32,
+    /// The pen has reported tilt in this stroke (else tilt curves are left out).
+    tilt_seen: bool,
 }
 
 impl StrokeEngine {
@@ -65,7 +92,38 @@ impl StrokeEngine {
             path: 0.0,
             scatter_rng: (seed.rotate_left(17) ^ 0xD1B5_4A32_D192_ED03) | 1,
             curve: Vec::new(),
+            step: 0,
+            held: VecDeque::new(),
+            colors: None,
+            color_rng: (seed.rotate_left(41) ^ 0x8CB9_2BA7_2F3D_8DD7) | 1,
+            last_dab_time: 0.0,
+            tilt_seen: false,
         }
+    }
+
+    /// The main and sub colours (straight sRGB) a brush with colour dynamics
+    /// per dab varies; without, dabs paint the stroke's colour.
+    pub fn set_colors(&mut self, main: [f32; 3], sub: [f32; 3]) {
+        self.colors = Some((main, sub));
+    }
+
+    /// Build-up: the dabs a pen resting until `time` (seconds, as the points')
+    /// lays since the last one. Nothing without build-up or before the first point.
+    pub fn hold(&mut self, time: f32) -> Vec<Dab> {
+        let mut out = Vec::new();
+        let Some(at) = self.last.filter(|_| self.settings.build_up) else { return out };
+        let mut n = 0;
+        while time - self.last_dab_time >= BUILD_UP_INTERVAL && n < 8 {
+            let t = self.last_dab_time + BUILD_UP_INTERVAL;
+            let dab = self.dab_at(StrokePoint { time: t, ..at });
+            self.emit(dab, &mut out);
+            n += 1;
+        }
+        // Far behind (the app was busy): catch up without a burst.
+        if time - self.last_dab_time >= BUILD_UP_INTERVAL {
+            self.last_dab_time = time;
+        }
+        out
     }
 
     pub fn add(&mut self, p: StrokePoint) -> Vec<Dab> {
@@ -90,6 +148,15 @@ impl StrokeEngine {
             self.spline_segment(p0, p1, p2, p3, &mut out);
         }
         self.curve.clear();
+        // The ending: the held dabs fall off towards the end of the path.
+        let (taper, min) = (self.settings.taper_end, self.settings.taper_minimum.clamp(0.0, 1.0));
+        let end = self.path;
+        while let Some(h) = self.held.pop_front() {
+            let t = ((end - h.travelled) / taper.max(1e-3)).clamp(0.0, 1.0);
+            let k = (min + (1.0 - min) * t).max(0.05);
+            let dab = Dab { radius: (h.dab.radius * k).max(0.05), alpha: h.dab.alpha * k, ..h.dab };
+            self.spray(dab, h.direction, &mut out);
+        }
         out
     }
 
@@ -175,14 +242,38 @@ impl StrokeEngine {
         (self.scatter_rng.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 40) as f32 / (1u64 << 24) as f32
     }
 
-    /// Adds `dab` with the starting taper and scattering applied.
+    /// Adds `dab` with the starting taper and scattering applied; with an
+    /// ending taper it waits until it's clear of the stroke's end.
     fn emit(&mut self, mut dab: Dab, out: &mut Vec<Dab>) {
         let taper = self.settings.taper_start;
         if taper > 0.0 {
-            let t = (self.travelled / taper).clamp(0.0, 1.0).max(0.05);
+            let min = self.settings.taper_minimum.clamp(0.0, 1.0);
+            let t = (min + (1.0 - min) * (self.travelled / taper).clamp(0.0, 1.0)).max(0.05);
             dab.radius = (dab.radius * t).max(0.05);
             dab.alpha *= t;
         }
+        if self.settings.taper_end > 0.0 {
+            self.held.push_back(Held { dab, travelled: self.travelled, direction: self.direction });
+            self.release(self.travelled, out);
+            return;
+        }
+        self.spray(dab, self.direction, out);
+    }
+
+    /// Lets go of the held dabs more than the ending taper behind `at` (a
+    /// distance along the stroke): whatever follows, they're not in the ending.
+    fn release(&mut self, at: f32, out: &mut Vec<Dab>) {
+        while let Some(h) = self.held.front().copied() {
+            if h.travelled + self.settings.taper_end > at {
+                break;
+            }
+            self.held.pop_front();
+            self.spray(h.dab, h.direction, out);
+        }
+    }
+
+    /// Adds `dab`, scattered round the stroke going in `direction` (degrees).
+    fn spray(&mut self, dab: Dab, direction: f32, out: &mut Vec<Dab>) {
         let scatter = self.settings.scatter;
         if !scatter.is_on() {
             out.push(dab);
@@ -192,7 +283,7 @@ impl StrokeEngine {
         let fewer = (count as f32 * scatter.count_jitter.clamp(0.0, 1.0) * self.scatter_random()).floor() as u32;
         let reach = scatter.amount.max(0.0) * dab.radius * 2.0;
         // Across the stroke (and along it with `both_axes`); y points down on screen.
-        let (sin, cos) = self.direction.to_radians().sin_cos();
+        let (sin, cos) = direction.to_radians().sin_cos();
         let (along, across) = ([cos, -sin], [sin, cos]);
         for _ in 0..(count - fewer).max(1) {
             let a = (self.scatter_random() * 2.0 - 1.0) * reach;
@@ -236,17 +327,49 @@ impl StrokeEngine {
         }
         self.path += len;
         self.last = Some(to);
+        let path = self.path;
+        self.release(path, out);
+    }
+
+    /// Uniform in 0..1 from the colour generator.
+    fn color_random(&mut self) -> f32 {
+        self.color_rng ^= self.color_rng >> 12;
+        self.color_rng ^= self.color_rng << 25;
+        self.color_rng ^= self.color_rng >> 27;
+        (self.color_rng.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 40) as f32 / (1u64 << 24) as f32
     }
 
     fn dab_at(&mut self, p: StrokePoint) -> Dab {
         // Always five draws per dab, so the sequence doesn't depend on which dynamics are on.
         let r: [f32; 5] = std::array::from_fn(|_| self.random());
+        let step = self.step;
+        self.step = self.step.saturating_add(1);
+        self.last_dab_time = p.time;
+        let jitter = self.settings.color_jitter;
+        let color = match self.colors {
+            Some((main, sub)) if jitter.per_dab && jitter.is_on() => {
+                let mix = if jitter.sub_by_pressure { 1.0 - p.pressure.clamp(0.0, 1.0) } else { self.color_random() };
+                let rc = [self.color_random(), self.color_random(), self.color_random()];
+                Some(jitter.dab_color(main, sub, mix, rc))
+            }
+            _ => None,
+        };
+        self.tilt_seen |= p.tilt > 0.0;
+        let known_tilt = self.tilt_seen.then_some(p.tilt);
         let s = &self.settings;
         let (pressure, velocity, tilt) = (p.pressure, self.velocity, p.tilt);
-        let mut size = s.size_dynamics.factor(pressure, velocity, tilt, r[0]);
-        let mut density = s.density_dynamics.factor(pressure, velocity, tilt, r[1]);
-        let opacity = s.opacity_dynamics.factor(pressure, velocity, tilt, r[2]);
-        let mut thickness = s.thickness_dynamics.factor(pressure, velocity, tilt, r[3]);
+        let mut size = s.size_dynamics.factor_at(pressure, velocity, known_tilt, r[0], step);
+        let mut density = s.density_dynamics.factor_at(pressure, velocity, known_tilt, r[1], step);
+        let opacity = s.opacity_dynamics.factor_at(pressure, velocity, known_tilt, r[2], step);
+        let mut thickness = s.thickness_dynamics.factor_at(pressure, velocity, known_tilt, r[3], step);
+        let texture = if s.texture_dynamics.is_default() {
+            1.0
+        } else {
+            let jitter = if s.texture_dynamics.jitter > 0.0 { self.color_random() } else { 0.0 };
+            let s = &self.settings;
+            s.texture_dynamics.factor_at(pressure, velocity, known_tilt, jitter, step)
+        };
+        let s = &self.settings;
         let mut angle = s.rotation.offset(pressure, velocity, tilt, r[4]);
         if s.rotation.follow_direction {
             angle += self.direction;
@@ -283,6 +406,8 @@ impl StrokeEngine {
             angle,
             thickness: thickness.clamp(0.01, 1.0),
             mirror,
+            color,
+            texture: texture.clamp(0.0, 1.0),
         }
     }
 }
@@ -337,7 +462,7 @@ mod tests {
         let late = tapered.iter().zip(&plain).find(|(d, _)| d.x > 60.0).unwrap();
         assert_eq!(late.0.radius, late.1.radius);
         // Colour jitter keeps colours valid and does nothing at zero.
-        let j = crate::ColorJitter { hue: 0.5, saturation: 0.3, value: 0.3 };
+        let j = crate::ColorJitter { hue: 0.5, saturation: 0.3, value: 0.3, ..Default::default() };
         let c = j.apply([0.8, 0.2, 0.1], [0.9, 0.1, 0.5]);
         assert!(c.iter().all(|v| (0.0..=1.0).contains(v)) && c != [0.8, 0.2, 0.1]);
         assert_eq!(crate::ColorJitter::default().apply([0.8, 0.2, 0.1], [0.9, 0.1, 0.5]), [0.8, 0.2, 0.1]);
@@ -546,5 +671,99 @@ mod tests {
         assert!(dabs.iter().all(|d| (d.alpha - 0.5).abs() < 1e-5), "opacity × pressure");
         assert!(dabs.iter().all(|d| (d.thickness - 0.6).abs() < 1e-5), "thickness from 0.2 at no pressure to 1");
         assert!(dabs.iter().all(|d| (d.angle - 45.0).abs() < 1e-3), "half pressure = 1/8 turn");
+    }
+}
+
+#[cfg(test)]
+mod effect_tests {
+    use super::*;
+    use crate::brush::{ColorJitter, InputDynamics};
+
+    fn plain() -> BrushSettings {
+        BrushSettings { size: 10.0, spacing: 0.2, pressure_size: false, stabilization: 0, ..BrushSettings::g_pen() }
+    }
+
+    fn run(settings: &BrushSettings, colors: bool) -> Vec<Dab> {
+        let mut e = StrokeEngine::with_seed(settings, 5);
+        if colors {
+            e.set_colors([1.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+        }
+        let mut dabs = Vec::new();
+        for i in 0..=20 {
+            dabs.extend(e.add(StrokePoint::new(i as f32 * 10.0, 50.0, 1.0).at_time(i as f32 * 0.01)));
+        }
+        dabs.extend(e.finish());
+        dabs
+    }
+
+    #[test]
+    fn ending_taper_thins_the_last_stretch_only() {
+        let base = run(&plain(), false);
+        let tapered = run(&BrushSettings { taper_end: 40.0, ..plain() }, false);
+        assert_eq!(base.len(), tapered.len(), "the same dabs, in order");
+        let last = tapered.last().unwrap();
+        assert!(last.radius < base.last().unwrap().radius * 0.2 && last.alpha < 0.2, "{last:?}");
+        // Earlier than 40 px from the end: untouched.
+        assert!(tapered.iter().zip(&base).filter(|(d, _)| d.x < 150.0).all(|(a, b)| a == b));
+        // With a minimum, the end stays at least that big.
+        let kept = run(&BrushSettings { taper_end: 40.0, taper_minimum: 0.5, ..plain() }, false);
+        assert!((kept.last().unwrap().radius - base.last().unwrap().radius * 0.5).abs() < 0.3);
+        // Held dabs are let go as the pen moves on: some come out before the end.
+        let mut e = StrokeEngine::with_seed(&BrushSettings { taper_end: 40.0, ..plain() }, 5);
+        let mut early = e.add(StrokePoint::new(0.0, 0.0, 1.0)).len();
+        early += e.add(StrokePoint::new(100.0, 0.0, 1.0)).len();
+        early += e.add(StrokePoint::new(200.0, 0.0, 1.0)).len();
+        assert!(early > 20, "{early}");
+    }
+
+    #[test]
+    fn fade_and_minimum() {
+        let fade = BrushSettings { size_dynamics: InputDynamics { fade: 10, minimum: 0.2, ..Default::default() }, ..plain() };
+        let dabs = run(&fade, false);
+        assert!((dabs[0].radius - 5.0).abs() < 1e-4, "full at the start");
+        assert!(dabs[12..].iter().all(|d| (d.radius - 1.0).abs() < 1e-4), "down to the minimum after 10 dabs");
+        assert!(dabs[5].radius < 5.0 && dabs[5].radius > 1.0);
+    }
+
+    #[test]
+    fn pens_without_tilt_skip_tilt_curves() {
+        // Density from 0 upright to full laid down: a pen that never reports tilt still draws.
+        let tilt = BrushSettings {
+            density_dynamics: InputDynamics { tilt: Some(crate::brush::PressureCurve::linear()), ..Default::default() },
+            ..plain()
+        };
+        assert!(run(&tilt, false).iter().all(|d| d.alpha == 1.0));
+    }
+
+    #[test]
+    fn build_up_lays_ink_while_resting() {
+        let mut e = StrokeEngine::with_seed(&BrushSettings { build_up: true, ..plain() }, 1);
+        e.add(StrokePoint::new(10.0, 10.0, 1.0).at_time(0.0));
+        let held = e.hold(0.11);
+        assert_eq!(held.len(), 4, "every 25 ms");
+        assert!(held.iter().all(|d| d.x == 10.0 && d.y == 10.0));
+        assert!(e.hold(0.11).is_empty(), "nothing more until time passes");
+        let mut off = StrokeEngine::with_seed(&plain(), 1);
+        off.add(StrokePoint::new(10.0, 10.0, 1.0));
+        assert!(off.hold(1.0).is_empty());
+    }
+
+    #[test]
+    fn colours_per_dab_mix_main_and_sub() {
+        let jitter = ColorJitter { per_dab: true, sub_mix: 1.0, ..Default::default() };
+        let dabs = run(&BrushSettings { color_jitter: jitter, ..plain() }, true);
+        let colors: Vec<[f32; 3]> = dabs.iter().map(|d| d.color.expect("a colour each")).collect();
+        assert!(colors.iter().all(|c| (c[0] + c[2] - 1.0).abs() < 1e-5 && c[1] == 0.0), "between red and blue");
+        assert!(colors.windows(2).any(|w| w[0] != w[1]), "they vary");
+        // Per stroke (or without colours given), dabs keep the stroke's colour.
+        let per_stroke = BrushSettings { color_jitter: ColorJitter { per_dab: false, ..jitter }, ..plain() };
+        assert!(run(&per_stroke, true).iter().all(|d| d.color.is_none()));
+        assert!(run(&BrushSettings { color_jitter: jitter, ..plain() }, false).iter().all(|d| d.color.is_none()));
+        // The other random draws don't change: positions and sizes are as without colours.
+        let plain_dabs = run(&plain(), false);
+        assert!(dabs.iter().zip(&plain_dabs).all(|(a, b)| a.x == b.x && a.radius == b.radius && a.angle == b.angle));
+        // By pressure: full pressure paints the main colour.
+        let by_pressure = ColorJitter { sub_by_pressure: true, ..jitter };
+        assert!(run(&BrushSettings { color_jitter: by_pressure, ..plain() }, true).iter().all(|d| d.color == Some([1.0, 0.0, 0.0])));
     }
 }

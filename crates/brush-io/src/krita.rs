@@ -529,12 +529,12 @@ pub fn read_kpp(bytes: &[u8], resource: &dyn Fn(&str) -> Option<Vec<u8>>) -> Res
         match image {
             Some(image) => {
                 let strength = if flag(&p, "PressureTexture/Strength/") { num(&p, "Texture/Strength/Value") } else { None };
-                preset.texture = Some(BrushTexture {
+                preset.texture = Some(BrushTexture::new(
                     image,
-                    scale: num(&p, "Texture/Pattern/Scale").unwrap_or(1.0) * 100.0,
-                    density: strength.unwrap_or(1.0).clamp(0.0, 1.0),
-                    invert: flag(&p, "Texture/Pattern/Invert"),
-                })
+                    num(&p, "Texture/Pattern/Scale").unwrap_or(1.0) * 100.0,
+                    strength.unwrap_or(1.0).clamp(0.0, 1.0),
+                    flag(&p, "Texture/Pattern/Invert"),
+                ))
             }
             None => warnings.push(format!("“{name}”: its texture {file} couldn't be read")),
         }
@@ -943,12 +943,7 @@ mod tests {
         s.size = 64.0;
         let mut p = BrushPreset::new(s);
         p.tip = Some(BrushTip::new(4, 2, vec![0, 50, 100, 150, 200, 250, 255, 0]).unwrap());
-        p.texture = Some(BrushTexture {
-            image: BrushTip::new(2, 2, vec![0, 255, 128, 64]).unwrap(),
-            scale: 50.0,
-            density: 0.7,
-            invert: false,
-        });
+        p.texture = Some(BrushTexture::new(BrushTip::new(2, 2, vec![0, 255, 128, 64]).unwrap(), 50.0, 0.7, false));
         p.apply_tip();
         let round = BrushPreset::new(BrushSettings::g_pen());
         let bundle = write_bundle(&[p.clone(), round], "Test").unwrap();

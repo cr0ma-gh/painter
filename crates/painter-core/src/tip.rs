@@ -106,8 +106,14 @@ impl TipBitmap {
     /// Bilinear sample of level 0 with the bitmap repeating in both directions.
     /// Mirrored by `texture_sample` in painter-render's `dab.wgsl`.
     pub fn sample_wrapped(&self, x: f32, y: f32) -> f32 {
-        let (w, h) = (self.width as i32, self.height as i32);
-        let pixels = self.level(0);
+        self.sample_wrapped_level(0, x, y)
+    }
+
+    /// [`Self::sample_wrapped`] at mip `level`.
+    pub fn sample_wrapped_level(&self, level: u32, x: f32, y: f32) -> f32 {
+        let (w, h) = self.level_size(level);
+        let (w, h) = (w as i32, h as i32);
+        let pixels = self.level(level);
         let texel = |i: i32, j: i32| pixels[(j.rem_euclid(h) * w + i.rem_euclid(w)) as usize] as f32 / 255.0;
         let (x0, y0) = (x.floor(), y.floor());
         let (fx, fy) = (x - x0, y - y0);
@@ -130,20 +136,132 @@ pub struct DabTexture {
     /// Swap light and dark.
     #[serde(default)]
     pub invert: bool,
+    /// How the texture meets the ink (Photoshop's texture mode, Clip Studio's
+    /// texture composite mode).
+    #[serde(default)]
+    pub mode: MaskMode,
+    /// Added to the texture's lightness, −1..=1 (Photoshop's and Clip Studio's brightness).
+    #[serde(default)]
+    pub brightness: f32,
+    /// Multiplies the texture's spread round mid grey, 0..=3 (1 = as is).
+    #[serde(default = "one")]
+    pub contrast: f32,
+    /// Texture each dab (Photoshop's "Texture Each Tip", Clip Studio's "Apply
+    /// to each dab"): overlapping dabs fill the grain in. Off, the texture
+    /// shapes the whole stroke once, so the grain stays crisp.
+    #[serde(default = "yes")]
+    pub each_dab: bool,
+}
+
+fn one() -> f32 {
+    1.0
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// How a texture or a dual tip combines with a dab's coverage (Photoshop's
+/// texture and dual brush modes). `t` is the other shape's value, 1 = lets
+/// ink through. Ids are the shaders' (`mask_mix` in `dab.wgsl`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum MaskMode {
+    #[default]
+    Multiply,
+    /// Takes the texture's darkness off the ink: thin ink vanishes in the grain first.
+    Subtract,
+    /// The lower of the two (Clip Studio's "Comparative").
+    Darken,
+    ColorBurn,
+    /// Hard edges: ink only where it and the texture together reach full.
+    HardMix,
+}
+
+impl MaskMode {
+    pub const ALL: [MaskMode; 5] = [MaskMode::Multiply, MaskMode::Subtract, MaskMode::Darken, MaskMode::ColorBurn, MaskMode::HardMix];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            MaskMode::Multiply => "Multiply",
+            MaskMode::Subtract => "Subtract",
+            MaskMode::Darken => "Darken",
+            MaskMode::ColorBurn => "Color Burn",
+            MaskMode::HardMix => "Hard Mix",
+        }
+    }
+
+    pub fn shader_id(self) -> u32 {
+        self as u32
+    }
+
+    /// Coverage `cov` combined with `t` (both 0..=1).
+    /// Mirrored by `mask_mix` in painter-render's `dab.wgsl`.
+    pub fn mix(self, cov: f32, t: f32) -> f32 {
+        let out = match self {
+            MaskMode::Multiply => cov * t,
+            MaskMode::Subtract => cov - (1.0 - t),
+            MaskMode::Darken => cov.min(t),
+            MaskMode::ColorBurn => {
+                if cov >= 1.0 {
+                    1.0
+                } else if t <= 0.0 {
+                    0.0
+                } else {
+                    1.0 - ((1.0 - cov) / t).min(1.0)
+                }
+            }
+            MaskMode::HardMix => {
+                if cov + t >= 1.0 {
+                    cov
+                } else {
+                    0.0
+                }
+            }
+        };
+        out.clamp(0.0, 1.0)
+    }
 }
 
 impl DabTexture {
+    /// A multiplying texture applied to each dab, neutral brightness and contrast.
+    pub fn new(bitmap: Arc<TipBitmap>, scale: f32, density: f32, invert: bool) -> Self {
+        Self { bitmap, scale, density, invert, mode: MaskMode::Multiply, brightness: 0.0, contrast: 1.0, each_dab: true }
+    }
+
     pub fn scale(&self) -> f32 {
         self.scale.clamp(0.05, 64.0)
     }
 
-    /// Coverage multiplier at canvas point `(x, y)` (a pixel centre).
-    /// Mirrored by `texture_factor` in painter-render's `dab.wgsl`.
-    pub fn factor(&self, x: f32, y: f32) -> f32 {
+    /// The texture at canvas point `(x, y)` (a pixel centre) as the ink sees
+    /// it: brightness, contrast, inversion and density applied; 1 lets ink through.
+    /// Mirrored by `texture_value` in painter-render's `dab.wgsl`.
+    pub fn value(&self, x: f32, y: f32) -> f32 {
+        self.value_at(x, y, 1.0)
+    }
+
+    /// [`Self::value`] with the density scaled by `density` (a dab's texture dynamics).
+    /// Inverted first, then brightness and contrast, as Clip Studio applies them.
+    pub fn value_at(&self, x: f32, y: f32, density: f32) -> f32 {
         let s = self.scale();
         let t = self.bitmap.sample_wrapped(x / s - 0.5, y / s - 0.5);
         let t = if self.invert { 1.0 - t } else { t };
-        1.0 - self.density.clamp(0.0, 1.0) * (1.0 - t)
+        let t = ((t - 0.5) * self.contrast.clamp(0.0, 3.0) + 0.5 + self.brightness.clamp(-1.0, 1.0)).clamp(0.0, 1.0);
+        1.0 - (self.density * density).clamp(0.0, 1.0) * (1.0 - t)
+    }
+
+    /// Coverage `cov` at canvas point `(x, y)` once the texture has shaped it.
+    pub fn apply(&self, cov: f32, x: f32, y: f32) -> f32 {
+        self.apply_at(cov, x, y, 1.0)
+    }
+
+    /// [`Self::apply`] with a dab's texture density.
+    pub fn apply_at(&self, cov: f32, x: f32, y: f32, density: f32) -> f32 {
+        self.mode.mix(cov, self.value_at(x, y, density))
+    }
+
+    /// Coverage multiplier at canvas point `(x, y)` for full coverage.
+    pub fn factor(&self, x: f32, y: f32) -> f32 {
+        self.apply(1.0, x, y)
     }
 }
 
@@ -154,9 +272,17 @@ pub struct DualTip {
     pub bitmap: Arc<TipBitmap>,
     /// Dual tip diameter over the main dab diameter.
     pub scale: f32,
+    /// How the second tip combines with the first (Photoshop's dual brush mode).
+    #[serde(default)]
+    pub mode: MaskMode,
 }
 
 impl DualTip {
+    /// A multiplying dual tip.
+    pub fn new(bitmap: Arc<TipBitmap>, scale: f32) -> Self {
+        Self { bitmap, scale, mode: MaskMode::Multiply }
+    }
+
     pub fn scale(&self) -> f32 {
         self.scale.clamp(0.05, 8.0)
     }
@@ -476,7 +602,7 @@ mod tests {
     #[test]
     fn texture_wraps_and_scales() {
         // 2×1 texture: dark, light.
-        let texture = DabTexture { bitmap: Arc::new(TipBitmap::new(2, 1, vec![0, 255]).unwrap()), scale: 1.0, density: 1.0, invert: false };
+        let texture = DabTexture::new(Arc::new(TipBitmap::new(2, 1, vec![0, 255]).unwrap()), 1.0, 1.0, false);
         assert_eq!(texture.factor(0.5, 0.5), 0.0);
         assert_eq!(texture.factor(1.5, 0.5), 1.0);
         assert_eq!(texture.factor(2.5, 7.5), 0.0, "repeats");

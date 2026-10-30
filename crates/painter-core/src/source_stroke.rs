@@ -209,7 +209,7 @@ mod tests {
     }
 
     fn dab_at(x: f32, y: f32, r: f32) -> Dab {
-        Dab { x, y, radius: r, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false }
+        Dab { x, y, radius: r, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false, color: None, texture: 1.0 }
     }
 
     #[test]

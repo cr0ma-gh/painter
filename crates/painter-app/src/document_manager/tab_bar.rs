@@ -202,12 +202,12 @@ impl PainterApp {
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let bytes = self.documents_memory();
-                        let text = format!("{} open · {:.1} GB", self.docs.slots.len(), bytes as f64 / (1u64 << 30) as f64);
+                        let text = format!("{} {} · {:.1} GB", self.docs.slots.len(), tr("open"), bytes as f64 / (1u64 << 30) as f64);
                         if bytes > MEMORY_WARNING {
-                            ui.colored_label(theme::warning(), text).on_hover_text(
+                            ui.colored_label(theme::warning(), text).on_hover_text(tr(
                                 "The open documents take a lot of memory. Close the ones you don't need; \
                                  documents in other tabs keep their pixels in RAM but not on the GPU.",
-                            );
+                            ));
                         } else {
                             ui.weak(text).on_hover_text(tr("Memory used by the pixels of all open documents"));
                         }

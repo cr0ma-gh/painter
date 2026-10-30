@@ -1,6 +1,7 @@
 // Live preview of a plane (layer colour or mask) with the in-progress stroke
 // applied, limited by the selection. Mirrors painter_core::raster::merge_stroke,
-// brush blend modes included (ids of painter_core::BrushBlend::shader_id).
+// brush blend modes included (ids of painter_core::BrushBlend::shader_id), and
+// a texture over the whole stroke (painter_core::raster::texture_stroke).
 
 struct MergeParams {
     opacity: f32,
@@ -12,6 +13,15 @@ struct MergeParams {
     _pad0: u32,
     // Canvas position of the target's (and the stroke texture's) top-left pixel.
     origin: vec2<i32>,
+    // A texture over the whole stroke (painter_core::DabTexture with each_dab off).
+    has_texture: u32,
+    texture_mode: u32,
+    texture_scale: f32,
+    texture_density: f32,
+    texture_invert: u32,
+    texture_brightness: f32,
+    texture_contrast: f32,
+    _pad1: u32,
 };
 
 @group(0) @binding(0) var atlas: texture_2d_array<f32>;
@@ -19,6 +29,7 @@ struct MergeParams {
 @group(0) @binding(2) var stroke: texture_2d<f32>;
 @group(0) @binding(3) var selection_index: texture_2d<u32>;
 @group(0) @binding(4) var<uniform> params: MergeParams;
+@group(0) @binding(5) var paper: texture_2d<f32>;
 
 @vertex
 fn vs_main(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
@@ -84,7 +95,13 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     if (params.has_selection != 0u) {
         selected = atlas_load(selection_index, texel).a;
     }
-    var s = textureLoad(stroke, local, 0) * (params.opacity * selected);
+    var raw = textureLoad(stroke, local, 0);
+    if (params.has_texture != 0u && raw.a > 0.0) {
+        let t = texture_value(paper, vec2<f32>(texel) + 0.5, params.texture_scale, params.texture_density, params.texture_invert, params.texture_brightness, params.texture_contrast);
+        let a = mask_mix(raw.a, t, params.texture_mode);
+        raw = raw * (a / raw.a);
+    }
+    var s = raw * (params.opacity * selected);
     if (s.a <= 0.0) {
         return b;
     }

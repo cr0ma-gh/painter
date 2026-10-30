@@ -83,7 +83,7 @@ fn line(from: (f32, f32), to: (f32, f32), n: usize, radius: f32, alpha: f32) -> 
     (0..n)
         .map(|i| {
             let t = i as f32 / (n - 1).max(1) as f32;
-            Dab { x: from.0 + (to.0 - from.0) * t, y: from.1 + (to.1 - from.1) * t, radius, alpha, angle: 0.0, thickness: 1.0, mirror: false }
+            Dab { x: from.0 + (to.0 - from.0) * t, y: from.1 + (to.1 - from.1) * t, radius, alpha, angle: 0.0, thickness: 1.0, mirror: false, color: None, texture: 1.0 }
         })
         .collect()
 }
@@ -292,6 +292,10 @@ struct StrokeCase {
     thinning: bool,
     /// Mirror every third dab (random flips).
     mirroring: bool,
+    /// Give every dab its own colour (colour dynamics per dab).
+    colored: bool,
+    /// Ramp every dab's texture density from 1 down (texture dynamics).
+    texture_ramp: bool,
 }
 
 /// Renders a stroke as a two-frame GPU preview and as a CPU commit, checks they
@@ -316,6 +320,8 @@ fn check_stroke(mut doc: Document, settings: BrushSettings, case: StrokeCase) ->
             // Starts at exactly 1 (a disc), then ellipses: the disc/ellipse choice is per dab.
             thickness: if case.thinning { 1.0 - 0.8 * (i as f32 / 119.0) } else { 1.0 },
             mirror: case.mirroring && i % 3 == 0,
+            color: case.colored.then(|| [(i % 7) as f32 / 6.0, 0.3, 1.0 - (i % 5) as f32 / 4.0]),
+            texture: if case.texture_ramp { 1.0 - 0.9 * (i as f32 / 119.0) } else { 1.0 },
             ..d
         })
         .collect();
@@ -593,7 +599,7 @@ fn bitmap(width: u32, height: u32, seed: u32) -> Arc<TipBitmap> {
 #[test]
 fn textured_stroke_preview_matches_commit() {
     // Non-integer scale exercises wrapped bilinear sampling across texel seams.
-    let texture = DabTexture { bitmap: bitmap(7, 5, 1), scale: 2.5, density: 0.8, invert: false };
+    let texture = DabTexture::new(bitmap(7, 5, 1), 2.5, 0.8, false);
     check_stroke(sample_document(), BrushSettings { size: 30.0, texture: Some(texture.clone()), ..pen() }, StrokeCase::default());
     let inverted = DabTexture { invert: true, scale: 0.6, ..texture };
     let airbrush = BrushSettings { size: 40.0, density: 0.2, texture: Some(inverted), ..BrushSettings::airbrush() };
@@ -602,17 +608,52 @@ fn textured_stroke_preview_matches_commit() {
 
 #[test]
 fn dual_tip_stroke_preview_matches_commit() {
-    let dual = DualTip { bitmap: bitmap(13, 9, 2), scale: 1.4 };
+    let dual = DualTip::new(bitmap(13, 9, 2), 1.4);
     check_stroke(sample_document(), BrushSettings { size: 34.0, dual: Some(dual.clone()), ..pen() }, StrokeCase::default());
     // Everything together: sampled, rotated main tip + large dual tip (mips) + texture.
     let all = BrushSettings {
         size: 28.0,
         tip: DabTip { shape: sampled_tip(23, 17), thickness: 0.8, angle: 60.0 },
-        dual: Some(DualTip { bitmap: bitmap(200, 150, 3), scale: 0.7 }),
-        texture: Some(DabTexture { bitmap: bitmap(16, 16, 4), scale: 1.0, density: 0.5, invert: false }),
+        dual: Some(DualTip::new(bitmap(200, 150, 3), 0.7)),
+        texture: Some(DabTexture::new(bitmap(16, 16, 4), 1.0, 0.5, false)),
         ..pen()
     };
     check_stroke(sample_document(), all, StrokeCase::default());
+}
+
+#[test]
+fn texture_and_dual_modes_preview_matches_commit() {
+    use painter_core::MaskMode;
+    for mode in MaskMode::ALL {
+        let texture = DabTexture { mode, brightness: 0.15, contrast: 1.6, ..DabTexture::new(bitmap(7, 5, 1), 2.5, 0.7, false) };
+        let brush = BrushSettings { size: 30.0, density: 0.7, texture: Some(texture), ..pen() };
+        check_stroke(sample_document(), brush, StrokeCase::default());
+        let dual = DualTip { mode, ..DualTip::new(bitmap(13, 9, 2), 1.4) };
+        check_stroke(sample_document(), BrushSettings { size: 34.0, dual: Some(dual), ..pen() }, StrokeCase::default());
+    }
+    // Texture density per dab, inverted with brightness and contrast (Clip Studio's order).
+    let texture = DabTexture { invert: true, brightness: 0.3, contrast: 0.6, mode: MaskMode::Subtract, ..DabTexture::new(bitmap(7, 5, 1), 2.5, 1.0, false) };
+    let case = StrokeCase { texture_ramp: true, ..StrokeCase::default() };
+    check_stroke(sample_document(), BrushSettings { size: 30.0, texture: Some(texture), ..pen() }, case);
+    // A dual tip smaller than the dab repeats over the canvas.
+    let tiled = DualTip { mode: MaskMode::Darken, ..DualTip::new(bitmap(9, 7, 5), 0.3) };
+    check_stroke(sample_document(), BrushSettings { size: 40.0, dual: Some(tiled), ..pen() }, StrokeCase::default());
+}
+
+#[test]
+fn whole_stroke_texture_and_noise_preview_matches_commit() {
+    // The texture shapes the stroke once, as it merges; overlapping dabs don't fill its grain.
+    let whole = DabTexture { each_dab: false, mode: painter_core::MaskMode::Subtract, ..DabTexture::new(bitmap(7, 5, 1), 2.5, 0.6, false) };
+    let airbrush = BrushSettings { size: 40.0, density: 0.3, texture: Some(whole), ..BrushSettings::airbrush() };
+    check_stroke(sample_document(), airbrush, StrokeCase::default());
+    // Noise in the soft rim of the tip.
+    check_stroke(sample_document(), BrushSettings { size: 40.0, noise: true, ..BrushSettings::airbrush() }, StrokeCase::default());
+}
+
+#[test]
+fn per_dab_colours_preview_matches_commit() {
+    let case = StrokeCase { colored: true, ..StrokeCase::default() };
+    check_stroke(sample_document(), BrushSettings { size: 26.0, density: 0.8, ..pen() }, case);
 }
 
 #[test]
@@ -923,8 +964,8 @@ fn clipped_stroke_targets_match_full_targets() {
     let textured = BrushSettings {
         size: 50.0,
         tip: DabTip { shape: sampled_tip(23, 17), thickness: 0.8, angle: 30.0 },
-        dual: Some(DualTip { bitmap: bitmap(13, 9, 2), scale: 1.4 }),
-        texture: Some(DabTexture { bitmap: bitmap(7, 5, 1), scale: 2.5, density: 0.8, invert: false }),
+        dual: Some(DualTip::new(bitmap(13, 9, 2), 1.4)),
+        texture: Some(DabTexture::new(bitmap(7, 5, 1), 2.5, 0.8, false)),
         ..pen()
     };
     check_low_vram_stroke(textured, PLAIN, low);

@@ -55,10 +55,57 @@ fn main() {
             notes.push(format!("tip {}×{} ({source})", t.width, t.height));
         }
         if let Some(t) = &p.texture {
-            notes.push(format!("texture {}×{} {:.0}% density {:.0}%", t.image.width, t.image.height, t.scale, t.density * 100.0));
+            notes.push(format!(
+                "texture {}×{} {:.0}% density {:.0}% {:?}{}",
+                t.image.width,
+                t.image.height,
+                t.scale,
+                t.density * 100.0,
+                t.mode,
+                if t.each_dab { "" } else { " (whole stroke)" }
+            ));
         }
         if let Some(d) = &p.dual {
-            notes.push(format!("dual {}×{} ×{:.2}", d.tip.width, d.tip.height, d.scale));
+            notes.push(format!("dual {}×{} ×{:.2} {:?}", d.tip.width, d.tip.height, d.scale, d.mode));
+        }
+        if s.blend != painter_core::BrushBlend::Normal {
+            notes.push(format!("blend {}", s.blend.name()));
+        }
+        if s.scatter.is_on() {
+            notes.push(format!("scatter {:.2}×{}", s.scatter.amount, s.scatter.count));
+        }
+        if s.taper_start > 0.0 || s.taper_end > 0.0 {
+            notes.push(format!("taper {:.0}/{:.0}px", s.taper_start, s.taper_end));
+        }
+        if s.color_jitter.is_on() {
+            notes.push(format!("colour jitter{}", if s.color_jitter.per_dab { " per dab" } else { "" }));
+        }
+        let dynamic = |name: &str, d: &painter_core::brush::InputDynamics| {
+            let mut parts = Vec::new();
+            if d.pressure.is_some() {
+                parts.push("pressure");
+            }
+            if d.tilt.is_some() {
+                parts.push("tilt");
+            }
+            if d.velocity.is_some() {
+                parts.push("speed");
+            }
+            if d.jitter > 0.0 {
+                parts.push("random");
+            }
+            if d.fade > 0 {
+                parts.push("fade");
+            }
+            (!parts.is_empty()).then(|| format!("{name}←{}", parts.join("+")))
+        };
+        notes.extend(dynamic("size", &s.size_dynamics));
+        notes.extend(dynamic("opacity", &s.opacity_dynamics));
+        notes.extend(dynamic("thickness", &s.thickness_dynamics));
+        for (on, what) in [(s.water_edge.is_some(), "water edge"), (s.noise, "noise"), (s.build_up, "build-up")] {
+            if on {
+                notes.push(what.into());
+            }
         }
         let unsupported = p.unsupported_features();
         if !unsupported.is_empty() {

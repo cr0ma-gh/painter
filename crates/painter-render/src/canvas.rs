@@ -860,6 +860,13 @@ impl GpuCanvas {
             &stroke.dabs,
             &stroke.style,
         );
+        // A texture over the whole stroke goes on as it merges.
+        let whole = stroke.style.texture.as_ref().filter(|t| !t.each_dab);
+        if let Some(t) = whole {
+            self.dabs.ensure_texture(device, queue, &t.bitmap);
+        }
+        let paper = whole.map(|t| (self.dabs.texture_view(Some(&t.bitmap)), t));
+        let empty = self.dabs.texture_view(None);
         let plane_index = self.residency.get(stroke.plane).map_or(&self.no_index, |p| &p.view);
         // An existing but empty selection protects everything: bind the empty index.
         let selection = (self.selection && stroke.respect_selection)
@@ -875,6 +882,8 @@ impl GpuCanvas {
             &targets.preview.view,
             targets.region.origin(),
             MergeOptions::from(stroke),
+            paper,
+            empty,
         );
         true
     }
@@ -943,6 +952,8 @@ impl GpuCanvas {
             &targets.preview.view,
             [0, 0],
             MergeOptions { opacity: 1.0, erase: false, alpha_locked: false, blend: 0 },
+            None,
+            self.dabs.texture_view(None),
         );
         self.transform_revision = Some(transform.revision);
         true

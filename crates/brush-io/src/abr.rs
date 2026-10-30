@@ -12,21 +12,29 @@
 //!   - `patt`: texture patterns (image mode, size, name, UUID, then a
 //!     "virtual memory array list" of RLE/raw channels);
 //!   - `desc`: an ActionDescriptor with per-brush parameters: tip (`Brsh`:
-//!     diameter, spacing, hardness, angle, roundness, `sampledData`),
-//!     dynamics (`szVr`, `opVr`), texture (`useTexture`, `Txtr` → pattern,
-//!     `textureScale`, `textureDepth`, `InvT`) and dual brush (`useDualBrush`,
-//!     `dualBrush` → its own `Brsh`).
+//!     diameter, spacing, hardness, angle, roundness, `sampledData`), shape
+//!     dynamics (`szVr`, `angleDynamics`, `roundnessDynamics`), scattering
+//!     (`useScatter`, `scatterDynamics`, `Cnt `, `countDynamics`, `bothAxes`),
+//!     texture (`useTexture`, `Txtr` → pattern, `textureScale`,
+//!     `textureDepth`, `InvT`, `TxtC`, `textureBlendMode`, brightness,
+//!     contrast), dual brush (`dualBrush` with its own `useDualBrush`, `BlnM`
+//!     and `Brsh`), colour dynamics (`clVr`, `H   `, `Strt`, `Brgh`, `purity`,
+//!     `colorDynamicsPerTip`), transfer (`opVr`, `prVr`), wet edges, noise,
+//!     build-up, and the tool's own `toolOptions` (opacity, flow, mode).
+//!     Every control (`bVTy`) is off, Fade (`fStp` steps), pen pressure, pen
+//!     tilt, stylus wheel, rotation, or the stroke's (initial) direction.
 //!
 //! Tips are 8-bit coverage (16-bit data keeps the high byte); patterns become
 //! 8-bit luminance. A tip, pattern or dual brush that can't be decoded falls
 //! back to a round tip / no texture, with a warning, instead of failing the file.
 
-use painter_core::{AntiAlias, BrushSettings, PressureCurve};
+use painter_core::{AntiAlias, BrushBlend, BrushSettings, MaskMode, PressureCurve};
 
 use crate::descriptor::{read_descriptor, Cursor, Descriptor, Value};
 use crate::types::{BrushIoError, BrushPreset, BrushTexture, BrushTip, DualBrush, ImportReport, PresetSource};
 
 /// Photoshop dynamics "control" values (`bVTy`).
+const CONTROL_FADE: f64 = 1.0;
 const CONTROL_PEN_PRESSURE: f64 = 2.0;
 const CONTROL_PEN_TILT: f64 = 3.0;
 const CONTROL_INITIAL_DIRECTION: f64 = 6.0;
@@ -317,7 +325,14 @@ fn read_pattern(c: &mut Cursor<'_>) -> Result<Pattern, BrushIoError> {
     let name = c.unicode()?;
     let id_len = c.u8()? as usize;
     let id = String::from_utf8_lossy(c.take(id_len)?).into_owned();
-    let palette = if mode == 2 { Some(c.take(768)?.to_vec()) } else { None };
+    // Indexed: the colour table, then 4 more bytes (as GIMP's pattern loader skips).
+    let palette = if mode == 2 {
+        let table = c.take(768)?.to_vec();
+        c.take(4)?;
+        Some(table)
+    } else {
+        None
+    };
     // Virtual memory array list.
     let _vmal_version = c.u32()?;
     let _vmal_len = c.u32()?;
@@ -472,7 +487,20 @@ fn preset_from_desc(
         }
     }
 
-    // Shape dynamics: size variation controlled by pen pressure.
+    // The tool's own settings, saved with the preset: opacity, flow, mode.
+    if let Some(tool) = entry.descriptor("toolOptions") {
+        if let Some(o) = tool.number("Opct") {
+            preset.settings.opacity = (o as f32 / 100.0).clamp(0.01, 1.0);
+        }
+        if let Some(f) = tool.number("flow") {
+            preset.settings.density = (f as f32 / 100.0).clamp(0.01, 1.0);
+        }
+        if let Some(mode) = enum_value(tool, "Md  ").and_then(brush_blend) {
+            preset.settings.blend = mode;
+        }
+    }
+
+    // Shape dynamics: size, angle and roundness.
     let tip_dynamics = entry.flag("useTipDynamics").unwrap_or(true);
     if let Some(size) = entry.descriptor("szVr").filter(|_| tip_dynamics) {
         let minimum = entry.number("minimumDiameter").map(|m| (m as f32 / 100.0).clamp(0.0, 1.0));
@@ -486,24 +514,39 @@ fn preset_from_desc(
                 let low = minimum.unwrap_or(0.0);
                 preset.dynamics.size.tilt = Some(PressureCurve::from_points(vec![[0.0, 1.0], [1.0, low]]));
             }
+            Some(CONTROL_FADE) => {
+                preset.dynamics.size.fade = Some(fade_steps(size));
+                preset.dynamics.size.minimum = minimum;
+            }
             _ => {}
         }
         if let Some(j) = size.number("jitter").filter(|j| *j > 0.0) {
             preset.dynamics.size.random = Some((j as f32 / 100.0).clamp(0.0, 1.0));
         }
     }
-    // Transfer: per-dab opacity ("opacity jitter") → our flow/density.
+    // Transfer: opacity and flow per dab, each from a control down to its minimum, plus jitter.
     let paint_dynamics = entry.flag("usePaintDynamics").unwrap_or(true);
-    if let Some(opacity) = entry.descriptor("opVr").filter(|_| paint_dynamics) {
-        match opacity.number("bVTy") {
-            Some(CONTROL_PEN_PRESSURE) => preset.dynamics.flow.pressure = Some(PressureCurve::linear()),
+    for (key, opacity) in [("opVr", true), ("prVr", false)] {
+        let Some(control) = entry.descriptor(key).filter(|_| paint_dynamics) else { continue };
+        let dynamic = if opacity { &mut preset.dynamics.opacity } else { &mut preset.dynamics.flow };
+        let minimum = control.number("Mnm ").map(|m| (m as f32 / 100.0).clamp(0.0, 1.0)).filter(|m| *m > 0.0);
+        match control.number("bVTy") {
+            Some(CONTROL_PEN_PRESSURE) => {
+                dynamic.pressure = Some(PressureCurve::linear());
+                dynamic.minimum = minimum;
+            }
             Some(CONTROL_PEN_TILT) => {
-                preset.dynamics.flow.tilt = Some(PressureCurve::from_points(vec![[0.0, 1.0], [1.0, 0.0]]));
+                let low = minimum.unwrap_or(0.0);
+                dynamic.tilt = Some(PressureCurve::from_points(vec![[0.0, 1.0], [1.0, low]]));
+            }
+            Some(CONTROL_FADE) => {
+                dynamic.fade = Some(fade_steps(control));
+                dynamic.minimum = minimum;
             }
             _ => {}
         }
-        if let Some(j) = opacity.number("jitter").filter(|j| *j > 0.0) {
-            preset.dynamics.flow.random = Some((j as f32 / 100.0).clamp(0.0, 1.0));
+        if let Some(j) = control.number("jitter").filter(|j| *j > 0.0) {
+            dynamic.random = Some((j as f32 / 100.0).clamp(0.0, 1.0));
         }
     }
     // Angle dynamics: jitter (100% = ±180°) and direction control.
@@ -519,7 +562,7 @@ fn preset_from_desc(
             _ => {}
         }
     }
-    // Roundness dynamics: tip thickness from pressure / tilt, down to `minimumRoundness`.
+    // Roundness dynamics: tip thickness from pressure / tilt / fade, down to `minimumRoundness`.
     if let Some(round) = entry.descriptor("roundnessDynamics").filter(|_| tip_dynamics) {
         let low = entry.number("minimumRoundness").map_or(0.25, |m| (m as f32 / 100.0).clamp(0.01, 1.0));
         match round.number("bVTy") {
@@ -529,13 +572,77 @@ fn preset_from_desc(
             Some(CONTROL_PEN_TILT) => {
                 preset.dynamics.thickness.tilt = Some(PressureCurve::from_points(vec![[0.0, 1.0], [1.0, low]]));
             }
+            Some(CONTROL_FADE) => {
+                preset.dynamics.thickness.fade = Some(fade_steps(round));
+                preset.dynamics.thickness.minimum = Some(low);
+            }
             _ => {}
         }
         if let Some(j) = round.number("jitter").filter(|j| *j > 0.0) {
             preset.dynamics.thickness.random = Some((j as f32 / 100.0).clamp(0.0, 1.0));
         }
     }
+    // Texture depth: from pressure / tilt / fade down to `minimumDepth`, plus jitter.
+    if let Some(depth) = entry.descriptor("textureDepthDynamics").filter(|_| entry.flag("useTexture") == Some(true)) {
+        let low = entry.number("minimumDepth").map_or(0.0, |m| (m as f32 / 100.0).clamp(0.0, 1.0));
+        let t = &mut preset.dynamics.texture;
+        match depth.number("bVTy") {
+            Some(CONTROL_PEN_PRESSURE) => {
+                t.pressure = Some(PressureCurve::linear());
+                t.minimum = Some(low);
+            }
+            Some(CONTROL_PEN_TILT) => t.tilt = Some(PressureCurve::from_points(vec![[0.0, 1.0], [1.0, low]])),
+            Some(CONTROL_FADE) => {
+                t.fade = Some(fade_steps(depth));
+                t.minimum = Some(low);
+            }
+            _ => {}
+        }
+        if let Some(j) = depth.number("jitter").filter(|j| *j > 0.0) {
+            t.random = Some((j as f32 / 100.0).clamp(0.0, 1.0));
+        }
+    }
+    // Flips of the tip on every dab ("Flip X / Y Jitter").
+    preset.dynamics.random_flip_x = entry.flag("flipX").unwrap_or(false);
+    preset.dynamics.random_flip_y = entry.flag("flipY").unwrap_or(false);
     preset.apply_dynamics();
+
+    // Scattering: dabs thrown across (and along) the stroke, several per spacing step.
+    if entry.flag("useScatter") == Some(true) {
+        let amount = entry.descriptor("scatterDynamics").and_then(|d| d.number("jitter")).unwrap_or(0.0);
+        preset.settings.scatter = painter_core::Scatter {
+            amount: (amount as f32 / 100.0).clamp(0.0, 10.0),
+            count: entry.number("Cnt ").map_or(1, |c| c.round().clamp(1.0, 16.0) as u32),
+            count_jitter: entry.descriptor("countDynamics").and_then(|d| d.number("jitter")).map_or(0.0, |j| (j as f32 / 100.0).clamp(0.0, 1.0)),
+            both_axes: entry.flag("bothAxes").unwrap_or(false),
+        };
+    }
+
+    // Colour dynamics: towards the background colour, hue, saturation, brightness, purity.
+    if entry.flag("useColorDynamics") == Some(true) {
+        let percent = |key: &str| entry.number(key).map_or(0.0, |v| (v as f32 / 100.0).clamp(-1.0, 1.0));
+        let sub = entry.descriptor("clVr");
+        preset.settings.color_jitter = painter_core::ColorJitter {
+            hue: percent("H   ").abs(),
+            saturation: percent("Strt").abs(),
+            value: percent("Brgh").abs(),
+            per_dab: entry.flag("colorDynamicsPerTip").unwrap_or(true),
+            sub_mix: sub.and_then(|d| d.number("jitter")).map_or(0.0, |j| (j as f32 / 100.0).clamp(0.0, 1.0)),
+            sub_by_pressure: sub.and_then(|d| d.number("bVTy")) == Some(CONTROL_PEN_PRESSURE),
+            purity: percent("purity"),
+        };
+        // A pressure control mixes all the way, light pressure towards the background.
+        if preset.settings.color_jitter.sub_by_pressure && preset.settings.color_jitter.sub_mix == 0.0 {
+            preset.settings.color_jitter.sub_mix = 1.0;
+        }
+    }
+
+    // Wet edges, noise, build-up.
+    if entry.flag("Wtdg") == Some(true) {
+        preset.settings.water_edge = Some(painter_core::WaterEdge::wet_edges(preset.settings.size));
+    }
+    preset.settings.noise = entry.flag("Nose") == Some(true);
+    preset.settings.build_up = entry.flag("Rpt ") == Some(true);
 
     // Texture: a pattern from the `patt` section, by UUID (or name).
     if entry.flag("useTexture") == Some(true) {
@@ -548,12 +655,19 @@ fn preset_from_desc(
                 .or_else(|| patterns.iter().find(|p| pattern_name.is_some_and(|n| p.name == n)));
             match found {
                 Some(pattern) => {
-                    preset.texture = Some(BrushTexture {
-                        image: pattern.image.clone(),
-                        scale: entry.number("textureScale").unwrap_or(100.0) as f32,
-                        density: (entry.number("textureDepth").unwrap_or(100.0) as f32 / 100.0).clamp(0.0, 1.0),
-                        invert: entry.flag("InvT").unwrap_or(false),
-                    });
+                    let mut texture = BrushTexture::new(
+                        pattern.image.clone(),
+                        entry.number("textureScale").unwrap_or(100.0) as f32,
+                        (entry.number("textureDepth").unwrap_or(100.0) as f32 / 100.0).clamp(0.0, 1.0),
+                        entry.flag("InvT").unwrap_or(false),
+                    );
+                    texture.mode = enum_value(entry, "textureBlendMode").map_or(MaskMode::Multiply, mask_mode);
+                    // Brightness −150..=150 levels, contrast −50..=100 %.
+                    texture.brightness = entry.number("textureBrightness").map_or(0.0, |b| (b as f32 / 255.0).clamp(-1.0, 1.0));
+                    texture.contrast = entry.number("textureContrast").map_or(1.0, |c| (1.0 + c as f32 / 100.0).clamp(0.0, 3.0));
+                    // Older files have no switch and texture every tip.
+                    texture.each_dab = entry.flag("TxtC").unwrap_or(true);
+                    preset.texture = Some(texture);
                 }
                 None => warnings.push(format!(
                     "\"{name}\": texture pattern {} not in the file; painting without texture",
@@ -563,33 +677,81 @@ fn preset_from_desc(
         }
     }
 
-    // Dual brush: its own tip, scaled relative to the main diameter.
-    if entry.flag("useDualBrush") == Some(true) {
-        if let Some(dual) = entry.descriptor("dualBrush") {
-            let dual_tip_desc = dual.descriptor("Brsh");
-            let (dual_id, dual_sample) = sample_for(dual_tip_desc, samples);
-            let main = preset.settings.size.max(1.0);
-            let diameter = dual_tip_desc.and_then(|t| t.number("Dmtr")).map_or(main, |d| d as f32);
-            let tip = match (dual_sample, &dual_id) {
-                (Some(s), _) => Some(s.tip.clone()),
-                (None, None) => Some(disc_tip(dual_tip_desc.and_then(|t| t.number("Hrdn")).map_or(1.0, |h| h as f32 / 100.0))),
-                (None, Some(id)) => {
-                    warnings.push(format!("\"{name}\": dual brush tip {id} missing; dual brush dropped"));
-                    None
-                }
-            };
-            if let Some(tip) = tip {
-                preset.dual = Some(DualBrush { tip, scale: (diameter / main).clamp(0.05, 8.0) });
+    // Dual brush: its own tip, scaled relative to the main diameter. The
+    // switch is inside `dualBrush` (older files: next to it).
+    let dual_on = |d: &Descriptor| d.flag("useDualBrush").or(entry.flag("useDualBrush")) == Some(true);
+    if let Some(dual) = entry.descriptor("dualBrush").filter(|d| dual_on(d)) {
+        let dual_tip_desc = dual.descriptor("Brsh");
+        let (dual_id, dual_sample) = sample_for(dual_tip_desc, samples);
+        let main = preset.settings.size.max(1.0);
+        let diameter = dual_tip_desc.and_then(|t| t.number("Dmtr")).map_or(main, |d| d as f32);
+        let tip = match (dual_sample, &dual_id) {
+            (Some(s), _) => Some(s.tip.clone()),
+            (None, None) => Some(disc_tip(dual_tip_desc.and_then(|t| t.number("Hrdn")).map_or(1.0, |h| h as f32 / 100.0))),
+            (None, Some(id)) => {
+                warnings.push(format!("\"{name}\": dual brush tip {id} missing; dual brush dropped"));
+                None
             }
+        };
+        if let Some(tip) = tip {
+            let mode = enum_value(dual, "BlnM").map_or(MaskMode::Multiply, mask_mode);
+            preset.dual = Some(DualBrush { tip, scale: (diameter / main).clamp(0.05, 8.0), mode });
         }
     }
 
-    for key in ["Wtdg", "Nose", "Rpt ", "useScatter", "useBrushPose", "textureBlendMode", "dualBrush"] {
+    for key in ["useBrushPose", "brushProjection", "tiltScale", "dualBrush", "toolOptions"] {
         if let Some(value) = entry.get(key) {
             preset.extras.insert(format!("abr.{}", key.trim()), describe(value));
         }
     }
     preset
+}
+
+/// A control's Fade steps (`fStp`), at least one.
+fn fade_steps(control: &Descriptor) -> u32 {
+    control.number("fStp").map_or(25, |s| s.round().clamp(1.0, 9999.0) as u32)
+}
+
+/// The value of an enumerated item (`BlnM.multiply` → `multiply`).
+fn enum_value<'a>(d: &'a Descriptor, key: &str) -> Option<&'a str> {
+    match d.get(key)? {
+        Value::Enum(_, value) => Some(value.trim()),
+        Value::Text(t) => Some(t.rsplit('.').next().unwrap_or(t).trim()),
+        _ => None,
+    }
+}
+
+/// Photoshop's blend mode names (and their older four-letter codes) as brush modes.
+fn brush_blend(name: &str) -> Option<BrushBlend> {
+    Some(match name {
+        "normal" | "Nrml" => BrushBlend::Normal,
+        "behind" | "Bhnd" => BrushBlend::Behind,
+        "darken" | "Drkn" => BrushBlend::Darken,
+        "multiply" | "Mltp" => BrushBlend::Multiply,
+        "colorBurn" | "CBrn" => BrushBlend::ColorBurn,
+        "linearBurn" => BrushBlend::LinearBurn,
+        "lighten" | "Lghn" => BrushBlend::Lighten,
+        "screen" | "Scrn" => BrushBlend::Screen,
+        "colorDodge" | "CDdg" => BrushBlend::ColorDodge,
+        "linearDodge" => BrushBlend::Add,
+        "overlay" | "Ovrl" => BrushBlend::Overlay,
+        "softLight" | "SftL" => BrushBlend::SoftLight,
+        "hardLight" | "HrdL" => BrushBlend::HardLight,
+        "difference" | "Dfrn" => BrushBlend::Difference,
+        _ => return None,
+    })
+}
+
+/// Photoshop's texture and dual brush modes as ours (the height modes eat
+/// into thin ink like Subtract; Overlay and the dodges are closest to Multiply).
+fn mask_mode(name: &str) -> MaskMode {
+    match name {
+        "subtract" | "linearHeight" | "height" | "linearBurn" => MaskMode::Subtract,
+        "darken" | "Drkn" => MaskMode::Darken,
+        "colorBurn" | "CBrn" => MaskMode::ColorBurn,
+        "hardMix" => MaskMode::HardMix,
+        _ => MaskMode::Multiply,
+    }
 }
 
 /// A JSON rendering of a descriptor value, for `extras`.
@@ -774,7 +936,8 @@ mod tests {
         assert!((engine_tip.thickness - 0.5).abs() < 1e-6 && engine_tip.angle == 30.0);
         assert_eq!(ink.settings.size, 42.0);
         assert!((ink.settings.spacing - 0.12).abs() < 1e-6);
-        assert!(ink.settings.pressure_size && ink.settings.pressure_density);
+        // Transfer's opacity control is per-dab opacity.
+        assert!(ink.settings.pressure_size && ink.settings.opacity_dynamics.pressure.is_some());
         assert!((ink.settings.min_size_ratio - 0.2).abs() < 1e-6);
         assert_eq!(ink.dynamics.size.random, Some(0.1));
         assert!((ink.thickness - 0.5).abs() < 1e-6 && ink.angle == 30.0);
@@ -996,7 +1159,7 @@ mod tests {
         let size_tilt = s.size_dynamics.tilt.as_ref().expect("size from tilt");
         assert!(size_tilt.eval(0.0) == 1.0 && (size_tilt.eval(1.0) - 0.4).abs() < 1e-6);
         assert!((s.size_dynamics.jitter - 0.25).abs() < 1e-6);
-        assert_eq!(s.density_dynamics.tilt.as_ref().unwrap().eval(1.0), 0.0);
+        assert_eq!(s.opacity_dynamics.tilt.as_ref().unwrap().eval(1.0), 0.0);
         assert!(s.rotation.follow_direction && (s.rotation.jitter - 0.5).abs() < 1e-6);
         let thickness = s.thickness_dynamics.pressure.as_ref().expect("roundness from pressure");
         assert!((thickness.eval(0.0) - 0.3).abs() < 1e-6 && thickness.eval(1.0) == 1.0);

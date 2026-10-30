@@ -9,7 +9,7 @@
 //! `stroke_merge.wgsl` ↔ `raster::merge_stroke`).
 
 use bytemuck::{Pod, Zeroable};
-use painter_core::{BrushSettings, Dab, DabTexture, DabTip, DualTip};
+use painter_core::{BrushSettings, Dab, DabTexture, DabTip, DualTip, TipBitmap};
 use wgpu::util::DeviceExt;
 
 use crate::assets::TextureAssets;
@@ -28,6 +28,8 @@ pub struct DabStyle {
     pub tip: DabTip,
     pub texture: Option<DabTexture>,
     pub dual: Option<DualTip>,
+    /// Photoshop's noise in the soft parts of the tip.
+    pub noise: bool,
 }
 
 impl DabStyle {
@@ -40,6 +42,7 @@ impl DabStyle {
             tip: settings.tip.clone(),
             texture: settings.texture.clone(),
             dual: settings.dual.clone(),
+            noise: settings.noise,
         }
     }
 }
@@ -76,6 +79,10 @@ struct DabInstance {
     /// The tip's thickness × this dab's (thickness dynamics), 0.01..=1;
     /// negative when the dab is mirrored (`Dab::mirror`).
     flatness: f32,
+    /// The dab's own colour with alpha 1 (`Dab::color`), else zero.
+    color: [f32; 4],
+    /// Multiplies the texture density (`Dab::texture`).
+    texture: f32,
 }
 
 #[repr(C)]
@@ -99,7 +106,12 @@ struct DabParams {
     has_dual: u32,
     /// Canvas position of the target's top-left pixel.
     origin: [f32; 2],
-    _pad: [f32; 2],
+    texture_mode: u32,
+    dual_mode: u32,
+    texture_brightness: f32,
+    texture_contrast: f32,
+    noise: u32,
+    texture_each_dab: u32,
 }
 
 #[repr(C)]
@@ -113,10 +125,19 @@ struct MergeParams {
     _pad: u32,
     /// Canvas position of the target's (and the stroke texture's) top-left pixel.
     origin: [i32; 2],
+    has_texture: u32,
+    texture_mode: u32,
+    texture_scale: f32,
+    texture_density: f32,
+    texture_invert: u32,
+    texture_brightness: f32,
+    texture_contrast: f32,
+    _pad1: u32,
 }
 
-const DAB_ATTRIBUTES: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
-    0 => Float32x2, 1 => Float32, 2 => Float32, 3 => Float32, 4 => Uint32, 5 => Uint32, 6 => Float32x2, 7 => Float32
+const DAB_ATTRIBUTES: [wgpu::VertexAttribute; 10] = wgpu::vertex_attr_array![
+    0 => Float32x2, 1 => Float32, 2 => Float32, 3 => Float32, 4 => Uint32, 5 => Uint32, 6 => Float32x2, 7 => Float32, 8 => Float32x4,
+    9 => Float32
 ];
 
 /// Draws dabs with premultiplied source-over into an `Rgba16Float` stroke target
@@ -141,7 +162,7 @@ impl DabRenderer {
                 gpu::texture_entry(3),
             ],
         });
-        let shader = gpu::shader(device, "dab", include_str!("shaders/dab.wgsl"));
+        let shader = gpu::shader(device, "dab", concat!(include_str!("shaders/brush_mask.wgsl"), include_str!("shaders/dab.wgsl")));
         let pipeline = |format| {
             gpu::pipeline(
                 device,
@@ -189,9 +210,20 @@ impl DabRenderer {
                 let dual_level = style.dual.as_ref().map_or(0, |dual| dual.mip_level(d.radius));
                 let rotation = tip.rotation(d.angle);
                 let flatness = tip.flatness_for(d.thickness) * if d.mirror { -1.0 } else { 1.0 };
-                DabInstance { center: [d.x, d.y], radius: d.radius, alpha: d.alpha, reach, level, dual_level, rotation, flatness }
+                let color = d.color.map_or([0.0; 4], |c| [c[0], c[1], c[2], 1.0]);
+                DabInstance { center: [d.x, d.y], radius: d.radius, alpha: d.alpha, reach, level, dual_level, rotation, flatness, color, texture: d.texture }
             })
             .collect()
+    }
+
+    /// Uploads `bitmap` if it isn't yet (a whole-stroke paper texture for the merge).
+    pub(crate) fn ensure_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, bitmap: &std::sync::Arc<TipBitmap>) {
+        self.assets.ensure(device, queue, bitmap);
+    }
+
+    /// An uploaded bitmap's texture, or the placeholder bound when there's none.
+    pub(crate) fn texture_view(&self, bitmap: Option<&std::sync::Arc<TipBitmap>>) -> &wgpu::TextureView {
+        self.assets.view(bitmap)
     }
 
     /// (resident textures, resident bytes, uploads so far) of the brush texture cache.
@@ -257,7 +289,12 @@ impl DabRenderer {
             dual_scale: dual.map_or(1.0, DualTip::scale),
             has_dual: u32::from(dual.is_some()),
             origin: [at.x as f32, at.y as f32],
-            _pad: [0.0; 2],
+            texture_mode: texture.map_or(0, |t| t.mode.shader_id()),
+            dual_mode: dual.map_or(0, |d| d.mode.shader_id()),
+            texture_brightness: texture.map_or(0.0, |t| t.brightness),
+            texture_contrast: texture.map_or(1.0, |t| t.contrast),
+            noise: u32::from(style.noise),
+            texture_each_dab: u32::from(texture.is_none_or(|t| t.each_dab)),
         };
         let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("dab params"),
@@ -320,12 +357,17 @@ impl StrokeMerger {
                 gpu::texture_entry(2),
                 gpu::index_entry(3),
                 gpu::uniform_entry(4, wgpu::ShaderStages::FRAGMENT),
+                gpu::texture_entry(5),
             ],
         });
         let shader = gpu::shader(
             device,
             "stroke merge",
-            concat!(include_str!("shaders/atlas.wgsl"), include_str!("shaders/stroke_merge.wgsl")),
+            concat!(
+                include_str!("shaders/atlas.wgsl"),
+                include_str!("shaders/brush_mask.wgsl"),
+                include_str!("shaders/stroke_merge.wgsl")
+            ),
         );
         let pipeline = gpu::pipeline(
             device,
@@ -342,6 +384,7 @@ impl StrokeMerger {
     }
 
     /// `stroke` and `target` cover the same canvas rectangle, with its top-left at `origin`.
+    /// `paper` shapes the whole stroke (its view and settings); `empty` is bound otherwise.
     #[allow(clippy::too_many_arguments)]
     pub fn merge(
         &self,
@@ -355,7 +398,10 @@ impl StrokeMerger {
         target: &wgpu::TextureView,
         origin: [i32; 2],
         how: MergeOptions,
+        paper: Option<(&wgpu::TextureView, &DabTexture)>,
+        empty: &wgpu::TextureView,
     ) {
+        let texture = paper.map(|(_, t)| t);
         let params = MergeParams {
             opacity: how.opacity,
             erase: u32::from(how.erase),
@@ -364,6 +410,14 @@ impl StrokeMerger {
             blend: how.blend,
             _pad: 0,
             origin,
+            has_texture: u32::from(texture.is_some()),
+            texture_mode: texture.map_or(0, |t| t.mode.shader_id()),
+            texture_scale: texture.map_or(1.0, DabTexture::scale),
+            texture_density: texture.map_or(0.0, |t| t.density.clamp(0.0, 1.0)),
+            texture_invert: u32::from(texture.is_some_and(|t| t.invert)),
+            texture_brightness: texture.map_or(0.0, |t| t.brightness),
+            texture_contrast: texture.map_or(1.0, |t| t.contrast),
+            _pad1: 0,
         };
         let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("stroke merge params"),
@@ -382,6 +436,7 @@ impl StrokeMerger {
                     resource: wgpu::BindingResource::TextureView(selection_index.unwrap_or(no_index)),
                 },
                 wgpu::BindGroupEntry { binding: 4, resource: uniform.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(paper.map_or(empty, |(v, _)| v)) },
             ],
         });
         let mut pass =
@@ -398,9 +453,11 @@ mod tests {
 
     #[test]
     fn dab_layouts_match_wgsl() {
-        // WGSL `DabParams` is 96 bytes (vec2s at 8-byte offsets, a vec4 pad at
-        // 80, size a multiple of 16); `DabIn` takes 40 bytes per instance.
-        assert_eq!(std::mem::size_of::<DabParams>(), 96);
-        assert_eq!(std::mem::size_of::<DabInstance>(), 40);
+        // WGSL `DabParams` is 112 bytes (vec2s at 8-byte offsets, the colour
+        // vec4 at 16, size a multiple of 16); `DabIn` takes 60 bytes per
+        // instance; `MergeParams` 64.
+        assert_eq!(std::mem::size_of::<DabParams>(), 112);
+        assert_eq!(std::mem::size_of::<DabInstance>(), 60);
+        assert_eq!(std::mem::size_of::<MergeParams>(), 64);
     }
 }

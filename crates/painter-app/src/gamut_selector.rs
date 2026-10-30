@@ -493,7 +493,7 @@ impl PainterApp {
         }
 
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(format!("{} · {}", space.name(), shape.name())).small());
+            ui.label(egui::RichText::new(format!("{} · {}", tr(space.name()), tr(shape.name()))).small());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.menu_button(tr("☰"), |ui| self.gamut_menu(ui)).response.on_hover_text(tr("Colour model and shape"));
             });

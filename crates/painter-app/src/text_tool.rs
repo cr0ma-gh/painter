@@ -949,7 +949,7 @@ fn text_props_ui(ui: &mut egui::Ui, item: &mut TextItem, fonts: &[String], filte
             .show_ui(ui, |ui| {
                 ui.add(egui::TextEdit::singleline(filter).hint_text(tr("Search fonts")));
                 egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
-                    ui.selectable_value(&mut item.font, String::new(), "Built-in");
+                    ui.selectable_value(&mut item.font, String::new(), tr("Built-in"));
                     let f = filter.to_lowercase();
                     for name in fonts.iter().filter(|n| f.is_empty() || n.to_lowercase().contains(&f)) {
                         ui.selectable_value(&mut item.font, name.clone(), name);

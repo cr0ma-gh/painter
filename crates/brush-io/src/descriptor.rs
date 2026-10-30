@@ -248,6 +248,9 @@ pub(crate) mod build {
         Text(&'a str),
         Long(i32),
         Bool(bool),
+        Double(f64),
+        /// An enumerated value: type and value (`BlnM`, `multiply`).
+        Enum(&'a str, &'a str),
     }
 
     pub fn descriptor(out: &mut Vec<u8>, class: &str, items: &[(&str, V<'_>)]) {
@@ -289,6 +292,15 @@ pub(crate) mod build {
             V::Bool(b) => {
                 out.extend(b"bool");
                 out.push(u8::from(*b));
+            }
+            V::Double(v) => {
+                out.extend(b"doub");
+                out.extend(v.to_be_bytes());
+            }
+            V::Enum(kind, value) => {
+                out.extend(b"enum");
+                id(out, kind);
+                id(out, value);
             }
         }
     }

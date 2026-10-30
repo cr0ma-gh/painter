@@ -84,6 +84,8 @@ pub(crate) struct ActiveStroke {
     begun: Instant,
     /// The last point fed (after ruler snapping): where a Shift-click line starts next.
     last: StrokePoint,
+    /// When `last` came in, for build-up while the pen rests.
+    last_at: Instant,
     /// Stamps and the history brush: colours from a source, merged as the stroke goes.
     source: Option<crate::stamp_tool::SourceStroke>,
 }
@@ -524,7 +526,7 @@ impl PainterApp {
             doc_touched: false,
             new_texture_size: 1024,
             allow_close: false,
-            status: "Ready".into(),
+            status: tr("Ready").into(),
             file_path: None,
             dirty: false,
             title: String::new(),
@@ -1180,7 +1182,12 @@ impl PainterApp {
             // Colour jitter: one variation per stroke, reproducible from its id.
             let seed = self.next_stroke_id.wrapping_mul(0x9E37_79B9_7F4A_7C15);
             let r = [0u32, 21, 42].map(|s| ((seed >> s) & 0xF_FFFF) as f32 / 0xF_FFFF as f32);
-            settings.color_jitter.apply(self.main_rgb(), r)
+            if settings.color_jitter.per_dab {
+                // Varied dab by dab by the stroke engine instead.
+                self.main_rgb()
+            } else {
+                settings.color_jitter.apply(self.main_rgb(), r)
+            }
         };
         let vector_erase = is_vector && settings.mode == BrushMode::Erase && self.tools.vector_erase != crate::tools::VectorErase::Area;
         if settings.mode != BrushMode::Erase && matches!(plane, Plane::Color(_)) {
@@ -1189,6 +1196,11 @@ impl PainterApp {
         }
         // Seeded per stroke: random dynamics differ between strokes and replay exactly.
         let mut engine = StrokeEngine::with_seed(&settings, self.next_stroke_id);
+        // Colours per dab between the main and sub colours (pixel layers: a
+        // vector stroke replays with one colour).
+        if matches!(plane, Plane::Color(_)) && !is_vector && settings.mode != BrushMode::Erase {
+            engine.set_colors(color, self.ink_rgb(self.sub_color));
+        }
         let dabs = engine.add(p);
         let id = self.next_stroke_id;
         self.next_stroke_id += 1;
@@ -1209,6 +1221,7 @@ impl PainterApp {
             rulers,
             begun: Instant::now(),
             last: p,
+            last_at: Instant::now(),
             source,
         });
         self.queue_dabs(dabs);
@@ -1225,6 +1238,7 @@ impl PainterApp {
                 }
             }
             stroke.last = p;
+            stroke.last_at = Instant::now();
             let screen = self.view.doc_to_screen(self.canvas_rect, Vec2::new(self.doc.width as f32, self.doc.height as f32), egui::Pos2::new(p.x, p.y));
             self.smart_move(p, screen);
             let Some(stroke) = &mut self.stroke else { return };
@@ -1299,7 +1313,9 @@ impl PainterApp {
         if !tail.is_empty() {
             stroke.rasterizer.push(tail);
         }
-        let result = stroke.rasterizer.finish();
+        let mut result = stroke.rasterizer.finish();
+        // A whole-stroke texture and the watercolor edge, now that every dab is down.
+        painter_core::raster::finish_stroke(&mut result, &stroke.settings);
         let canvas = self.doc.canvas();
 
         if let (Some(eraser), Plane::Color(id)) = (&stroke.vector_erase, stroke.plane) {
@@ -1350,6 +1366,16 @@ impl PainterApp {
         self.session_stroke(stroke.plane, &result.buffer, &result.dirty, opacity, erase, blend, stroke.alpha_locked, selection.as_ref());
         self.finish_edit(stroke.plane, &stroke.before, result.dirty.iter().copied());
         self.upload_tiles(stroke.plane, result.dirty);
+    }
+
+    /// Build-up: the dabs a pen resting on the canvas keeps laying (Photoshop's
+    /// airbrush, Clip Studio's continuous spray). Asks for frames while it lasts.
+    pub(crate) fn build_up_stroke(&mut self, ctx: &egui::Context) {
+        let Some(stroke) = self.stroke.as_mut().filter(|s| s.settings.build_up && s.source.is_none()) else { return };
+        let now = stroke.last.time + stroke.last_at.elapsed().as_secs_f32();
+        let dabs = stroke.engine.hold(now);
+        ctx.request_repaint_after(std::time::Duration::from_secs_f32(painter_core::stroke::BUILD_UP_INTERVAL));
+        self.queue_dabs(dabs);
     }
 
     /// The in-progress stroke's new dabs for this frame's GPU preview.

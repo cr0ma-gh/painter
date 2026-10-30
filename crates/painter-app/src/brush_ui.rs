@@ -23,6 +23,8 @@ pub(crate) enum BrushBadge {
     Dual,
     /// Dabs sprayed around the stroke.
     Spray,
+    /// Ink pooling at the rim (watercolor edge / wet edges).
+    Wet,
     /// Imported from Clip Studio.
     ClipStudio,
     /// Imported from Photoshop.
@@ -42,6 +44,7 @@ impl BrushBadge {
             BrushBadge::Texture => "TEX",
             BrushBadge::Dual => "2×",
             BrushBadge::Spray => "SPR",
+            BrushBadge::Wet => "WET",
             BrushBadge::ClipStudio => "CSP",
             BrushBadge::Photoshop => "ABR",
             BrushBadge::Krita => "KRA",
@@ -57,6 +60,7 @@ impl BrushBadge {
             BrushBadge::Texture => "Paper texture",
             BrushBadge::Dual => "Second tip (dual brush)",
             BrushBadge::Spray => "Spraying effect",
+            BrushBadge::Wet => "Watercolor edge",
             BrushBadge::ClipStudio => "Imported from Clip Studio",
             BrushBadge::Photoshop => "Imported from Photoshop",
             BrushBadge::Krita => "Imported from Krita",
@@ -71,6 +75,7 @@ impl BrushBadge {
             BrushBadge::Texture => Color32::from_rgb(200, 150, 70),
             BrushBadge::Dual => Color32::from_rgb(170, 110, 210),
             BrushBadge::Spray => Color32::from_rgb(90, 170, 120),
+            BrushBadge::Wet => Color32::from_rgb(70, 160, 190),
             BrushBadge::ClipStudio | BrushBadge::Photoshop | BrushBadge::Krita | BrushBadge::OtherApp => Color32::from_gray(120),
         }
     }
@@ -93,6 +98,9 @@ pub(crate) fn badges(preset: &BrushPreset) -> Vec<BrushBadge> {
     }
     if s.scatter.is_on() {
         out.push(BrushBadge::Spray);
+    }
+    if s.water_edge.is_some() {
+        out.push(BrushBadge::Wet);
     }
     match preset.source {
         PresetSource::Native => {}
@@ -203,9 +211,9 @@ pub(crate) enum PropertyGroup {
     Curves,
     /// Paper texture and second tip.
     Texture,
-    /// Stabilisation, smoothing, starting taper.
+    /// Stabilisation, smoothing, starting and ending, build-up.
     Correction,
-    /// Spraying effect and colour jitter.
+    /// Spraying effect, colour jitter, noise, watercolor edge.
     Effects,
 }
 
@@ -266,17 +274,23 @@ pub(crate) fn reset_group(to: &mut BrushPreset, from: &BrushPreset, group: Prope
             let tip_changed = to.texture != from.texture || to.dual != from.dual;
             to.texture = from.texture.clone();
             to.dual = from.dual.clone();
+            to.settings.texture_dynamics = from.settings.texture_dynamics.clone();
             tip_changed
         }
         PropertyGroup::Correction => {
             s.stabilization = f.stabilization;
             s.smoothing = f.smoothing;
             s.taper_start = f.taper_start;
+            s.taper_end = f.taper_end;
+            s.taper_minimum = f.taper_minimum;
+            s.build_up = f.build_up;
             false
         }
         PropertyGroup::Effects => {
             s.scatter = f.scatter;
             s.color_jitter = f.color_jitter;
+            s.noise = f.noise;
+            s.water_edge = f.water_edge;
             false
         }
     }
@@ -314,9 +328,16 @@ pub(crate) fn group_differs(a: &BrushPreset, b: &BrushPreset, group: PropertyGro
                 || s.tilt_side != f.tilt_side
         }
         PropertyGroup::Curves => s.size_curve != f.size_curve || s.density_curve != f.density_curve,
-        PropertyGroup::Texture => a.texture != b.texture || a.dual != b.dual,
-        PropertyGroup::Correction => s.stabilization != f.stabilization || s.smoothing != f.smoothing || s.taper_start != f.taper_start,
-        PropertyGroup::Effects => s.scatter != f.scatter || s.color_jitter != f.color_jitter,
+        PropertyGroup::Texture => a.texture != b.texture || a.dual != b.dual || s.texture_dynamics != f.texture_dynamics,
+        PropertyGroup::Correction => {
+            s.stabilization != f.stabilization
+                || s.smoothing != f.smoothing
+                || s.taper_start != f.taper_start
+                || s.taper_end != f.taper_end
+                || s.taper_minimum != f.taper_minimum
+                || s.build_up != f.build_up
+        }
+        PropertyGroup::Effects => s.scatter != f.scatter || s.color_jitter != f.color_jitter || s.noise != f.noise || s.water_edge != f.water_edge,
     }
 }
 
@@ -385,6 +406,7 @@ mod tests {
             BrushBadge::Texture,
             BrushBadge::Dual,
             BrushBadge::Spray,
+            BrushBadge::Wet,
             BrushBadge::ClipStudio,
             BrushBadge::Photoshop,
             BrushBadge::Krita,

@@ -115,6 +115,7 @@ impl PainterApp {
         if !self.uploads.is_empty() {
             self.doc_touched = true;
         }
+        self.build_up_stroke(ui.ctx());
         let stroke = self.take_stroke_preview();
         if self.gpu_ready {
             let time = self.started.elapsed().as_secs_f32();

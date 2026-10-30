@@ -608,9 +608,12 @@ impl PainterApp {
     ) -> Option<AreaAction> {
         let area = tree.area(id)?.clone();
         let editor = area.editor();
+        // A hairline of backdrop between areas, rounded corners: each panel a card.
+        let rect = rect.shrink(1.0);
+        let r = theme::radius().min(6.0) as u8;
         let header = Rect::from_min_size(rect.min, Vec2::new(rect.width(), HEADER.min(rect.height())));
         let body = Rect::from_min_max(egui::pos2(rect.min.x, header.max.y), rect.max);
-        ui.painter().rect_filled(header, 0.0, theme::title());
+        ui.painter().rect_filled(header, egui::CornerRadius { nw: r, ne: r, sw: 0, se: 0 }, theme::title());
         let many_areas = tree.areas().len() > 1;
         let mut action = None;
 
@@ -650,7 +653,7 @@ impl PainterApp {
             let names: f32 = area
                 .editors
                 .iter()
-                .map(|e| head.fonts(|f| f.layout_no_wrap(e.title().to_string(), font.clone(), text).size().x) + 16.0)
+                .map(|e| head.fonts(|f| f.layout_no_wrap(tr(e.title()).to_string(), font.clone(), text).size().x) + 16.0)
                 .sum();
             let fits = names + 36.0 <= header.width();
             head.spacing_mut().button_padding.x = 4.0;
@@ -663,14 +666,22 @@ impl PainterApp {
                     head.painter().vline(x, (y - 5.0)..=(y + 5.0), egui::Stroke::new(1.0_f32, theme::line()));
                     head.add_space(3.0);
                 }
+                // Tabs are flat; the shown one is marked by an accent line under it.
                 let tab = if fits {
                     let label = egui::RichText::new(tr(e.title())).small().color(if shown { theme::strong() } else { theme::text_dim() });
-                    head.add(egui::Button::new(label).selected(shown).frame(shown))
+                    head.add(egui::Button::new(label).frame(false))
                 } else {
-                    let image = crate::icons::editor_icon(*e).image(icon_size, text);
-                    let label = if shown && roomy { e.title() } else { "" };
-                    head.add(egui::Button::image_and_text(image, egui::RichText::new(label).small()).selected(shown).frame(shown))
+                    let image = crate::icons::editor_icon(*e).image(icon_size, if shown { theme::strong() } else { theme::text_dim() });
+                    let label = if shown && roomy { tr(e.title()) } else { "" };
+                    head.add(egui::Button::image_and_text(image, egui::RichText::new(label).small()).frame(false))
                 };
+                if shown {
+                    let under = egui::Rect::from_min_max(egui::pos2(tab.rect.left() + 2.0, header.bottom() - 2.0), egui::pos2(tab.rect.right() - 2.0, header.bottom()));
+                    head.painter().rect_filled(under, 1.0, theme::accent());
+                } else if tab.hovered() {
+                    let under = egui::Rect::from_min_max(egui::pos2(tab.rect.left() + 2.0, header.bottom() - 2.0), egui::pos2(tab.rect.right() - 2.0, header.bottom()));
+                    head.painter().rect_filled(under, 1.0, theme::hover());
+                }
                 if tab.on_hover_text(tr(e.title())).clicked() {
                     action = Some(AreaAction::ShowTab(*e));
                 }
@@ -748,7 +759,8 @@ impl PainterApp {
         if body.height() < 4.0 {
             return action;
         }
-        ui.painter().rect_filled(body, 0.0, if editor.is_viewport() { theme::backdrop() } else { theme::panel() });
+        let fill = if editor.is_viewport() { theme::canvas_backdrop() } else { theme::panel() };
+        ui.painter().rect_filled(body, egui::CornerRadius { nw: 0, ne: 0, sw: r, se: r }, fill);
         let mut content =
             ui.new_child(UiBuilder::new().max_rect(body).layout(Layout::top_down(Align::Min)).id_salt(("area_body", id.0)));
         content.set_clip_rect(body.intersect(ui.clip_rect()));

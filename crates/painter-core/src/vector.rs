@@ -215,7 +215,7 @@ mod tests {
         let mut layer = VectorLayer { strokes: vec![stroke(10.0), stroke(60.0)], cache: TileStore::new(), ..Default::default() };
         rasterize(&mut layer, (100, 100));
         assert!(layer.cache.pixel(40, 10)[3] > 200);
-        let eraser = [Dab { x: 40.0, y: 12.0, radius: 3.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false }];
+        let eraser = [Dab { x: 40.0, y: 12.0, radius: 3.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false, color: None, texture: 1.0 }];
         assert!(erase_touching(&mut layer, &eraser, (100, 100)));
         assert_eq!(layer.strokes.len(), 1);
         assert_eq!(layer.cache.pixel(40, 10)[3], 0);
@@ -240,7 +240,7 @@ mod intersection_tests {
     }
 
     fn dab(x: f32, y: f32) -> Dab {
-        Dab { x, y, radius: 2.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false }
+        Dab { x, y, radius: 2.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false, color: None, texture: 1.0 }
     }
 
     #[test]

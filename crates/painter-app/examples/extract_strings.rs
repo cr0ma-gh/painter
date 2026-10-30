@@ -169,6 +169,12 @@ fn texts_of(src: &str) -> Vec<(String, usize)> {
                     "prop_percent",
                     "prop_slider_reset",
                     "prop_percent_reset",
+                    "percent_slider",
+                    "dynamics_row",
+                    "preset_buttons",
+                    "slider",
+                    "icon_button",
+                    "glyph_button",
                     "section",
                     "group_header",
                     "tr_str",
@@ -197,7 +203,7 @@ fn texts_of(src: &str) -> Vec<(String, usize)> {
                 }
             }
             (Token::Ident(f), Some(Token::Ident(n)), _)
-                if f == "fn" && ["name", "title", "area", "label", "hint", "tooltip"].contains(&n.as_str()) =>
+                if f == "fn" && ["name", "title", "area", "label", "hint", "tooltip", "help"].contains(&n.as_str()) =>
             {
                 // Only functions that return text.
                 let open = (i..t.len()).find(|&k| t[k] == Token::Punct('{')).unwrap_or(t.len());

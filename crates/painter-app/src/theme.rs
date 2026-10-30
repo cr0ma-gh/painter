@@ -83,6 +83,7 @@ pub fn apply(ctx: &egui::Context, theme: &Theme) {
         *c = theme.colors;
     }
     DARK.store(theme.base.is_dark(), Ordering::Relaxed);
+    RADIUS.store(theme.rounding, Ordering::Relaxed);
     // egui keeps a style for each of its light and dark modes and would switch
     // to its own when the system's changes: Painter's theme decides instead.
     ctx.set_theme(if theme.base.is_dark() { egui::Theme::Dark } else { egui::Theme::Light });
@@ -99,13 +100,27 @@ pub fn apply(ctx: &egui::Context, theme: &Theme) {
         .into();
         let spacing = &mut style.spacing;
         spacing.item_spacing = egui::vec2(6.0, 4.0);
-        spacing.button_padding = egui::vec2(6.0, 2.0);
+        spacing.button_padding = egui::vec2(7.0, 2.0);
         spacing.interact_size.y = (body + 7.5).max(20.0);
-        spacing.window_margin = Margin::same(8);
-        spacing.menu_margin = Margin::same(4);
+        spacing.window_margin = Margin::same(10);
+        spacing.menu_margin = Margin::same(5);
         spacing.slider_rail_height = 4.0;
         spacing.scroll = egui::style::ScrollStyle::thin();
+        // Quick, subtle state changes.
+        style.animation_time = 0.08;
     });
+}
+
+/// Corner radius of panels, wells and buttons (the theme's rounding).
+pub fn radius() -> f32 {
+    RADIUS.load(Ordering::Relaxed) as f32
+}
+
+static RADIUS: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(5);
+
+/// The accent at `strength` over the panel: tinted fills for selected tabs and toggles.
+pub fn accent_soft(strength: f32) -> Color32 {
+    mix(panel(), accent(), strength)
 }
 
 fn visuals(theme: &Theme) -> egui::Visuals {
@@ -114,9 +129,13 @@ fn visuals(theme: &Theme) -> egui::Visuals {
     let strong = if theme.base.is_dark() { Color32::WHITE } else { Color32::BLACK };
     v.panel_fill = panel;
     v.window_fill = panel;
-    v.window_stroke = Stroke::new(1.0_f32, line());
-    v.window_corner_radius = CornerRadius::same(theme.rounding + 1);
-    v.menu_corner_radius = CornerRadius::same(theme.rounding);
+    v.window_stroke = Stroke::new(1.0_f32, mix(line(), text, 0.08));
+    v.window_corner_radius = CornerRadius::same(theme.rounding + 2);
+    v.menu_corner_radius = CornerRadius::same(theme.rounding + 1);
+    // Soft, short shadows lift windows and menus off the panels.
+    let shadow = if theme.base.is_dark() { 110 } else { 48 };
+    v.window_shadow = egui::Shadow { offset: [0, 6], blur: 18, spread: 0, color: Color32::from_black_alpha(shadow) };
+    v.popup_shadow = egui::Shadow { offset: [0, 3], blur: 10, spread: 0, color: Color32::from_black_alpha(shadow) };
     v.extreme_bg_color = well();
     v.faint_bg_color = mix(panel, backdrop(), 0.5);
     v.code_bg_color = well();
@@ -145,6 +164,9 @@ fn visuals(theme: &Theme) -> egui::Visuals {
     w.active.bg_fill = selected();
     w.active.weak_bg_fill = selected();
     w.active.bg_stroke = Stroke::new(1.0_f32, accent());
+    // Focused fields and the slider handle in the accent.
+    v.selection.stroke = Stroke::new(1.0_f32, accent());
+    v.text_cursor.stroke = Stroke::new(2.0_f32, accent());
     w.active.fg_stroke = Stroke::new(1.0_f32, strong);
     w.open.weak_bg_fill = mix(panel, text, 0.11);
     for state in [&mut w.noninteractive, &mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {

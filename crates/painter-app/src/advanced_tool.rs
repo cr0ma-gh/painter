@@ -5,7 +5,7 @@
 
 use eframe::egui::{self, Color32, Sense, Vec2};
 use crate::i18n::tr;
-use painter_core::{AntiAlias, BrushMode, PressureCurve, SmoothingMethod};
+use painter_core::{AntiAlias, BrushBlend, BrushMode, MaskMode, PressureCurve, SmoothingMethod};
 
 use crate::app::PainterApp;
 use crate::panels::{dynamics_row, percent_slider, preset_buttons, rotation_presets};
@@ -24,6 +24,8 @@ pub(crate) enum Section {
     Stroke,
     Texture,
     SecondBrush,
+    /// Clip Studio's watercolor edge, Photoshop's wet edges.
+    WaterEdge,
     /// Pressure curves and speed, tilt and random responses in one place.
     Dynamics,
     Correction,
@@ -37,7 +39,7 @@ impl Section {
         &[Section::BrushSize, Section::Ink, Section::ColorJitter],
         &[Section::BrushTip, Section::AntiAliasing, Section::Stroke, Section::Spraying],
         &[Section::Dynamics],
-        &[Section::Texture, Section::SecondBrush],
+        &[Section::Texture, Section::SecondBrush, Section::WaterEdge],
         &[Section::Correction, Section::StartingEnding],
         &[Section::Export],
     ];
@@ -47,7 +49,7 @@ impl Section {
             Section::BrushSize | Section::Ink | Section::ColorJitter => "General",
             Section::BrushTip | Section::AntiAliasing | Section::Stroke | Section::Spraying => "Tip",
             Section::Dynamics => "Dynamics",
-            Section::Texture | Section::SecondBrush => "Texture",
+            Section::Texture | Section::SecondBrush | Section::WaterEdge => "Texture",
             Section::Correction | Section::StartingEnding => "Inking",
             Section::Export => "Brush File",
         }
@@ -64,6 +66,7 @@ impl Section {
             Section::Stroke => "Stroke",
             Section::Texture => "Texture",
             Section::SecondBrush => "2-Brush Shape",
+            Section::WaterEdge => "Watercolor Edge",
             Section::Dynamics => "Pressure and Dynamics",
             Section::Correction => "Correction",
             Section::StartingEnding => "Starting and Ending",
@@ -76,17 +79,18 @@ impl Section {
             Section::BrushSize => "Line width, and how pressure, speed, tilt and randomness change it.",
             Section::Ink => "How much paint each dab and each stroke lays down, and whether the tool paints or erases.",
             Section::ColorJitter => {
-                "Changes the main colour a little for every stroke (Clip Studio's color jitter, Photoshop's color dynamics)."
+                "Varies the colour for every dab or every stroke, towards the sub colour too (Clip Studio's color jitter, Photoshop's color dynamics)."
             }
             Section::AntiAliasing => "How soft the edge of the line is.",
             Section::BrushTip => "The shape stamped along the stroke: round or an image, flattened and turned.",
             Section::Spraying => "Scatters dabs around the stroke (Clip Studio's spraying effect, Photoshop's scattering).",
             Section::Stroke => "How far apart the dabs are.",
-            Section::Texture => "A paper texture the ink follows.",
+            Section::Texture => "A paper texture the ink follows, on each dab or on the whole stroke.",
             Section::SecondBrush => "A second tip that masks every dab (Clip Studio's 2-brush shape, Photoshop's dual brush).",
+            Section::WaterEdge => "Ink pooling at the rim of the stroke, drawn when the pen lifts (Photoshop's wet edges).",
             Section::Dynamics => "Pressure curves for size and density, and how pressure, speed, tilt and randomness change size, density, opacity and the tip.",
             Section::Correction => "Stabilisation of the stroke.",
-            Section::StartingEnding => "Thin, light starts of strokes.",
+            Section::StartingEnding => "Strokes that start and end thin and light, and ink that builds up while the pen rests.",
             Section::Export => "Save this brush for Painter, Photoshop or Clip Studio.",
         }
     }
@@ -108,6 +112,7 @@ macro_rules! section_fields {
             Section::Ink => $do!(
                 settings.mode,
                 settings.blend,
+                settings.noise,
                 settings.opacity,
                 settings.density,
                 settings.pressure_density,
@@ -120,8 +125,9 @@ macro_rules! section_fields {
             Section::BrushTip => $do!(tip, thickness, angle, settings.thickness_dynamics, settings.rotation, settings.tilt_side),
             Section::Spraying => $do!(settings.scatter),
             Section::Stroke => $do!(settings.spacing),
-            Section::Texture => $do!(texture),
+            Section::Texture => $do!(texture, settings.texture_dynamics),
             Section::SecondBrush => $do!(dual),
+            Section::WaterEdge => $do!(settings.water_edge),
             Section::Dynamics => $do!(
                 settings.pressure_size,
                 settings.pressure_density,
@@ -133,7 +139,7 @@ macro_rules! section_fields {
                 settings.thickness_dynamics
             ),
             Section::Correction => $do!(settings.stabilization, settings.smoothing),
-            Section::StartingEnding => $do!(settings.taper_start),
+            Section::StartingEnding => $do!(settings.taper_start, settings.taper_end, settings.taper_minimum, settings.build_up),
             Section::Export => $do!(),
         }
     };
@@ -290,6 +296,14 @@ impl PainterApp {
                     ui.selectable_value(&mut brush.mode, BrushMode::Paint, tr("Paint"));
                     ui.selectable_value(&mut brush.mode, BrushMode::Erase, tr("Erase"));
                 });
+                ui.add_enabled_ui(brush.mode == BrushMode::Paint, |ui| {
+                    egui::ComboBox::from_label(tr("Blending mode")).selected_text(tr(brush.blend.name())).show_ui(ui, |ui| {
+                        for mode in BrushBlend::ALL {
+                            ui.selectable_value(&mut brush.blend, mode, tr(mode.name()));
+                        }
+                    });
+                });
+                ui.checkbox(&mut brush.noise, tr("Noise")).on_hover_text(tr("Grain in the soft parts of the tip (Photoshop's Noise)"));
                 prop_percent(ui, "Opacity", &mut brush.opacity, 0.0..=100.0);
                 prop_percent(ui, "Density (flow)", &mut brush.density, 0.0..=100.0);
                 ui.checkbox(&mut brush.pressure_density, tr("Density from pen pressure"));
@@ -301,10 +315,21 @@ impl PainterApp {
             }
             Section::ColorJitter => {
                 let j = &mut brush.color_jitter;
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut j.per_dab, true, tr("Every dab"));
+                    ui.selectable_value(&mut j.per_dab, false, tr("Every stroke"));
+                });
                 percent_slider(ui, &mut j.hue, "Hue", 0.0..=100.0);
                 percent_slider(ui, &mut j.saturation, "Saturation", 0.0..=100.0);
                 percent_slider(ui, &mut j.value, "Brightness", 0.0..=100.0);
-                ui.small(tr("One variation per stroke."));
+                ui.add_enabled_ui(j.per_dab, |ui| {
+                    percent_slider(ui, &mut j.sub_mix, "Towards the sub colour", 0.0..=100.0);
+                    ui.checkbox(&mut j.sub_by_pressure, tr("Sub colour by pen pressure (light: more sub colour)"));
+                });
+                let mut purity = j.purity * 100.0;
+                if prop_slider(ui, "Purity", &mut purity, -100.0..=100.0, "%", 0, false) {
+                    j.purity = purity / 100.0;
+                }
             }
             Section::AntiAliasing => {
                 ui.horizontal(|ui| {
@@ -316,7 +341,7 @@ impl PainterApp {
             }
             Section::BrushTip => {
                 ui.horizontal(|ui| {
-                    ui.label(if preset.tip.is_some() { "Image tip" } else { "Round tip" });
+                    ui.label(if preset.tip.is_some() { tr("Image tip") } else { tr("Round tip") });
                     if ui.button(tr("Load image...")).on_hover_text(tr("A PNG: transparency (or dark pixels) is the ink")).clicked() {
                         if let Some(path) = crate::files::FileDialog::new().add_filter("PNG image", &["png"]).pick_file() {
                             match load_bitmap(&path, false) {
@@ -333,14 +358,8 @@ impl PainterApp {
                         tip_changed = true;
                     }
                 });
-                let mut thickness = preset.thickness * 100.0;
-                if ui.add(egui::Slider::new(&mut thickness, 1.0..=100.0).suffix("%").text(tr("Thickness"))).changed() {
-                    preset.thickness = thickness / 100.0;
-                    tip_changed = true;
-                }
-                if ui.add(egui::Slider::new(&mut preset.angle, -180.0..=180.0).suffix("°").text(tr("Angle"))).changed() {
-                    tip_changed = true;
-                }
+                tip_changed |= prop_percent(ui, "Thickness", &mut preset.thickness, 1.0..=100.0);
+                tip_changed |= prop_slider(ui, "Angle", &mut preset.angle, -180.0..=180.0, "°", 0, false);
                 let brush = &mut preset.settings;
                 dynamics_row(ui, "Thickness with pressure, speed, tilt, random", &mut brush.thickness_dynamics, true);
                 ui.label(tr("Rotation"));
@@ -379,8 +398,8 @@ impl PainterApp {
                 if on {
                     percent_slider(ui, &mut s.amount, "Spread (of the size)", 0.0..=400.0);
                     let mut count = s.count.max(1) as f32;
-                    if ui.add(egui::Slider::new(&mut count, 1.0..=16.0).step_by(1.0).text(tr("Dabs per point"))).changed() {
-                        s.count = count as u32;
+                    if prop_slider(ui, "Dabs per point", &mut count, 1.0..=16.0, "", 0, false) {
+                        s.count = count.round() as u32;
                     }
                     percent_slider(ui, &mut s.count_jitter, "Count random", 0.0..=100.0);
                     ui.checkbox(&mut s.both_axes, tr("Along the stroke too"));
@@ -391,14 +410,14 @@ impl PainterApp {
             }
             Section::Texture => {
                 ui.horizontal(|ui| {
-                    ui.label(if preset.texture.is_some() { "Texture on" } else { "No texture" });
+                    ui.label(if preset.texture.is_some() { tr("Texture on") } else { tr("No texture") });
                     if ui.button(tr("Load image...")).on_hover_text(tr("A PNG; light areas hold the ink back")).clicked() {
                         if let Some(path) = crate::files::FileDialog::new().add_filter("PNG image", &["png"]).pick_file() {
                             match load_bitmap(&path, true) {
                                 Ok(image) => {
                                     let (scale, density, invert) =
                                         preset.texture.as_ref().map_or((100.0, 0.6, false), |t| (t.scale, t.density, t.invert));
-                                    preset.texture = Some(brush_io::BrushTexture { image, scale, density, invert });
+                                    preset.texture = Some(brush_io::BrushTexture::new(image, scale, density, invert));
                                     tip_changed = true;
                                 }
                                 Err(err) => self.status = format!("Couldn't load the texture: {err}"),
@@ -411,21 +430,38 @@ impl PainterApp {
                     }
                 });
                 if let Some(t) = &mut preset.texture {
-                    tip_changed |=
-                        ui.add(egui::Slider::new(&mut t.scale, 5.0..=1000.0).suffix("%").text(tr("Scale")).logarithmic(true)).changed();
+                    tip_changed |= prop_slider(ui, "Scale", &mut t.scale, 5.0..=1000.0, "%", 0, true);
                     tip_changed |= percent_slider(ui, &mut t.density, "Density", 0.0..=100.0);
+                    tip_changed |= mask_mode_combo(ui, "texture_mode", &mut t.mode);
+                    let mut brightness = t.brightness * 100.0;
+                    if prop_slider(ui, "Brightness", &mut brightness, -100.0..=100.0, "", 0, false) {
+                        t.brightness = brightness / 100.0;
+                        tip_changed = true;
+                    }
+                    let mut contrast = (t.contrast - 1.0) * 100.0;
+                    if prop_slider(ui, "Contrast", &mut contrast, -100.0..=200.0, "", 0, false) {
+                        t.contrast = 1.0 + contrast / 100.0;
+                        tip_changed = true;
+                    }
                     tip_changed |= ui.checkbox(&mut t.invert, tr("Invert")).changed();
+                    tip_changed |= ui
+                        .checkbox(&mut t.each_dab, tr("Apply to each dab"))
+                        .on_hover_text(tr("Off: the texture shapes the whole stroke, so overlaps don't fill its grain in"))
+                        .changed();
+                    if t.each_dab {
+                        dynamics_row(ui, "Texture density with pressure, speed, tilt, random", &mut preset.settings.texture_dynamics, true);
+                    }
                 }
             }
             Section::SecondBrush => {
                 ui.horizontal(|ui| {
-                    ui.label(if preset.dual.is_some() { "Second tip on" } else { "No second tip" });
+                    ui.label(if preset.dual.is_some() { tr("Second tip on") } else { tr("No second tip") });
                     if ui.button(tr("Load image...")).clicked() {
                         if let Some(path) = crate::files::FileDialog::new().add_filter("PNG image", &["png"]).pick_file() {
                             match load_bitmap(&path, false) {
                                 Ok(tip) => {
                                     let scale = preset.dual.as_ref().map_or(1.0, |d| d.scale);
-                                    preset.dual = Some(brush_io::DualBrush { tip, scale });
+                                    preset.dual = Some(brush_io::DualBrush { tip, scale, mode: Default::default() });
                                     tip_changed = true;
                                 }
                                 Err(err) => self.status = format!("Couldn't load the tip: {err}"),
@@ -439,6 +475,20 @@ impl PainterApp {
                 });
                 if let Some(d) = &mut preset.dual {
                     tip_changed |= percent_slider(ui, &mut d.scale, "Size (of the main tip)", 5.0..=800.0);
+                    tip_changed |= mask_mode_combo(ui, "dual_mode", &mut d.mode);
+                    ui.small(tr("Smaller than the main tip, it repeats inside every dab."));
+                }
+            }
+            Section::WaterEdge => {
+                let mut on = brush.water_edge.is_some();
+                if ui.checkbox(&mut on, tr("Watercolor edge")).changed() {
+                    brush.water_edge = on.then_some(painter_core::WaterEdge { radius: 4.0, thinning: 0.3, rim: 0.3, darkening: 0.1 });
+                }
+                if let Some(edge) = &mut brush.water_edge {
+                    prop_slider(ui, "Width", &mut edge.radius, 0.5..=64.0, " px", 1, true);
+                    percent_slider(ui, &mut edge.thinning, "Inside thinning", 0.0..=100.0);
+                    percent_slider(ui, &mut edge.rim, "Rim density", 0.0..=100.0);
+                    percent_slider(ui, &mut edge.darkening, "Rim darkening", 0.0..=100.0);
                 }
             }
             Section::Dynamics => {
@@ -476,16 +526,29 @@ impl PainterApp {
                     brush.taper_start = if on { 60.0 } else { 0.0 };
                 }
                 if on {
-                    prop_slider(ui, "Length", &mut brush.taper_start, 1.0..=1000.0, " px", 0, true);
+                    prop_slider(ui, "Starting length", &mut brush.taper_start, 1.0..=1000.0, " px", 0, true);
                 }
-                ui.small(tr("Endings need the whole stroke and aren't drawn yet."));
+                let mut on = brush.taper_end > 0.0;
+                if ui.checkbox(&mut on, tr("Ending: fade out thin and light")).changed() {
+                    brush.taper_end = if on { 60.0 } else { 0.0 };
+                }
+                if on {
+                    prop_slider(ui, "Ending length", &mut brush.taper_end, 1.0..=1000.0, " px", 0, true);
+                    ui.small(tr("The last stretch is drawn as the pen moves on, and the very end when it lifts."));
+                }
+                if brush.taper_start > 0.0 || brush.taper_end > 0.0 {
+                    percent_slider(ui, &mut brush.taper_minimum, "Minimum", 0.0..=100.0);
+                }
+                ui.separator();
+                ui.checkbox(&mut brush.build_up, tr("Build-up while the pen rests"))
+                    .on_hover_text(tr("Ink keeps coming while the pen stays still (Photoshop's airbrush, Clip Studio's continuous spray)"));
             }
             Section::Export => {
                 ui.label(tr("This brush, as:"));
                 if ui.button(tr("Painter brush (.rustbrush)...")).clicked() {
                     self.export_brushes(Some(index));
                 }
-                if ui.button(tr("Photoshop brush (.abr)...")).on_hover_text(tr("Tip, texture, dual brush and the main dynamics")).clicked() {
+                if ui.button(tr("Photoshop brush (.abr)...")).on_hover_text(tr("Tip, texture, dual brush, scattering, colour and transfer dynamics")).clicked() {
                     self.export_abr(index);
                 }
                 if ui
@@ -623,7 +686,7 @@ const SUT_TEMPLATE: &str = "clip-studio-template.sut";
 fn pressure_curve(ui: &mut egui::Ui, id: &str, curve: &mut PressureCurve) {
     ui.horizontal(|ui| {
         ui.label(tr("Curve"));
-        for (label, gamma) in [("Soft", 0.6), ("Linear", 1.0), ("Firm", 1.7)] {
+        for (label, gamma) in [(tr("Soft"), 0.6), (tr("Linear"), 1.0), (tr("Firm"), 1.7)] {
             if ui.small_button(label).clicked() {
                 *curve = PressureCurve::gamma(gamma);
             }
@@ -662,6 +725,17 @@ impl BrushFormat {
     }
 }
 
+/// A texture or second-tip mode picker; true when it changed.
+fn mask_mode_combo(ui: &mut egui::Ui, id: &str, mode: &mut MaskMode) -> bool {
+    let before = *mode;
+    egui::ComboBox::new(id, tr("Mode")).selected_text(tr(mode.name())).show_ui(ui, |ui| {
+        for m in MaskMode::ALL {
+            ui.selectable_value(mode, m, tr(m.name()));
+        }
+    });
+    *mode != before
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -671,7 +745,7 @@ mod tests {
     #[test]
     fn every_category_is_in_one_area() {
         let all: Vec<Section> = Section::AREAS.iter().flat_map(|s| s.iter().copied()).collect();
-        assert_eq!(all.len(), 13);
+        assert_eq!(all.len(), 14);
         for (i, s) in all.iter().enumerate() {
             assert!(!all[i + 1..].contains(s), "{s:?} listed twice");
         }

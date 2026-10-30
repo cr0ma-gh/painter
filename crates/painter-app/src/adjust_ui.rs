@@ -22,7 +22,7 @@ const PREVIEW_DELAY: Duration = Duration::from_millis(150);
 pub(crate) fn adjustment_editor(ui: &mut egui::Ui, a: &mut Adjustment) -> bool {
     let mut changed = false;
     let mut slider = |ui: &mut egui::Ui, v: &mut f32, range: std::ops::RangeInclusive<f32>, label: &str| {
-        changed |= ui.add(egui::Slider::new(v, range).text(label)).changed();
+        changed |= ui.add(egui::Slider::new(v, range).text(crate::i18n::tr_str(label))).changed();
     };
     ui.label(egui::RichText::new(tr(a.name())).strong());
     match a {
@@ -53,9 +53,9 @@ pub(crate) fn adjustment_editor(ui: &mut egui::Ui, a: &mut Adjustment) -> bool {
             slider(ui, lightness, -1.0..=1.0, "Lightness");
         }
         Adjustment::ColorBalance { shadows, midtones, highlights } => {
-            for (label, values) in [("Shadows", shadows), ("Midtones", midtones), ("Highlights", highlights)] {
+            for (label, values) in [(tr("Shadows"), shadows), (tr("Midtones"), midtones), (tr("Highlights"), highlights)] {
                 ui.label(label);
-                for (i, pair) in ["Cyan – Red", "Magenta – Green", "Yellow – Blue"].into_iter().enumerate() {
+                for (i, pair) in [tr("Cyan – Red"), tr("Magenta – Green"), tr("Yellow – Blue")].into_iter().enumerate() {
                     slider(ui, &mut values[i], -1.0..=1.0, pair);
                 }
             }
@@ -200,9 +200,9 @@ impl PainterApp {
         let mut open = true;
         let (mut ok, mut cancel) = (false, false);
         let mut changed = false;
-        egui::Window::new(dialog.filter.name()).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+        egui::Window::new(tr(dialog.filter.name())).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
             let mut slider = |ui: &mut egui::Ui, v: &mut f32, range: std::ops::RangeInclusive<f32>, label: &str| {
-                changed |= ui.add(egui::Slider::new(v, range).text(label)).changed();
+                changed |= ui.add(egui::Slider::new(v, range).text(crate::i18n::tr_str(label))).changed();
             };
             match &mut dialog.filter {
                 Filter::GaussianBlur { radius } => slider(ui, radius, 0.5..=200.0, "Radius (px)"),

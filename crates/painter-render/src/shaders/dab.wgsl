@@ -2,9 +2,10 @@
 // the canvas or, for low-VRAM profiles, the rectangle at `origin`.
 // Blending is premultiplied source-over, so each dab does
 //   dst = color·a + dst·(1 − a)
-// exactly like painter_core::raster::stamp_dab. `coverage`, `ellipse_coverage`
-// and `sampled_coverage` mirror the CPU ones; each dab's reach and mip level
-// come from painter_core::DabTip, computed on the CPU.
+// exactly like painter_core::raster::stamp_dab. `coverage`, `ellipse_coverage`,
+// `sampled_coverage`, `tiled_coverage` and `grain` mirror the CPU ones, and
+// brush_mask.wgsl (prepended) the texture and second-tip modes; each dab's
+// reach and mip level come from painter_core::DabTip, computed on the CPU.
 
 struct DabParams {
     // Size of the stroke texture in pixels.
@@ -30,7 +31,15 @@ struct DabParams {
     has_dual: u32,
     // Canvas position of the stroke texture's top-left pixel.
     origin: vec2<f32>,
-    _pad: vec2<f32>,
+    // painter_core::MaskMode ids of the texture and the dual tip.
+    texture_mode: u32,
+    dual_mode: u32,
+    texture_brightness: f32,
+    texture_contrast: f32,
+    // 1: Photoshop's noise in the soft parts of the tip.
+    noise: u32,
+    // 0: the texture shapes the whole stroke instead (stroke_merge.wgsl).
+    texture_each_dab: u32,
 };
 
 @group(0) @binding(0) var<uniform> params: DabParams;
@@ -53,6 +62,10 @@ struct DabIn {
     // Tip thickness × the dab's own (painter_core::DabTip::flatness_for),
     // negative for a mirrored dab (painter_core::Dab::mirror).
     @location(7) flatness: f32,
+    // The dab's own colour (painter_core::Dab::color) when alpha is 1, else the stroke's.
+    @location(8) color: vec4<f32>,
+    // Multiplies the texture density (painter_core::Dab::texture).
+    @location(9) texture: f32,
 };
 
 struct VertexOut {
@@ -68,6 +81,8 @@ struct VertexOut {
     @location(7) @interpolate(flat) mirror: f32,
     // The dab's index in the draw, varying the dither from dab to dab.
     @location(8) @interpolate(flat) seed: u32,
+    @location(9) @interpolate(flat) color: vec4<f32>,
+    @location(10) @interpolate(flat) texture: f32,
 };
 
 @vertex
@@ -90,6 +105,8 @@ fn vs_main(@builtin(vertex_index) index: u32, @builtin(instance_index) instance:
     out.flatness = abs(dab.flatness);
     out.mirror = select(1.0, -1.0, dab.flatness < 0.0);
     out.seed = instance;
+    out.color = dab.color;
+    out.texture = dab.texture;
     return out;
 }
 
@@ -171,32 +188,12 @@ fn sampled_coverage(bitmap: texture_2d<f32>, aspect: vec2<f32>, p: vec2<f32>, ra
     return top + (bottom - top) * ty;
 }
 
-fn wrap(i: i32, n: i32) -> i32 {
-    return ((i % n) + n) % n;
-}
-
-// painter_core::DabTexture::factor: wrapped bilinear paper sample at a canvas point.
-fn texture_factor(p: vec2<f32>) -> f32 {
-    let size = vec2<i32>(textureDimensions(paper, 0));
-    let x = p.x / params.texture_scale - 0.5;
-    let y = p.y / params.texture_scale - 0.5;
-    let x0 = floor(x);
-    let y0 = floor(y);
-    let tx = x - x0;
-    let ty = y - y0;
-    let i = i32(x0);
-    let j = i32(y0);
-    let a = textureLoad(paper, vec2<i32>(wrap(i, size.x), wrap(j, size.y)), 0).r;
-    let b = textureLoad(paper, vec2<i32>(wrap(i + 1, size.x), wrap(j, size.y)), 0).r;
-    let c = textureLoad(paper, vec2<i32>(wrap(i, size.x), wrap(j + 1, size.y)), 0).r;
-    let d = textureLoad(paper, vec2<i32>(wrap(i + 1, size.x), wrap(j + 1, size.y)), 0).r;
-    let top = a + (b - a) * tx;
-    let bottom = c + (d - c) * tx;
-    var t = top + (bottom - top) * ty;
-    if (params.texture_invert != 0u) {
-        t = 1.0 - t;
-    }
-    return 1.0 - params.texture_density * (1.0 - t);
+// painter_core::raster::tiled_coverage: a dual tip smaller than the dab,
+// repeating over the canvas, each cell one dual diameter across.
+fn tiled_coverage(bitmap: texture_2d<f32>, aspect: vec2<f32>, at: vec2<f32>, radius: f32, level: u32) -> f32 {
+    let size = vec2<f32>(textureDimensions(bitmap, level));
+    let cell = 2.0 * radius * aspect;
+    return sample_wrapped(bitmap, level, at.x / cell.x * size.x - 0.5, at.y / cell.y * size.y - 0.5);
 }
 
 // Uniform noise in [0, 1) per pixel and dab (PCG-style integer hash).
@@ -208,6 +205,15 @@ fn hash(v: vec3<u32>) -> f32 {
     h = h * 3266489917u;
     h = h ^ (h >> 16u);
     return f32(h >> 8u) / 16777216.0;
+}
+
+// painter_core::raster::grain and noisy: grain fixed to the canvas pixel, on soft coverage.
+fn grain(at: vec2<f32>) -> f32 {
+    return hash(vec3<u32>(vec2<u32>(at), 7u));
+}
+
+fn noisy(cov: f32, g: f32) -> f32 {
+    return clamp(cov + (g - 0.5) * 4.0 * cov * (1.0 - cov), 0.0, 1.0);
 }
 
 @fragment
@@ -229,13 +235,25 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
             cov = ellipse_coverage(p, input.radius, input.flatness, params.hardness, params.aa);
         }
     }
-    // Dual tip: unrotated, centred on the dab, masks it.
+    // Noise: grain in the soft parts of the tip.
+    if (params.noise != 0u && cov > 0.0) {
+        cov = noisy(cov, grain(at));
+    }
+    // Dual tip: unrotated, centred on the dab (or, smaller than it, tiled), by its mode.
     if (params.has_dual != 0u && cov > 0.0) {
-        cov = cov * sampled_coverage(dual_tip, params.dual_aspect, delta, input.radius * params.dual_scale, input.dual_level);
+        let dual_radius = input.radius * params.dual_scale;
+        var t = 0.0;
+        if (params.dual_scale < 1.0) {
+            t = tiled_coverage(dual_tip, params.dual_aspect, at, dual_radius, input.dual_level);
+        } else {
+            t = sampled_coverage(dual_tip, params.dual_aspect, delta, dual_radius, input.dual_level);
+        }
+        cov = mask_mix(cov, t, params.dual_mode);
     }
     // Paper texture, fixed to the canvas.
-    if (params.has_texture != 0u && cov > 0.0) {
-        cov = cov * texture_factor(at);
+    if (params.has_texture != 0u && params.texture_each_dab != 0u && cov > 0.0) {
+        let t = texture_value(paper, at, params.texture_scale, params.texture_density * input.texture, params.texture_invert, params.texture_brightness, params.texture_contrast);
+        cov = mask_mix(cov, t, params.texture_mode);
     }
     var a = cov * input.alpha;
     if (a <= 0.0) {
@@ -248,5 +266,6 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     if (params.dither > 0.0) {
         a = clamp(a + (hash(vec3<u32>(vec2<u32>(at), input.seed)) - 0.5) / 255.0, 0.0, 1.0);
     }
-    return vec4<f32>(params.color.rgb * a, a);
+    let color = select(params.color.rgb, input.color.rgb, input.color.a > 0.5);
+    return vec4<f32>(color * a, a);
 }

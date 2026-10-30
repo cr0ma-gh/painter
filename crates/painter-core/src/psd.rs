@@ -1045,7 +1045,7 @@ mod tests {
         let mut doc = Document::new(90, 60);
         let canvas = doc.canvas();
         let base = doc.active;
-        let dabs: Vec<_> = (0..30).map(|i| crate::brush::Dab { x: 5.0 + i as f32 * 2.5, y: 30.0, radius: 6.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false }).collect();
+        let dabs: Vec<_> = (0..30).map(|i| crate::brush::Dab { x: 5.0 + i as f32 * 2.5, y: 30.0, radius: 6.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false, color: None, texture: 1.0 }).collect();
         paint_stroke(doc.find_mut(base).unwrap().tiles_mut().unwrap(), &dabs, [0.8, 0.3, 0.1], &BrushSettings::g_pen(), canvas, false, None);
         let mut mask = Mask { enabled: true, ..Mask::default() };
         paint_stroke(&mut mask.tiles, &dabs[..10], [1.0; 3], &BrushSettings::g_pen(), canvas, false, None);

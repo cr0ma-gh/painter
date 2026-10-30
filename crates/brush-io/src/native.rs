@@ -102,8 +102,8 @@ mod tests {
     fn round_trip_keeps_everything() {
         let mut preset = BrushPreset::new(BrushSettings::pencil());
         preset.tip = Some(BrushTip::new(3, 2, vec![0, 128, 255, 10, 20, 30]).unwrap());
-        preset.texture = Some(BrushTexture { image: BrushTip::new(1, 1, vec![77]).unwrap(), scale: 150.0, density: 0.4, invert: true });
-        preset.dual = Some(crate::types::DualBrush { tip: BrushTip::new(2, 2, vec![1, 2, 3, 4]).unwrap(), scale: 0.6 });
+        preset.texture = Some(BrushTexture::new(BrushTip::new(1, 1, vec![77]).unwrap(), 150.0, 0.4, true));
+        preset.dual = Some(crate::types::DualBrush { tip: BrushTip::new(2, 2, vec![1, 2, 3, 4]).unwrap(), scale: 0.6, mode: Default::default() });
         preset.dynamics.size.pressure = Some(PressureCurve::gamma(0.7));
         preset.thickness = 0.3;
         preset.angle = 45.0;

@@ -355,7 +355,7 @@ impl PainterApp {
         ui.horizontal_wrapped(|ui| {
             ui.label(tr("Add"));
             ui.menu_button(tr("Perspective"), |ui| {
-                for (n, label) in [(1, "1-point"), (2, "2-point"), (3, "3-point")] {
+                for (n, label) in [(1, tr("1-point")), (2, tr("2-point")), (3, tr("3-point"))] {
                     if ui.button(label).clicked() {
                         add = Some(RulerSet::perspective(n, w, h).kind);
                         ui.close_menu();
@@ -583,7 +583,7 @@ mod tests {
         let mut set = RulerSet::default();
         set.rulers.push(Ruler::new(RulerKind::Symmetry { origin: [50.0, 0.0], angle: 90.0, lines: 1, mirror: true }));
         let r = StrokeRulers { snap: None, copies: symmetry_copies(&set), tip_angle: 0.0 };
-        let dab = Dab { x: 40.0, y: 5.0, radius: 2.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false };
+        let dab = Dab { x: 40.0, y: 5.0, radius: 2.0, alpha: 1.0, angle: 0.0, thickness: 1.0, mirror: false, color: None, texture: 1.0 };
         let out = r.replicate(vec![dab]);
         assert_eq!(out.len(), 2);
         assert!((out[1].x - 60.0).abs() < 1e-3 && out[1].mirror);

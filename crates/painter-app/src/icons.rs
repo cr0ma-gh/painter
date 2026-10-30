@@ -218,14 +218,14 @@ pub fn glyph_button(ui: &mut Ui, glyph: Glyph, size: f32, hint: &str) -> Respons
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(side), Sense::click());
     let visuals = ui.visuals();
     if response.hovered() {
-        ui.painter().rect_filled(rect, 3.0, visuals.widgets.hovered.weak_bg_fill);
+        ui.painter().rect_filled(rect, crate::theme::radius(), visuals.widgets.hovered.weak_bg_fill);
     }
     let tint = if response.hovered() { crate::theme::strong() } else { visuals.text_color() };
     paint_glyph(ui.painter(), rect, size, glyph, tint);
     if hint.is_empty() {
         response
     } else {
-        response.on_hover_text(hint)
+        response.on_hover_text(crate::i18n::tr_str(hint))
     }
 }
 
@@ -237,12 +237,14 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, size: f32, selected: bool, hint: &st
     let visuals = ui.visuals();
     let fill = if selected {
         visuals.selection.bg_fill
+    } else if response.is_pointer_button_down_on() {
+        visuals.widgets.active.weak_bg_fill
     } else if response.hovered() {
         visuals.widgets.hovered.weak_bg_fill
     } else {
         Color32::TRANSPARENT
     };
-    ui.painter().rect_filled(rect, 3.0, fill);
+    ui.painter().rect_filled(rect, crate::theme::radius(), fill);
     let tint = if !ui.is_enabled() {
         visuals.weak_text_color()
     } else if selected || response.hovered() {
@@ -254,7 +256,7 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, size: f32, selected: bool, hint: &st
     if hint.is_empty() {
         response
     } else {
-        response.on_hover_text(hint)
+        response.on_hover_text(crate::i18n::tr_str(hint))
     }
 }
 

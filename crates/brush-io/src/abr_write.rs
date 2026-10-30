@@ -5,19 +5,23 @@
 //! - `patt`: each texture as an 8-bit grayscale pattern;
 //! - `desc`: one `brushPreset` per brush with its tip (`computedBrush` for
 //!   round tips, `sampledBrush` otherwise: diameter, hardness, angle,
-//!   roundness, spacing, anti-aliasing), shape dynamics (size from pressure or
-//!   tilt with the minimum diameter, jitter; angle and roundness), transfer
-//!   (opacity from pressure / tilt, jitter), texture and dual brush.
+//!   roundness, spacing, anti-aliasing), shape dynamics (size from pressure,
+//!   tilt or fade with the minimum diameter, jitter; angle and roundness),
+//!   scattering, texture (mode, brightness, contrast, each tip), dual brush
+//!   (mode), colour dynamics, transfer (opacity and flow from pressure / tilt
+//!   / fade with their minimums, jitter), wet edges, noise, build-up, and the
+//!   tool's opacity, flow and mode.
 //!
 //! What Photoshop brushes can't hold is left out: Painter's stabilisation,
-//! the scatter and colour-jitter settings, the starting taper and pressure
-//! curves (Photoshop's controls are on / off with a fixed response).
+//! the starting and ending tapers and the exact shape of pressure curves
+//! (Photoshop's controls are on / off with a fixed response).
 
 use crate::descriptor::build::{descriptor, unicode, V};
 use crate::types::{BrushIoError, BrushPreset, BrushTip};
 
 /// Photoshop's "control" values for dynamics (`bVTy`).
 const CONTROL_OFF: i32 = 0;
+const CONTROL_FADE: i32 = 1;
 const CONTROL_PEN_PRESSURE: i32 = 2;
 const CONTROL_PEN_TILT: i32 = 3;
 const CONTROL_DIRECTION: i32 = 6;
@@ -103,19 +107,66 @@ fn pattern(id: &str, name: &str, image: &BrushTip) -> Vec<u8> {
     out
 }
 
-/// A dynamics block (`brVr`): the control and the jitter.
+/// A dynamics block (`brVr`): the control, its Fade steps, minimum and the jitter.
 fn variation(control: i32, jitter: f32) -> V<'static> {
-    V::Obj("brVr", vec![("bVTy", V::Long(control)), ("fStp", V::Long(25)), ("jitter", V::Unit("#Prc", (jitter * 100.0) as f64))])
+    variation_with(control, 25, 0.0, jitter)
 }
 
-/// The control a dynamic's inputs map to: pressure first, then tilt.
+fn variation_with(control: i32, fade: u32, minimum: f32, jitter: f32) -> V<'static> {
+    V::Obj(
+        "brVr",
+        vec![
+            ("bVTy", V::Long(control)),
+            ("fStp", V::Long(fade.max(1) as i32)),
+            ("Mnm ", V::Unit("#Prc", (minimum.clamp(0.0, 1.0) * 100.0) as f64)),
+            ("jitter", V::Unit("#Prc", (jitter * 100.0) as f64)),
+        ],
+    )
+}
+
+/// The control a dynamic's inputs map to: pressure first, then tilt, then fade.
 fn control(d: &painter_core::brush::InputDynamics) -> i32 {
     if d.pressure.is_some() {
         CONTROL_PEN_PRESSURE
     } else if d.tilt.is_some() {
         CONTROL_PEN_TILT
+    } else if d.fade > 0 {
+        CONTROL_FADE
     } else {
         CONTROL_OFF
+    }
+}
+
+/// Photoshop's name for a brush mode.
+fn blend_name(b: painter_core::BrushBlend) -> &'static str {
+    use painter_core::BrushBlend as B;
+    match b {
+        B::Normal => "normal",
+        B::Behind => "behind",
+        B::Darken => "darken",
+        B::Multiply => "multiply",
+        B::ColorBurn => "colorBurn",
+        B::LinearBurn => "linearBurn",
+        B::Lighten => "lighten",
+        B::Screen => "screen",
+        B::ColorDodge => "colorDodge",
+        B::Add => "linearDodge",
+        B::Overlay => "overlay",
+        B::SoftLight => "softLight",
+        B::HardLight => "hardLight",
+        B::Difference => "difference",
+    }
+}
+
+/// Photoshop's name for a texture / dual brush mode.
+fn mask_name(m: painter_core::MaskMode) -> &'static str {
+    use painter_core::MaskMode as M;
+    match m {
+        M::Multiply => "multiply",
+        M::Subtract => "subtract",
+        M::Darken => "darken",
+        M::ColorBurn => "colorBurn",
+        M::HardMix => "hardMix",
     }
 }
 
@@ -193,19 +244,55 @@ pub fn write(presets: &[BrushPreset]) -> Result<Vec<u8>, BrushIoError> {
         } else {
             CONTROL_OFF
         };
-        let minimum = if s.pressure_size { s.min_size_ratio } else { 0.0 };
+        let minimum = if s.pressure_size { s.min_size_ratio } else { s.size_dynamics.minimum };
         items.push(("useTipDynamics", V::Bool(true)));
-        items.push(("szVr", variation(size_control, s.size_dynamics.jitter)));
+        items.push(("szVr", variation_with(size_control, s.size_dynamics.fade, 0.0, s.size_dynamics.jitter)));
         items.push(("minimumDiameter", V::Unit("#Prc", (minimum.clamp(0.0, 1.0) * 100.0) as f64)));
         items.push(("angleDynamics", variation(angle_control, r.jitter)));
         items.push(("roundnessDynamics", variation(control(&s.thickness_dynamics), s.thickness_dynamics.jitter)));
         items.push(("minimumRoundness", V::Unit("#Prc", 25.0)));
         items.push(("flipX", V::Bool(r.random_flip_x)));
         items.push(("flipY", V::Bool(r.random_flip_y)));
-        // Transfer: per-dab opacity.
+        // Transfer: per-dab opacity (opVr) and flow (prVr), each with its minimum.
         let flow_control = if s.pressure_density { CONTROL_PEN_PRESSURE } else { control(&s.density_dynamics) };
+        let flow_minimum = if s.pressure_density { s.density_curve.eval(0.0) } else { s.density_dynamics.minimum };
+        let o = &s.opacity_dynamics;
         items.push(("usePaintDynamics", V::Bool(true)));
-        items.push(("opVr", variation(flow_control, s.density_dynamics.jitter)));
+        items.push(("opVr", variation_with(control(o), o.fade, o.minimum, o.jitter)));
+        items.push(("prVr", variation_with(flow_control, s.density_dynamics.fade, flow_minimum, s.density_dynamics.jitter)));
+        // Scattering.
+        let sc = s.scatter;
+        items.push(("useScatter", V::Bool(sc.is_on())));
+        items.push(("scatterDynamics", variation(CONTROL_OFF, sc.amount)));
+        items.push(("Cnt ", V::Double(sc.count.max(1) as f64)));
+        items.push(("countDynamics", variation(CONTROL_OFF, sc.count_jitter)));
+        items.push(("bothAxes", V::Bool(sc.both_axes)));
+        // Colour dynamics.
+        let c = s.color_jitter;
+        items.push(("useColorDynamics", V::Bool(c.is_on())));
+        items.push(("clVr", variation(if c.sub_by_pressure { CONTROL_PEN_PRESSURE } else { CONTROL_OFF }, c.sub_mix)));
+        items.push(("H   ", V::Unit("#Prc", (c.hue * 100.0) as f64)));
+        items.push(("Strt", V::Unit("#Prc", (c.saturation * 100.0) as f64)));
+        items.push(("Brgh", V::Unit("#Prc", (c.value * 100.0) as f64)));
+        items.push(("purity", V::Unit("#Prc", (c.purity * 100.0) as f64)));
+        items.push(("colorDynamicsPerTip", V::Bool(c.per_dab)));
+        // Wet edges, noise, build-up.
+        items.push(("Wtdg", V::Bool(s.water_edge.is_some())));
+        items.push(("Nose", V::Bool(s.noise)));
+        items.push(("Rpt ", V::Bool(s.build_up)));
+        // The tool's own opacity, flow and mode, saved with the preset.
+        items.push((
+            "toolOptions",
+            V::Obj(
+                "currentToolOptions",
+                vec![
+                    ("brushPreset", V::Bool(true)),
+                    ("Opct", V::Long((s.opacity * 100.0).round() as i32)),
+                    ("flow", V::Long((s.density * 100.0).round() as i32)),
+                    ("Md  ", V::Enum("BlnM", blend_name(s.blend))),
+                ],
+            ),
+        ));
         // Texture.
         match (&e.texture, &p.texture) {
             (Some((id, name)), Some(t)) => {
@@ -214,6 +301,13 @@ pub fn write(presets: &[BrushPreset]) -> Result<Vec<u8>, BrushIoError> {
                 items.push(("textureScale", V::Unit("#Prc", t.scale as f64)));
                 items.push(("textureDepth", V::Unit("#Prc", (t.density * 100.0) as f64)));
                 items.push(("InvT", V::Bool(t.invert)));
+                items.push(("TxtC", V::Bool(t.each_dab)));
+                items.push(("textureBlendMode", V::Enum("BlnM", mask_name(t.mode))));
+                items.push(("textureBrightness", V::Long((t.brightness * 255.0).round() as i32)));
+                items.push(("textureContrast", V::Long(((t.contrast - 1.0) * 100.0).round() as i32)));
+                let d = &s.texture_dynamics;
+                items.push(("textureDepthDynamics", variation_with(control(d), d.fade, 0.0, d.jitter)));
+                items.push(("minimumDepth", V::Unit("#Prc", (d.minimum.clamp(0.0, 1.0) * 100.0) as f64)));
             }
             _ => items.push(("useTexture", V::Bool(false))),
         }
@@ -225,10 +319,19 @@ pub fn write(presets: &[BrushPreset]) -> Result<Vec<u8>, BrushIoError> {
                     ("Spcn", V::Unit("#Prc", (s.spacing * 100.0).clamp(1.0, 1000.0) as f64)),
                     ("sampledData", V::Text(id)),
                 ];
-                items.push(("useDualBrush", V::Bool(true)));
-                items.push(("dualBrush", V::Obj("dualBrush", vec![("Brsh", V::Obj("sampledBrush", dual_tip))])));
+                items.push((
+                    "dualBrush",
+                    V::Obj(
+                        "dualBrush",
+                        vec![
+                            ("useDualBrush", V::Bool(true)),
+                            ("BlnM", V::Enum("BlnM", mask_name(dual.mode))),
+                            ("Brsh", V::Obj("sampledBrush", dual_tip)),
+                        ],
+                    ),
+                ));
             }
-            _ => items.push(("useDualBrush", V::Bool(false))),
+            _ => items.push(("dualBrush", V::Obj("dualBrush", vec![("useDualBrush", V::Bool(false))]))),
         }
         brushes.push(V::Obj("brushPreset", items));
     }
@@ -271,13 +374,26 @@ mod tests {
         chalk.tip = Some(tip(9, 7, 3));
         chalk.angle = 30.0;
         chalk.thickness = 0.5;
-        chalk.texture = Some(BrushTexture { image: tip(5, 4, 9), scale: 150.0, density: 0.4, invert: true });
-        chalk.dual = Some(DualBrush { tip: tip(6, 6, 1), scale: 0.5 });
+        chalk.texture = Some(BrushTexture::new(tip(5, 4, 9), 150.0, 0.4, true));
+        chalk.texture.as_mut().unwrap().mode = painter_core::MaskMode::Subtract;
+        chalk.texture.as_mut().unwrap().each_dab = false;
+        chalk.texture.as_mut().unwrap().contrast = 1.5;
+        chalk.dual = Some(DualBrush { tip: tip(6, 6, 1), scale: 0.5, mode: painter_core::MaskMode::HardMix });
         chalk.dynamics.rotation_follows_direction = true;
         chalk.dynamics.flow.pressure = Some(PressureCurve::linear());
+        chalk.dynamics.opacity.fade = Some(40);
+        chalk.dynamics.opacity.minimum = Some(0.25);
         chalk.dynamics.size.random = Some(0.2);
         chalk.apply_dynamics();
         chalk.apply_tip();
+        let s = &mut chalk.settings;
+        s.scatter = painter_core::Scatter { amount: 1.5, count: 3, count_jitter: 0.5, both_axes: true };
+        s.color_jitter = painter_core::ColorJitter { hue: 0.1, value: 0.2, per_dab: true, sub_mix: 0.5, ..Default::default() };
+        s.noise = true;
+        s.build_up = true;
+        s.water_edge = Some(painter_core::WaterEdge::wet_edges(60.0));
+        s.blend = painter_core::BrushBlend::Multiply;
+        s.opacity = 0.8;
 
         let bytes = write(&[pen.clone(), chalk.clone()]).unwrap();
         let report = crate::abr::read_report(&bytes).unwrap();
@@ -297,6 +413,17 @@ mod tests {
         assert!((dual.scale - 0.5).abs() < 1e-4);
         assert!(c.dynamics.rotation_follows_direction && c.settings.pressure_density);
         assert!((c.dynamics.size.random.unwrap() - 0.2).abs() < 1e-4);
+        // Everything else Photoshop brushes hold comes back.
+        let (a, b) = (&c.settings, &chalk.settings);
+        assert_eq!((a.scatter.count, a.scatter.both_axes), (3, true));
+        assert!((a.scatter.amount - 1.5).abs() < 1e-4 && (a.scatter.count_jitter - 0.5).abs() < 1e-4);
+        assert!(a.color_jitter.per_dab && (a.color_jitter.sub_mix - 0.5).abs() < 1e-4 && (a.color_jitter.value - 0.2).abs() < 1e-4);
+        assert!(a.noise && a.build_up && a.water_edge.is_some());
+        assert_eq!((a.blend, a.opacity), (b.blend, b.opacity));
+        assert_eq!((a.opacity_dynamics.fade, a.opacity_dynamics.minimum), (40, 0.25));
+        let t = c.texture.as_ref().unwrap();
+        assert!(t.mode == painter_core::MaskMode::Subtract && !t.each_dab && (t.contrast - 1.5).abs() < 1e-4);
+        assert_eq!(c.dual.as_ref().unwrap().mode, painter_core::MaskMode::HardMix);
         assert!(write(&[]).is_err());
     }
 }
