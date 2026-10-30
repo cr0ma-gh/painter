@@ -24,10 +24,14 @@ fn gpu() -> Option<(&'static wgpu::Device, &'static wgpu::Queue, MutexGuard<'sta
     static TURN: Mutex<()> = Mutex::new(());
     let (device, queue) = DEVICE
         .get_or_init(|| {
-            // WGPU_BACKEND (e.g. "gl") picks the API, to test the OpenGL path where it exists.
+            // WGPU_BACKEND (e.g. "gl") picks the API, to test the OpenGL path where it exists;
+            // PARITY_SOFTWARE_GPU=1 the system's software rasteriser (WARP on Windows), whose
+            // rounding differs from hardware as the Linux CI's llvmpipe does.
             let backends = wgpu::Backends::from_env().unwrap_or(wgpu::Backends::all());
             let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor { backends, ..Default::default() });
-            let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))?;
+            let software = std::env::var_os("PARITY_SOFTWARE_GPU").is_some();
+            let options = wgpu::RequestAdapterOptions { force_fallback_adapter: software, ..Default::default() };
+            let adapter = pollster::block_on(instance.request_adapter(&options))?;
             let info = adapter.get_info();
             eprintln!("GPU tests on {} ({:?}, {})", info.name, info.backend, info.driver);
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None)).ok()
@@ -624,20 +628,25 @@ fn dual_tip_stroke_preview_matches_commit() {
 #[test]
 fn texture_and_dual_modes_preview_matches_commit() {
     use painter_core::MaskMode;
+    // Each case named, so a failure says which.
     for mode in MaskMode::ALL {
         let texture = DabTexture { mode, brightness: 0.15, contrast: 1.6, ..DabTexture::new(bitmap(7, 5, 1), 2.5, 0.7, false) };
-        let brush = BrushSettings { size: 30.0, density: 0.7, texture: Some(texture), ..pen() };
+        let name = format!("texture {}", mode.name());
+        let brush = BrushSettings { name, size: 30.0, density: 0.7, texture: Some(texture), ..pen() };
         check_stroke(sample_document(), brush, StrokeCase::default());
         let dual = DualTip { mode, ..DualTip::new(bitmap(13, 9, 2), 1.4) };
-        check_stroke(sample_document(), BrushSettings { size: 34.0, dual: Some(dual), ..pen() }, StrokeCase::default());
+        let name = format!("dual tip {}", mode.name());
+        check_stroke(sample_document(), BrushSettings { name, size: 34.0, dual: Some(dual), ..pen() }, StrokeCase::default());
     }
     // Texture density per dab, inverted with brightness and contrast (Clip Studio's order).
     let texture = DabTexture { invert: true, brightness: 0.3, contrast: 0.6, mode: MaskMode::Subtract, ..DabTexture::new(bitmap(7, 5, 1), 2.5, 1.0, false) };
     let case = StrokeCase { texture_ramp: true, ..StrokeCase::default() };
-    check_stroke(sample_document(), BrushSettings { size: 30.0, texture: Some(texture), ..pen() }, case);
+    let name = "texture density per dab".to_string();
+    check_stroke(sample_document(), BrushSettings { name, size: 30.0, texture: Some(texture), ..pen() }, case);
     // A dual tip smaller than the dab repeats over the canvas.
     let tiled = DualTip { mode: MaskMode::Darken, ..DualTip::new(bitmap(9, 7, 5), 0.3) };
-    check_stroke(sample_document(), BrushSettings { size: 40.0, dual: Some(tiled), ..pen() }, StrokeCase::default());
+    let name = "tiled dual tip".to_string();
+    check_stroke(sample_document(), BrushSettings { name, size: 40.0, dual: Some(tiled), ..pen() }, StrokeCase::default());
 }
 
 #[test]

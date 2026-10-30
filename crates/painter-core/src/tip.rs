@@ -210,13 +210,9 @@ impl MaskMode {
                     1.0 - ((1.0 - cov) / t).min(1.0)
                 }
             }
-            MaskMode::HardMix => {
-                if cov + t >= 1.0 {
-                    cov
-                } else {
-                    0.0
-                }
-            }
+            // A ramp one level (1/255) wide instead of a step: looks the same,
+            // but a rounding difference between GPUs can't flip a pixel.
+            MaskMode::HardMix => cov * ((cov + t - 1.0) * 255.0 + 1.0).clamp(0.0, 1.0),
         };
         out.clamp(0.0, 1.0)
     }

@@ -51,7 +51,8 @@ fn mask_mix(cov: f32, t: f32, mode: u32) -> f32 {
                 out = 1.0 - min((1.0 - cov) / t, 1.0);
             }
         }
-        case 4u: { out = select(0.0, cov, cov + t >= 1.0); }
+        // A one-level ramp, not a step (see MaskMode::mix).
+        case 4u: { out = cov * clamp((cov + t - 1.0) * 255.0 + 1.0, 0.0, 1.0); }
         default: {}
     }
     return clamp(out, 0.0, 1.0);
