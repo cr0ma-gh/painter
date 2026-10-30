@@ -2,8 +2,14 @@
 // stroke_merge.wgsl (a texture over the whole stroke). Mirrors
 // painter_core::DabTexture::value and painter_core::MaskMode::mix.
 
+// i mod n in 0..n (i32::rem_euclid). `%` only ever sees non-negative operands:
+// GLSL ES, which the GL backend compiles to, leaves it undefined otherwise, and
+// Mesa's llvmpipe picked another texel for the canvas's first column (i = -1).
 fn wrap(i: i32, n: i32) -> i32 {
-    return ((i % n) + n) % n;
+    if (i >= 0) {
+        return i % n;
+    }
+    return n - 1 - (-i - 1) % n;
 }
 
 // Bilinear sample of `level` with the bitmap repeating (TipBitmap::sample_wrapped_level).
