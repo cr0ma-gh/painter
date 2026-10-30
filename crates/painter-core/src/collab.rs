@@ -488,7 +488,11 @@ pub fn apply_stroke(
             continue;
         }
         let pixels: Vec<[f32; 4]> = bytes.as_chunks::<4>().0.iter().map(|p| p.map(|v| v as f32 / 255.0)).collect();
-        let merged = merge_stroke(store.get(*c).map(|t| &**t), &pixels, opacity, mode, blend, alpha_locked, None);
+        let mut merged = merge_stroke(store.get(*c).map(|t| &**t), &pixels, opacity, mode, blend, alpha_locked, None);
+        if plane.mask {
+            // Grey mask paint, settled as the painter's own commit did.
+            crate::layer::settle_tile(&mut merged);
+        }
         if merged.bytes().iter().all(|&b| b == 0) {
             store.remove(*c);
         } else {

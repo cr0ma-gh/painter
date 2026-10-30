@@ -283,6 +283,8 @@ struct StrokeCase {
     alpha_locked: bool,
     /// Paint the active layer's mask instead of its pixels.
     edit_mask: bool,
+    /// On the mask, paint this grey (the amount hidden) instead of hiding fully.
+    mask_grey: Option<f32>,
     mid_stroke: Option<fn(&mut Document)>,
     /// Per-dab rotation step in degrees (rotation dynamics).
     angle_step: f32,
@@ -303,7 +305,7 @@ fn check_stroke(mut doc: Document, settings: BrushSettings, case: StrokeCase) ->
     let canvas_size = doc.canvas();
     let layer_id = doc.active;
     doc.find_mut(layer_id).unwrap().alpha_locked = case.alpha_locked;
-    let color = if case.edit_mask { [1.0; 3] } else { [0.95, 0.2, 0.1] };
+    let color = if case.edit_mask { [case.mask_grey.unwrap_or(1.0); 3] } else { [0.95, 0.2, 0.1] };
     let plane = if case.edit_mask { Plane::Mask(layer_id) } else { Plane::Color(layer_id) };
     let dabs: Vec<Dab> = line((5.0, 45.0), (145.0, 50.0), 120, settings.size * 0.5, settings.density)
         .into_iter()
@@ -351,6 +353,10 @@ fn check_stroke(mut doc: Document, settings: BrushSettings, case: StrokeCase) ->
     let layer = doc.find_mut(layer_id).unwrap();
     let tiles = if case.edit_mask { &mut layer.mask.as_mut().unwrap().tiles } else { layer.tiles_mut().unwrap() };
     paint_stroke(tiles, &dabs, color, &settings, canvas_size, alpha_locked, selection.as_ref());
+    if case.edit_mask {
+        // As the app commits mask edits: the grey settles into every channel.
+        Mask::settle_all(tiles);
+    }
     let cpu = io::flatten(&doc);
 
     assert_close(&gpu, &cpu, &settings.name);
@@ -502,6 +508,21 @@ fn mask_stroke_preview_matches_commit() {
     // Revealing again with the eraser.
     let reveal = BrushSettings { size: 20.0, ..BrushSettings::hard_eraser() };
     check_stroke(doc, reveal, StrokeCase { edit_mask: true, ..StrokeCase::default() });
+}
+
+#[test]
+fn grey_mask_stroke_preview_matches_commit() {
+    // Photoshop's mask painting: grey blends the mask towards it, over hidden
+    // and shown parts alike (a light grey reveals part of what was hidden).
+    let mut doc = feature_document();
+    let base = doc.active;
+    let canvas = doc.canvas();
+    let hidden = selection::rect_mask([0.0, 0.0], [75.0, 90.0], canvas);
+    doc.find_mut(base).unwrap().mask = Some(Mask { tiles: hidden, enabled: true });
+    for grey in [0.25, 0.7] {
+        let brush = BrushSettings { size: 30.0, ..BrushSettings::airbrush() };
+        check_stroke(doc.clone(), brush, StrokeCase { edit_mask: true, mask_grey: Some(grey), ..StrokeCase::default() });
+    }
 }
 
 /// An asymmetric tip with soft and hard edges, holes and a gradient, so any

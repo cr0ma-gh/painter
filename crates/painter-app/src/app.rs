@@ -613,6 +613,22 @@ impl PainterApp {
         self.ink_rgb(self.color)
     }
 
+    /// What tools lay on a layer mask for `color`: a grey whose level is the
+    /// amount hidden (see [`Mask::settle`]). Photoshop's way by default (black
+    /// hides, white reveals, greys partly); with the option off, any colour
+    /// hides, as in Clip Studio.
+    pub(crate) fn mask_ink_of(&self, color: Hsva) -> [f32; 3] {
+        if !self.tools.mask_grey {
+            return [1.0; 3];
+        }
+        [Mask::hide_amount(hsva_rgb(color)); 3]
+    }
+
+    /// [`Self::mask_ink_of`] the main colour.
+    pub(crate) fn mask_ink(&self) -> [f32; 3] {
+        self.mask_ink_of(self.color)
+    }
+
     /// `color` as the document can hold it.
     pub(crate) fn ink_rgb(&self, color: Hsva) -> [f32; 3] {
         // Grey, or black or white, in those colour modes and on Gray or Monochrome layers.
@@ -879,24 +895,193 @@ impl PainterApp {
             Some(sel) => selection::invert(Some(sel), canvas),
             None => TileStore::new(),
         };
-        self.checkpoint();
+        self.add_mask_with(tiles);
+    }
+
+    /// Adds a mask that hides: the selection (when there is one) or the whole
+    /// layer. Photoshop's Alt-click on the mask button (Hide All / Hide Selection).
+    pub(crate) fn add_hiding_mask(&mut self) {
+        let canvas = self.doc.canvas();
+        let tiles = match &self.doc.selection {
+            Some(sel) => sel.clone(),
+            None => selection::select_all(canvas),
+        };
+        self.add_mask_with(tiles);
+    }
+
+    fn add_mask_with(&mut self, tiles: TileStore) {
         let id = self.doc.active;
+        let Some(layer) = self.doc.find(id) else { return };
+        if layer.mask.is_some() {
+            // One mask per layer: go to it rather than replace it.
+            self.edit_mask = true;
+            self.status = format!("\"{}\" already has a mask: editing it", layer.name);
+            return;
+        }
+        if layer.locked {
+            self.status = format!("\"{}\" is locked", layer.name);
+            return;
+        }
+        self.checkpoint();
         if let Some(layer) = self.doc.find_mut(id) {
             layer.mask = Some(Mask { tiles, enabled: true });
-            self.edit_mask = true;
+        }
+        self.edit_mask = true;
+        self.status = self.mask_hint();
+        self.upload_plane(Plane::Mask(id));
+    }
+
+    /// The status line while a mask is being edited.
+    pub(crate) fn mask_hint(&self) -> String {
+        if self.tools.mask_grey {
+            tr("Editing the mask: black hides, white reveals, grey partly (X swaps, D resets the colours)").into()
+        } else {
+            tr("Editing the mask: drawing hides, the eraser or transparent colour reveals").into()
+        }
+    }
+
+    /// Edits the active layer's mask (`true`) or its pixels.
+    pub(crate) fn set_edit_mask(&mut self, on: bool) {
+        let on = on && self.doc.active_layer().is_some_and(|l| l.mask.is_some());
+        if on && !self.edit_mask {
+            self.status = self.mask_hint();
+        }
+        self.edit_mask = on;
+    }
+
+    /// Photoshop's Apply Layer Mask (Clip Studio's Apply Mask to Layer): what
+    /// the mask hides is erased from the pixels, and the mask goes.
+    pub(crate) fn apply_mask(&mut self) {
+        let id = self.doc.active;
+        let Some(layer) = self.doc.find(id) else { return };
+        let Some(mask) = layer.mask.clone() else {
+            self.status = format!("\"{}\" has no mask", layer.name);
+            return;
+        };
+        if layer.locked {
+            self.status = format!("\"{}\" is locked", layer.name);
+            return;
+        }
+        if !matches!(layer.kind, LayerKind::Raster(_)) || layer.file_object.is_some() {
+            self.status = tr("Apply Layer Mask works on raster layers (rasterize the layer first)").into();
+            return;
+        }
+        self.checkpoint();
+        if let Some(layer) = self.doc.find_mut(id) {
+            if mask.enabled {
+                if let Some(tiles) = layer.tiles_mut() {
+                    mask.apply_to(tiles);
+                }
+            }
+            layer.mask = None;
+        }
+        self.edit_mask = false;
+        self.mask_view_mode = painter_render::MaskViewMode::Off;
+        self.upload_plane(Plane::Color(id));
+        self.upload_plane(Plane::Mask(id));
+        self.status = tr("Layer mask applied").into();
+    }
+
+    /// Inverts the active layer's mask (Ctrl+I while editing it).
+    pub(crate) fn invert_mask(&mut self) {
+        let id = self.doc.active;
+        let canvas = self.doc.canvas();
+        let Some(layer) = self.doc.find(id) else { return };
+        let Some(inverted) = layer.mask.as_ref().map(|m| m.inverted(canvas)) else {
+            self.status = format!("\"{}\" has no mask", layer.name);
+            return;
+        };
+        if layer.locked {
+            self.status = format!("\"{}\" is locked", layer.name);
+            return;
+        }
+        self.checkpoint();
+        if let Some(mask) = self.doc.find_mut(id).and_then(|l| l.mask.as_mut()) {
+            mask.tiles = inverted;
         }
         self.upload_plane(Plane::Mask(id));
     }
 
-    pub(crate) fn delete_mask(&mut self) {
-        self.checkpoint();
+    /// What a layer's mask shows becomes the selection, combined by `op`
+    /// (Photoshop's Ctrl+click on the mask thumbnail).
+    pub(crate) fn mask_to_selection(&mut self, id: LayerId, op: SelectionOp) {
+        let canvas = self.doc.canvas();
+        let Some(shown) = self.doc.find(id).and_then(|l| l.mask.as_ref()).map(|m| m.to_selection(canvas)) else { return };
+        self.next_label.get_or_insert_with(|| "Mask to Selection".into());
+        self.combine_selection(shown, op);
+    }
+
+    /// A layer's opaque pixels become the selection, combined by `op`
+    /// (Photoshop's Ctrl+click on the layer thumbnail, Clip Studio's Selection from Layer).
+    pub(crate) fn layer_to_selection(&mut self, id: LayerId, op: SelectionOp) {
+        let canvas = self.doc.canvas();
+        let Some(layer) = self.doc.find(id) else { return };
+        let Some(tiles) = layer.tiles() else {
+            self.status = tr("Only raster and vector layers have pixels to select").into();
+            return;
+        };
+        let opaque = selection::from_alpha(tiles, canvas);
+        self.next_label.get_or_insert_with(|| "Selection from Layer".into());
+        self.combine_selection(opaque, op);
+    }
+
+    /// Merge Down (Ctrl+E): the active layer into the one below.
+    pub(crate) fn merge_down(&mut self) {
+        if self.stroke.is_some() {
+            return;
+        }
+        if self.transform.is_some() {
+            self.apply_transform();
+        }
         let id = self.doc.active;
+        let before = self.doc.clone();
+        let label = self.next_label.take().unwrap_or_else(|| "Merge Down".into());
+        match self.doc.merge_down(id) {
+            Ok(merged) => {
+                self.history.push_labelled(&before, &label);
+                self.push_comic_history(self.comic.clone());
+                self.scenes.remove(&id);
+                self.layer_selection = vec![merged];
+                self.edit_mask = false;
+                self.mask_view_mode = painter_render::MaskViewMode::Off;
+                self.dirty = true;
+                self.resync_gpu();
+                self.status = tr("Merged down").into();
+            }
+            Err(why) => {
+                // The reasons painter_core gives, in the interface language.
+                let why = match why {
+                    "there is no layer below it in its folder" => tr("there is no layer below it in its folder"),
+                    "folders can't be merged down: merge the layers inside it" => tr("folders can't be merged down: merge the layers inside it"),
+                    "the layer below isn't a raster layer" => tr("the layer below isn't a raster layer"),
+                    "the layer below is locked" => tr("the layer below is locked"),
+                    "both layers must be visible" => tr("both layers must be visible"),
+                    other => other,
+                };
+                self.status = format!("{}: {why}", tr("Can't merge down"));
+            }
+        }
+    }
+
+    /// D: black main colour and white sub colour, as in Photoshop (a mask's hide and reveal).
+    pub(crate) fn default_colors(&mut self) {
+        self.color = Hsva::from_srgb([0, 0, 0]);
+        self.sub_color = Hsva::from_srgb([255, 255, 255]);
+        self.transparent = false;
+    }
+
+    pub(crate) fn delete_mask(&mut self) {
+        let id = self.doc.active;
+        if !self.doc.find(id).is_some_and(|l| l.mask.is_some()) {
+            return;
+        }
+        self.checkpoint();
         if let Some(layer) = self.doc.find_mut(id) {
             layer.mask = None;
         }
         self.edit_mask = false;
         self.mask_view_mode = painter_render::MaskViewMode::Off;
-        self.recomposite = true;
+        self.upload_plane(Plane::Mask(id));
     }
 
     /// Toggles previewing the active layer mask on the canvas (Grayscale or Rubylith).
@@ -917,8 +1102,11 @@ impl PainterApp {
 
     /// Toggles the enabled state of the active layer mask.
     pub(crate) fn toggle_mask_enabled(&mut self) {
-        self.checkpoint();
         let id = self.doc.active;
+        if !self.doc.find(id).is_some_and(|l| l.mask.is_some()) {
+            return;
+        }
+        self.checkpoint();
         if let Some(layer) = self.doc.find_mut(id) {
             if let Some(mask) = &mut layer.mask {
                 mask.enabled = !mask.enabled;
@@ -981,12 +1169,13 @@ impl PainterApp {
         if source.is_some() {
             settings.mode = BrushMode::Paint;
         }
-        // The transparent colour: any brush erases, with its own tip and dynamics.
-        if self.transparent && matches!(plane, Plane::Color(_)) && source.is_none() {
+        // The transparent colour: any brush erases, with its own tip and dynamics
+        // (on a mask: reveals, as in Clip Studio).
+        if self.transparent && source.is_none() {
             settings.mode = BrushMode::Erase;
         }
         let color = if matches!(plane, Plane::Mask(_)) {
-            [1.0; 3]
+            self.mask_ink()
         } else {
             // Colour jitter: one variation per stroke, reproducible from its id.
             let seed = self.next_stroke_id.wrapping_mul(0x9E37_79B9_7F4A_7C15);
@@ -1254,9 +1443,11 @@ impl PainterApp {
             (_, false) => ", gap closing skipped (the click is inside a gap-sized spot)".into(),
         };
         self.status = format!("Filled {filled} px in {} ms{note}", started.elapsed().as_millis());
-        let color = if matches!(plane, Plane::Mask(_)) { [1.0; 3] } else { self.main_rgb() };
+        let color = if matches!(plane, Plane::Mask(_)) { self.mask_ink() } else { self.main_rgb() };
         let stroke = region_to_stroke(&region, color);
-        self.commit_region(plane, &stroke, BrushMode::Paint);
+        // The transparent colour fills with nothing: it clears (reveals on a mask).
+        let mode = if self.transparent { BrushMode::Erase } else { BrushMode::Paint };
+        self.commit_region(plane, &stroke, mode);
     }
 
     /// The area a fill with `options` would cover from a click at `(x, y)`:
@@ -1334,7 +1525,17 @@ impl PainterApp {
             return;
         }
         let (from, to) = if matches!(plane, Plane::Mask(_)) {
-            ([255, 255, 255, 255], [255, 255, 255, 0])
+            // From the main colour's grey to the sub colour's (or to nothing):
+            // a black to white gradient fades the layer out, as in Photoshop.
+            let grey = |rgb: [f32; 3]| (rgb[0].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+            let from = grey(self.mask_ink());
+            let to = if self.tools.gradient_to_transparent || !self.tools.mask_grey {
+                [from, from, from, 0]
+            } else {
+                let to = grey(self.mask_ink_of(self.sub_color));
+                [to, to, to, 255]
+            };
+            ([from, from, from, 255], to)
         } else {
             (rgba8(self.color), self.gradient_end_color())
         };

@@ -206,6 +206,13 @@ impl PainterApp {
     /// being edited changed.
     pub(crate) fn finish_edit(&mut self, plane: Plane, before: &TileStore, coords: impl IntoIterator<Item = TileCoord>) {
         let coords: Vec<TileCoord> = coords.into_iter().collect();
+        if let Plane::Mask(_) = plane {
+            // Grey mask paint lands in red; every channel follows it (see Mask::settle).
+            if let Some(tiles) = self.plane_tiles_mut(plane) {
+                painter_core::Mask::settle(tiles, coords.iter().copied());
+            }
+            return;
+        }
         self.restrict_channels(plane, before, coords.iter().copied());
         if !matches!(plane, Plane::Color(_)) {
             return;

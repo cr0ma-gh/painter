@@ -126,7 +126,17 @@ impl PainterApp {
                 self.clone_source.offset = Some(offset);
                 let image = if self.tools.stamps.all_layers {
                     let (w, h) = self.doc.canvas();
-                    TileStore::from_rgba(w, h, &painter_core::io::flatten(&self.doc))
+                    let mut rgba = painter_core::io::flatten(&self.doc);
+                    if matches!(plane, Plane::Mask(_)) {
+                        // Onto a mask, the picture's grey (over white): dark parts hide, as in Photoshop.
+                        for p in rgba.as_chunks_mut::<4>().0 {
+                            let white = 255 - p[3];
+                            let over_white = [p[0], p[1], p[2]].map(|v| v.saturating_add(white));
+                            let hidden = 255 - painter_core::color_mode::luma(over_white);
+                            *p = [hidden, hidden, hidden, 255];
+                        }
+                    }
+                    TileStore::from_rgba(w, h, &rgba)
                 } else {
                     before.clone()
                 };
@@ -136,7 +146,7 @@ impl PainterApp {
                 let o = &self.tools.stamps;
                 let mut pattern = o.patterns.get(o.pattern).or(o.patterns.first())?.clone();
                 if o.tint || matches!(plane, Plane::Mask(_)) {
-                    let ink = if matches!(plane, Plane::Mask(_)) { [1.0; 3] } else { self.main_rgb() };
+                    let ink = if matches!(plane, Plane::Mask(_)) { self.mask_ink() } else { self.main_rgb() };
                     let rgba: Vec<u8> = pattern
                         .rgba
                         .as_chunks::<4>()

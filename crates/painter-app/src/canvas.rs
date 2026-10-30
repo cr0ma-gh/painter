@@ -118,6 +118,8 @@ impl PainterApp {
         let stroke = self.take_stroke_preview();
         if self.gpu_ready {
             let time = self.started.elapsed().as_secs_f32();
+            // A mask moving with a transform: redrawn where the handles left it.
+            self.sync_transform_mask();
             // Layers with Layer Property effects show what the effects draw.
             let pending = std::mem::take(&mut self.uploads);
             let uploads = self.effect_uploads(pending);

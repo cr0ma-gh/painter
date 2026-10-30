@@ -8,7 +8,10 @@
 //! `transform_tools::commit`, the same result the preview showed; Cancel (Esc)
 //! restores the layer on screen.
 //!
-//! **Crop** (C): a box with handles, thirds and aspect presets; Apply moves
+//! A layer's mask moves with its pixels (Photoshop's linked mask); while the
+//! mask is being edited, the transform moves the mask alone.
+//!
+//! **Crop** (Shift+C): a box with handles, thirds and aspect presets; Apply moves
 //! the canvas window (non-destructive, undoable).
 //!
 //! **Clipboard**: Ctrl+C / Ctrl+X copy or cut the selected pixels of the
@@ -19,7 +22,7 @@ use std::sync::Arc;
 use crate::i18n::tr;
 
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke, Vec2};
-use painter_core::{Document, Layer, LayerId, LayerKind, SelectionOp, TileStore};
+use painter_core::{Document, Layer, LayerId, LayerKind, Mask, SelectionOp, TileCoord, TileStore, TILE_SIZE};
 use painter_render::{plane_uploads, Plane, TransformGeometry, TransformPreview};
 use transform_tools::crop::{apply_crop as crop_canvas, copy, erase_selected, paste_tiles};
 use transform_tools::{
@@ -41,12 +44,27 @@ pub(crate) struct TransformSession {
     /// Bumped on every change, so the GPU redraws the preview.
     pub(crate) revision: u64,
     layer: LayerId,
+    /// What is transformed: the layer's pixels, or its mask alone (while the
+    /// mask is being edited, as Clip Studio does with the mask selected).
+    plane: Plane,
     /// The layer without the lifted pixels.
     rest: TileStore,
     floating: FloatingSelection,
     image: Image,
     source: Arc<Vec<u8>>,
     pub(crate) gizmo: TransformGizmo,
+    /// The layer's mask, moving with its pixels (Photoshop's linked mask).
+    linked_mask: Option<LinkedMask>,
+}
+
+/// A mask carried along by a transform of its layer's pixels. The GPU preview
+/// shows the pixels live; the mask follows each time a drag ends.
+struct LinkedMask {
+    rest: TileStore,
+    origin: [i32; 2],
+    image: Image,
+    /// The transform revision the mask on screen was drawn for.
+    shown: Option<u64>,
 }
 
 impl TransformSession {
@@ -67,6 +85,19 @@ impl TransformSession {
         }
     }
 
+    /// The linked mask as the transform leaves it, settled; `None` without one.
+    /// A mesh warp only bends the pixels: its grid covers them, not the mask.
+    fn transformed_mask(&self, canvas: (u32, u32)) -> Option<TileStore> {
+        let mask = self.linked_mask.as_ref()?;
+        if self.gizmo.mode == TransformMode::MeshWarp {
+            return None;
+        }
+        let placement = Placement::Matrix(self.gizmo.matrix() * Mat3::translate(mask.origin[0] as f64, mask.origin[1] as f64));
+        let mut tiles = commit(&mask.rest, &mask.image, &placement, self.gizmo.interpolation, canvas);
+        Mask::settle_all(&mut tiles);
+        Some(tiles)
+    }
+
     fn geometry(&self) -> TransformGeometry {
         match self.placement() {
             Placement::Matrix(m) => TransformGeometry::Inverse(m.inverse().unwrap_or(Mat3::IDENTITY).to_f32()),
@@ -77,6 +108,60 @@ impl TransformSession {
             },
         }
     }
+}
+
+/// A mask lifted for a transform. Its floating pixels carry the amount hidden
+/// in their colour and how much of them moves in alpha (the selection's
+/// coverage, all of it without one), so once placed they replace the mask
+/// under them rather than add to it: a shown part of the mask uncovers what it
+/// lands on, as in Photoshop. The result needs [`Mask::settle`]. `None` when
+/// nothing would move.
+fn lift_mask(tiles: &TileStore, selection: Option<&TileStore>, canvas: (u32, u32)) -> Option<FloatingSelection> {
+    let Some(sel) = selection else {
+        let mut floating = copy(tiles, None, canvas)?;
+        for p in floating.rgba.as_chunks_mut::<4>().0 {
+            p[3] = 255;
+        }
+        return Some(floating);
+    };
+    let [x0, y0, x1, y1] = painter_core::selection::bounds(sel)?;
+    let (x0, y0) = (x0.max(0), y0.max(0));
+    let (x1, y1) = (x1.min(canvas.0 as i32 - 1), y1.min(canvas.1 as i32 - 1));
+    if x1 < x0 || y1 < y0 {
+        return None;
+    }
+    let (w, h) = ((x1 - x0 + 1) as u32, (y1 - y0 + 1) as u32);
+    let mut rgba = vec![0u8; (w * h * 4) as usize];
+    let size = TILE_SIZE as i32;
+    let empty = painter_core::Tile::empty();
+    for ty in y0.div_euclid(size)..=y1.div_euclid(size) {
+        for tx in x0.div_euclid(size)..=x1.div_euclid(size) {
+            let coord = TileCoord::new(tx, ty);
+            let Some(cover) = sel.get(coord) else { continue };
+            let hidden = tiles.get(coord).map_or(&empty, |t| t);
+            let (ox, oy) = coord.origin();
+            for ly in 0..TILE_SIZE {
+                let y = oy + ly as i32;
+                if y < y0 || y > y1 {
+                    continue;
+                }
+                for lx in 0..TILE_SIZE {
+                    let x = ox + lx as i32;
+                    if x < x0 || x > x1 {
+                        continue;
+                    }
+                    let c = cover.pixel(lx, ly)[3] as u32;
+                    if c == 0 {
+                        continue;
+                    }
+                    let v = ((hidden.pixel(lx, ly)[0] as u32 * c + 127) / 255) as u8;
+                    let i = (((y - y0) as u32 * w + (x - x0) as u32) * 4) as usize;
+                    rgba[i..i + 4].copy_from_slice(&[v, v, v, c as u8]);
+                }
+            }
+        }
+    }
+    Some(FloatingSelection { origin: [x0, y0], width: w, height: h, rgba })
 }
 
 /// What a crop drag is doing.
@@ -131,8 +216,11 @@ impl PainterApp {
             return;
         };
         let id = layer.id;
+        // With its mask being edited, the mask alone moves (any kind of layer).
+        let mask_only = self.edit_mask && layer.mask.is_some();
         let refuse = match &layer.kind {
             _ if layer.locked => Some("the layer is locked"),
+            _ if mask_only => None,
             LayerKind::Raster(_) => None,
             _ => Some("only raster layers can be transformed"),
         };
@@ -141,11 +229,19 @@ impl PainterApp {
             self.transform_blocked = true;
             return;
         }
-        let tiles = layer.tiles().cloned().unwrap_or_default();
         // A file object moves whole (it's drawn again from its file on apply).
-        let selection = if layer.file_object.is_some() { None } else { self.doc.selection.as_ref() };
-        let Some(floating) = copy(&tiles, selection, canvas) else {
-            self.status = tr("Nothing to transform on this layer").into();
+        let selection = if layer.file_object.is_some() && !mask_only { None } else { self.doc.selection.as_ref() };
+        let (plane, tiles, floating) = if mask_only {
+            let tiles = layer.mask.as_ref().map(|m| m.tiles.clone()).unwrap_or_default();
+            let floating = lift_mask(&tiles, selection, canvas);
+            (Plane::Mask(id), tiles, floating)
+        } else {
+            let tiles = layer.tiles().cloned().unwrap_or_default();
+            let floating = copy(&tiles, selection, canvas);
+            (Plane::Color(id), tiles, floating)
+        };
+        let Some(floating) = floating else {
+            self.status = if mask_only { tr("Nothing to transform on this mask") } else { tr("Nothing to transform on this layer") }.into();
             self.transform_blocked = true;
             return;
         };
@@ -153,23 +249,69 @@ impl PainterApp {
             Some(_) => erase_selected(&tiles, selection),
             None => TileStore::new(),
         };
+        // Moving the pixels moves their mask too, the same way.
+        let linked_mask = match (&layer.mask, mask_only) {
+            (Some(mask), false) => lift_mask(&mask.tiles, selection, canvas).map(|f| LinkedMask {
+                rest: match selection {
+                    Some(_) => erase_selected(&mask.tiles, selection),
+                    None => TileStore::new(),
+                },
+                origin: f.origin,
+                image: Image { width: f.width, height: f.height, rgba: f.rgba },
+                shown: None,
+            }),
+            _ => None,
+        };
         let source = [floating.origin[0] as f64, floating.origin[1] as f64, floating.width as f64, floating.height as f64];
         let image = Image { width: floating.width, height: floating.height, rgba: floating.rgba.clone() };
         // Show the layer without the lifted pixels; the floating image comes from the preview.
-        self.uploads.extend(plane_uploads(Plane::Color(id), &rest));
+        self.uploads.extend(plane_uploads(plane, &rest));
         self.recomposite = true;
         self.next_transform_id += 1;
         self.transform = Some(TransformSession {
             id: self.next_transform_id,
             revision: 0,
             layer: id,
+            plane,
             rest,
             source: Arc::new(floating.rgba.clone()),
             image,
             floating,
             gizmo: TransformGizmo::new(source),
+            linked_mask,
         });
-        self.status = tr("Transform: drag the handles. Enter applies, Esc cancels").into();
+        self.status = if mask_only {
+            tr("Transform the mask: drag the handles. Enter applies, Esc cancels")
+        } else {
+            tr("Transform: drag the handles. Enter applies, Esc cancels")
+        }
+        .into();
+    }
+
+    /// Redraws a linked mask where the open transform puts it, once the
+    /// handles are let go (the pixels follow the pointer live on the GPU).
+    pub(crate) fn sync_transform_mask(&mut self) {
+        if self.drag.is_some() {
+            return;
+        }
+        let canvas = self.doc.canvas();
+        let Some(session) = &self.transform else { return };
+        let Some(mask) = &session.linked_mask else { return };
+        if mask.shown == Some(session.revision) {
+            return;
+        }
+        let (layer, revision) = (session.layer, session.revision);
+        let moved = session.transformed_mask(canvas);
+        let plane = Plane::Mask(layer);
+        match moved {
+            Some(tiles) => self.uploads.extend(plane_uploads(plane, &tiles)),
+            // A mesh warp leaves the mask where it is.
+            None => self.upload_plane(plane),
+        }
+        self.recomposite = true;
+        if let Some(mask) = self.transform.as_mut().and_then(|s| s.linked_mask.as_mut()) {
+            mask.shown = Some(revision);
+        }
     }
 
     pub(crate) fn apply_transform(&mut self) {
@@ -177,14 +319,16 @@ impl PainterApp {
             return;
         };
         let canvas = self.doc.canvas();
+        let moved_mask = session.transformed_mask(canvas);
         // File objects: their new place, drawn from the file at full quality.
-        if self.doc.find(session.layer).is_some_and(|l| l.file_object.is_some()) {
+        if session.plane == Plane::Color(session.layer) && self.doc.find(session.layer).is_some_and(|l| l.file_object.is_some()) {
             let map = match session.placement() {
                 Placement::Matrix(_) => Some(session.gizmo.matrix()),
                 Placement::Mesh { .. } => None,
             };
             self.checkpoint();
             if self.transform_file_object(session.layer, map) {
+                self.set_moved_mask(session.layer, moved_mask);
                 self.status = format!("File object placed ({}), drawn from its file", session.gizmo.mode.name());
                 if self.tool == Tool::Transform {
                     self.transform_blocked = true;
@@ -193,12 +337,23 @@ impl PainterApp {
             }
             // A mesh warp: the layer became pixels; apply it as pixels below.
         }
-        let result = commit(&session.rest, &session.image, &session.placement(), session.gizmo.interpolation, canvas);
+        let mut result = commit(&session.rest, &session.image, &session.placement(), session.gizmo.interpolation, canvas);
         self.checkpoint();
-        if let Some(layer) = self.doc.find_mut(session.layer) {
-            layer.kind = LayerKind::Raster(result);
+        match session.plane {
+            Plane::Mask(id) => {
+                Mask::settle_all(&mut result);
+                if let Some(mask) = self.doc.find_mut(id).and_then(|l| l.mask.as_mut()) {
+                    mask.tiles = result;
+                }
+            }
+            _ => {
+                if let Some(layer) = self.doc.find_mut(session.layer) {
+                    layer.kind = LayerKind::Raster(result);
+                }
+                self.set_moved_mask(session.layer, moved_mask);
+            }
         }
-        self.upload_plane(Plane::Color(session.layer));
+        self.upload_plane(session.plane);
         self.status = format!("Transform applied ({})", session.gizmo.mode.name());
         if self.tool == Tool::Transform {
             // Stay in the tool without reopening on the same pixels at once.
@@ -206,11 +361,24 @@ impl PainterApp {
         }
     }
 
+    /// Puts a linked mask where the transform left it (`None`: it stays).
+    fn set_moved_mask(&mut self, id: LayerId, moved: Option<TileStore>) {
+        if let Some(tiles) = moved {
+            if let Some(mask) = self.doc.find_mut(id).and_then(|l| l.mask.as_mut()) {
+                mask.tiles = tiles;
+            }
+        }
+        self.upload_plane(Plane::Mask(id));
+    }
+
     pub(crate) fn cancel_transform(&mut self) {
         let Some(session) = self.transform.take() else {
             return;
         };
-        self.upload_plane(Plane::Color(session.layer));
+        self.upload_plane(session.plane);
+        if session.linked_mask.is_some() {
+            self.upload_plane(Plane::Mask(session.layer));
+        }
         self.status = tr("Transform cancelled").into();
         if self.tool == Tool::Transform {
             self.transform_blocked = true;
@@ -231,6 +399,7 @@ impl PainterApp {
             id: s.id,
             revision: s.revision,
             layer: s.layer,
+            mask: matches!(s.plane, Plane::Mask(_)),
             source: s.source.clone(),
             source_size: (s.floating.width, s.floating.height),
             geometry: s.geometry(),
@@ -717,7 +886,8 @@ impl PainterApp {
                 i.key_pressed(egui::Key::Enter),
                 i.key_pressed(egui::Key::Escape),
                 i.modifiers.command && i.key_pressed(egui::Key::T),
-                i.key_pressed(egui::Key::C) && !i.modifiers.command && !i.modifiers.alt && !i.modifiers.shift,
+                // Shift+C (plain C is the transparent colour, as in Clip Studio).
+                i.key_pressed(egui::Key::C) && !i.modifiers.command && !i.modifiers.alt && i.modifiers.shift,
                 i.events.clone(),
                 i.modifiers.shift,
             )
@@ -760,5 +930,59 @@ impl PainterApp {
                 _ => {}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A 128 × 64 mask hiding its left half fully and a grey band at x 70..80.
+    fn half_hidden() -> TileStore {
+        let (w, h) = (128u32, 64u32);
+        let mut rgba = vec![0u8; (w * h * 4) as usize];
+        for y in 0..h {
+            for x in 0..w {
+                let v = if x < 64 { 255 } else if (70..80).contains(&x) { 100 } else { 0 };
+                let i = ((y * w + x) * 4) as usize;
+                rgba[i..i + 4].copy_from_slice(&[v; 4]);
+            }
+        }
+        TileStore::from_rgba(w, h, &rgba)
+    }
+
+    fn moved(tiles: &TileStore, selection: Option<&TileStore>, dx: f64) -> TileStore {
+        let canvas = (128, 64);
+        let f = lift_mask(tiles, selection, canvas).expect("something to move");
+        let rest = match selection {
+            Some(_) => erase_selected(tiles, selection),
+            None => TileStore::new(),
+        };
+        let image = Image { width: f.width, height: f.height, rgba: f.rgba };
+        let m = Mat3::translate(dx, 0.0) * Mat3::translate(f.origin[0] as f64, f.origin[1] as f64);
+        let mut out = commit(&rest, &image, &Placement::Matrix(m), Interpolation::Nearest, canvas);
+        Mask::settle_all(&mut out);
+        out
+    }
+
+    #[test]
+    fn a_moved_mask_replaces_what_it_lands_on() {
+        let mask = half_hidden();
+        // In place, nothing changes.
+        let same = moved(&mask, None, 0.0);
+        for x in [0, 63, 64, 75, 100] {
+            assert_eq!(same.pixel(x, 10), mask.pixel(x, 10), "x {x}");
+        }
+        // The whole mask 20 px right: the grey band follows, what it left is shown.
+        let right = moved(&mask, None, 20.0);
+        assert_eq!(right.pixel(10, 5)[3], 0, "uncovered: shown");
+        assert_eq!(right.pixel(70, 5)[3], 255);
+        assert_eq!(right.pixel(95, 5)[3], 100);
+        // A selection of the shown part, moved onto the hidden half, uncovers it there.
+        let sel = painter_core::selection::rect_mask([100.0, 0.0], [128.0, 64.0], (128, 64));
+        let left = moved(&mask, Some(&sel), -60.0);
+        assert_eq!(left.pixel(50, 5)[3], 0, "the shown part landed on hidden pixels");
+        assert_eq!(left.pixel(20, 5)[3], 255, "hidden pixels outside it stay hidden");
+        assert_eq!(left.pixel(75, 5)[3], 100, "unselected parts stay");
     }
 }

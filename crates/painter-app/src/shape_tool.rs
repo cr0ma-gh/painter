@@ -186,7 +186,7 @@ impl PainterApp {
                     ),
                     other => selection::polygon_mask(&other.outline(2.0), canvas),
                 };
-                let color = if matches!(plane, Plane::Mask(_)) { [1.0; 3] } else { self.main_rgb() };
+                let color = if matches!(plane, Plane::Mask(_)) { self.mask_ink() } else { self.main_rgb() };
                 let stroke = painter_core::fill_tool::region_to_stroke(&mask, color);
                 self.next_label = Some(format!("{} (fill)", self.tools.shapes.kind.name()));
                 self.commit_region(plane, &stroke, BrushMode::Paint);

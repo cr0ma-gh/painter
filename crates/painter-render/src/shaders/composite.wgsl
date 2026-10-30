@@ -205,12 +205,22 @@ fn direct_load(tex: texture_2d<f32>, index: texture_2d<u32>, origin: vec2<i32>, 
     return atlas_load(index, texel);
 }
 
+// The amount a mask hides here. Masks carry it in red: committed tiles hold
+// it in every channel (painter_core::Mask::settle), and a stroke being painted
+// in grey lays it in red only, which is what its preview must show.
+fn mask_hidden(texel: vec2<i32>) -> f32 {
+    if (params.mask_kind == 1u) {
+        return atlas_load(mask_index, texel).r;
+    } else if (params.mask_kind == 2u) {
+        return direct_load(mask_direct, mask_index, params.mask_origin, texel).r;
+    }
+    return 0.0;
+}
+
 fn coverage(texel: vec2<i32>) -> f32 {
     var k = params.opacity;
-    if (params.mask_kind == 1u) {
-        k = k * (1.0 - atlas_load(mask_index, texel).a);
-    } else if (params.mask_kind == 2u) {
-        k = k * (1.0 - direct_load(mask_direct, mask_index, params.mask_origin, texel).a);
+    if (params.mask_kind != 0u) {
+        k = k * (1.0 - mask_hidden(texel));
     }
     if (params.clip_kind == 1u) {
         k = k * atlas_load(clip_index, texel).a;
@@ -231,22 +241,10 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     // 1: Grayscale mask view (white = reveal, black = hide)
     // 2: Rubylith overlay view (translucent ruby red tint over masked areas)
     if (params.mask_view == 1u) {
-        var alpha = 0.0;
-        if (params.mask_kind == 1u) {
-            alpha = atlas_load(mask_index, texel).a;
-        } else if (params.mask_kind == 2u) {
-            alpha = direct_load(mask_direct, mask_index, params.mask_origin, texel).a;
-        }
-        let v = 1.0 - alpha;
+        let v = 1.0 - mask_hidden(texel);
         return vec4<f32>(v, v, v, 1.0);
     } else if (params.mask_view == 2u) {
-        var alpha = 0.0;
-        if (params.mask_kind == 1u) {
-            alpha = atlas_load(mask_index, texel).a;
-        } else if (params.mask_kind == 2u) {
-            alpha = direct_load(mask_direct, mask_index, params.mask_origin, texel).a;
-        }
-        let ruby_alpha = 0.55 * alpha;
+        let ruby_alpha = 0.55 * mask_hidden(texel);
         let ruby_rgb = vec3<f32>(0.88, 0.12, 0.16);
         let cb = unpremultiply(b);
         let mixed = mix(cb, ruby_rgb, ruby_alpha);

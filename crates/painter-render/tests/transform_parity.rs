@@ -6,7 +6,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use std::sync::Arc;
 
-use painter_core::{io, Document, LayerKind, TileStore};
+use painter_core::{io, Document, LayerKind, Mask, TileStore};
 use painter_render::{build_plan, full_upload, live_planes, CanvasFrame, GpuCanvas, TransformGeometry, TransformPreview, TransformRenderer, ViewUniform};
 use transform_tools::{commit, resample, AffineParams, Image, Interpolation, Mat3, MeshWarp, Placement};
 
@@ -128,6 +128,7 @@ fn check_canvas(placement: Placement, geometry: TransformGeometry, filter: Inter
             id: 1,
             revision: 1,
             layer,
+            mask: false,
             source: Arc::new(src.rgba.clone()),
             source_size: (src.width, src.height),
             geometry,
@@ -175,4 +176,66 @@ fn canvas_preview_matches_the_commit() {
     };
     let placement = Placement::Mesh { positions: mesh.positions, sources, indices: mesh.indices };
     check_canvas(placement, geometry, Interpolation::Bilinear, "mesh warp");
+}
+/// Transforming a layer mask alone: the preview reads the mask plane from the
+/// transform's target (rest + floating, the hidden amount in red) and must
+/// match the committed, settled mask.
+#[test]
+fn mask_transform_preview_matches_the_commit() {
+    let Some((device, queue, _turn)) = gpu() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    let (w, h) = (96u32, 80u32);
+    let mut doc = Document::new(w, h);
+    let layer = doc.active;
+    let paint: Vec<u8> = (0..w * h).flat_map(|i| [(i % w * 2) as u8, 90, 200, 255]).collect();
+    doc.find_mut(layer).unwrap().kind = LayerKind::Raster(TileStore::from_rgba(w, h, &paint));
+    // What stays of the mask: a hidden band.
+    let rest_rgba: Vec<u8> = (0..w * h).flat_map(|i| if (30..40).contains(&(i / w)) { [255; 4] } else { [0; 4] }).collect();
+    let rest = TileStore::from_rgba(w, h, &rest_rgba);
+    doc.find_mut(layer).unwrap().mask = Some(Mask { tiles: rest.clone(), enabled: true });
+    // Floating mask pixels: hidden amount (premultiplied) in colour, coverage in alpha.
+    let src = source();
+    let floating = Image { width: src.width, height: src.height, rgba: src.rgba.chunks(4).flat_map(|p| [p[0], p[0], p[0], p[3]]).collect() };
+    let m = AffineParams { scale: [1.5, 1.2], rotation: 20.0, translate: [30.0, 20.0], ..AffineParams::identity([18.5, 14.5]) }.matrix();
+    let filter = Interpolation::Bilinear;
+
+    let mut canvas = GpuCanvas::new(device, wgpu::TextureFormat::Rgba8Unorm);
+    let size = [w as f32, h as f32];
+    let frame = CanvasFrame {
+        epoch: 1,
+        doc_size: (w, h),
+        plan: build_plan(&doc),
+        uploads: full_upload(&doc),
+        live_planes: live_planes(&doc),
+        selection: false,
+        recomposite: true,
+        stroke: None,
+        transform: Some(TransformPreview {
+            id: 1,
+            revision: 1,
+            layer,
+            mask: true,
+            source: Arc::new(floating.rgba.clone()),
+            source_size: (floating.width, floating.height),
+            geometry: TransformGeometry::Inverse(m.inverse().unwrap().to_f32()),
+            filter: filter.shader_id(),
+        }),
+        scenes: Vec::new(),
+        view: ViewUniform::new(size, size, [0.0, 0.0], 1.0, 0.0, 8.0),
+        ink_lut: None,
+        mask_view: None,
+    };
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    canvas.prepare(device, queue, &mut encoder, &frame);
+    queue.submit([encoder.finish()]);
+    let gpu = canvas.read_composite(device, queue).unwrap();
+
+    let mut committed = commit(&rest, &floating, &Placement::Matrix(m), filter, (w, h));
+    Mask::settle_all(&mut committed);
+    doc.find_mut(layer).unwrap().mask.as_mut().unwrap().tiles = committed;
+    let cpu = io::flatten(&doc);
+    let (diff, at) = gpu.iter().zip(&cpu).enumerate().map(|(i, (a, b))| (a.abs_diff(*b), i / 4)).max().unwrap();
+    assert!(diff <= 3, "mask transform: max difference {diff} at ({}, {})", at % w as usize, at / w as usize);
 }

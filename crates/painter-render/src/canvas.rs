@@ -914,7 +914,7 @@ impl GpuCanvas {
             // The transform just closed: show the layer's own tiles again.
             return self.transform_revision.take().is_some();
         };
-        let plane = Plane::Color(transform.layer);
+        let plane = if transform.mask { Plane::Mask(transform.layer) } else { Plane::Color(transform.layer) };
         self.transform_plane = Some(plane);
         if !content_changed && self.transform_revision == Some(transform.revision) {
             return false;

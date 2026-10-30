@@ -222,6 +222,21 @@ pub fn invert(current: Option<&TileStore>, canvas: (u32, u32)) -> TileStore {
     out
 }
 
+/// A layer's opacity as a selection, within the canvas: Photoshop's
+/// Ctrl+click on a layer thumbnail (Clip Studio's Selection from Layer).
+pub fn from_alpha(tiles: &TileStore, canvas: (u32, u32)) -> TileStore {
+    let mut out = TileStore::new();
+    for (coord, tile) in tiles.iter() {
+        let mut sel = Tile::empty();
+        for (o, p) in sel.bytes_mut().as_chunks_mut::<4>().0.iter_mut().zip(tile.bytes().as_chunks::<4>().0) {
+            *o = mask_px(p[3]);
+        }
+        out.insert(coord, sel);
+    }
+    out.clip_to_canvas(canvas.0, canvas.1);
+    out
+}
+
 /// Selected pixel-space bounds `[x0, y0, x1, y1]` (inclusive), if anything is selected.
 pub fn bounds(selection: &TileStore) -> Option<[i32; 4]> {
     let mut b: Option<[i32; 4]> = None;
@@ -275,5 +290,16 @@ mod tests {
         assert_eq!(inv.pixel(0, 0)[3], 255);
         assert_eq!(inv.pixel(20, 15)[3], 0);
         assert!(invert(None, canvas).is_empty());
+    }
+
+    #[test]
+    fn layer_alpha_becomes_a_selection_inside_the_canvas() {
+        let mut tiles = TileStore::new();
+        tiles.get_or_create_mut(TileCoord::new(0, 0)).set_pixel(3, 4, [10, 20, 30, 90]);
+        tiles.get_or_create_mut(TileCoord::new(5, 5)).set_pixel(0, 0, [255; 4]);
+        let sel = from_alpha(&tiles, (40, 30));
+        assert_eq!(sel.pixel(3, 4), [90; 4]);
+        assert_eq!(sel.pixel(0, 0)[3], 0);
+        assert!(sel.get(TileCoord::new(5, 5)).is_none(), "off the canvas");
     }
 }

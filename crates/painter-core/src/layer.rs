@@ -6,7 +6,7 @@ use crate::blend::BlendMode;
 use crate::brush::BrushSettings;
 use crate::procedural::{Gradient, Tone};
 use crate::smoothing::StrokePoint;
-use crate::tile::TileStore;
+use crate::tile::{Tile, TileCoord, TileStore};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LayerId(pub u64);
@@ -62,6 +62,79 @@ pub enum LayerKind {
 pub struct Mask {
     pub tiles: TileStore,
     pub enabled: bool,
+}
+
+impl Mask {
+    /// How much a straight sRGB colour hides when painted on a mask, as in
+    /// Photoshop: black hides, white reveals, greys in between (by luma).
+    pub fn hide_amount(rgb: [f32; 3]) -> f32 {
+        1.0 - (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]).clamp(0.0, 1.0)
+    }
+
+    /// Settles freshly edited mask tiles. Brushes, fills and gradients paint a
+    /// mask with a grey whose red channel is the amount hidden (painting grey
+    /// over grey blends towards it, as in Photoshop); the compositor reads red
+    /// too. Settling copies red into the other channels and alpha, so every
+    /// reader of the committed mask (CPU compositing, exports, thumbnails) sees
+    /// the same amount. Tiles left fully visible are dropped.
+    pub fn settle(tiles: &mut TileStore, coords: impl IntoIterator<Item = TileCoord>) {
+        for coord in coords {
+            let Some(tile) = tiles.get(coord) else { continue };
+            if is_settled(tile) {
+                continue;
+            }
+            let tile = tiles.get_or_create_mut(coord);
+            settle_tile(tile);
+            if tile.is_transparent() {
+                tiles.remove(coord);
+            }
+        }
+    }
+
+    /// [`Mask::settle`] on every tile of `tiles`.
+    pub fn settle_all(tiles: &mut TileStore) {
+        let coords: Vec<TileCoord> = tiles.iter().map(|(c, _)| c).collect();
+        Self::settle(tiles, coords);
+    }
+
+    /// The mask turned inside out within the canvas: hidden becomes shown.
+    pub fn inverted(&self, canvas: (u32, u32)) -> TileStore {
+        crate::selection::invert(Some(&self.tiles), canvas)
+    }
+
+    /// The pixels the mask shows, as a selection (Ctrl+click on its thumbnail).
+    pub fn to_selection(&self, canvas: (u32, u32)) -> TileStore {
+        self.inverted(canvas)
+    }
+
+    /// Bakes the mask into `pixels` (premultiplied): what it hides is erased,
+    /// partly hidden pixels fade. Photoshop's Apply Layer Mask.
+    pub fn apply_to(&self, pixels: &mut TileStore) {
+        let coords: Vec<TileCoord> = pixels.iter().map(|(c, _)| c).filter(|c| self.tiles.get(*c).is_some()).collect();
+        for coord in coords {
+            let Some(mask) = self.tiles.get(coord).cloned() else { continue };
+            let tile = pixels.get_or_create_mut(coord);
+            for (p, m) in tile.bytes_mut().as_chunks_mut::<4>().0.iter_mut().zip(mask.bytes().as_chunks::<4>().0) {
+                let keep = 255 - m[3] as u32;
+                *p = p.map(|v| ((v as u32 * keep + 127) / 255) as u8);
+            }
+            if tile.is_transparent() {
+                pixels.remove(coord);
+            }
+        }
+    }
+}
+
+/// Whether every pixel of a mask tile already has red = green = blue = alpha.
+fn is_settled(tile: &Tile) -> bool {
+    tile.bytes().as_chunks::<4>().0.iter().all(|p| p[1] == p[0] && p[2] == p[0] && p[3] == p[0])
+}
+
+/// One mask tile's red copied into its other channels (see [`Mask::settle`]).
+pub fn settle_tile(tile: &mut Tile) {
+    for p in tile.bytes_mut().as_chunks_mut::<4>().0 {
+        *p = [p[0]; 4];
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -268,5 +341,46 @@ mod tests {
         layers[1].clip = true; // clipped onto the paper: no pixel base, so no effect
         layers[1].visible = true;
         assert_eq!(clip_targets(&layers)[1], ClipTo::Nothing);
+    }
+
+    #[test]
+    fn grey_mask_paint_settles_on_red() {
+        assert_eq!(Mask::hide_amount([0.0; 3]), 1.0);
+        assert_eq!(Mask::hide_amount([1.0; 3]), 0.0);
+        let mut tiles = TileStore::new();
+        let c = TileCoord::new(0, 0);
+        // Half-grey paint (red 128) fully covering, and a pixel painted white (red 0).
+        tiles.get_or_create_mut(c).set_pixel(0, 0, [128, 128, 128, 255]);
+        tiles.get_or_create_mut(c).set_pixel(1, 0, [0, 0, 0, 255]);
+        Mask::settle(&mut tiles, [c]);
+        assert_eq!(tiles.get(c).unwrap().pixel(0, 0), [128; 4]);
+        assert_eq!(tiles.get(c).unwrap().pixel(1, 0), [0; 4]);
+        // A tile painted all white settles to nothing hidden: dropped.
+        let mut white = TileStore::new();
+        white.get_or_create_mut(c).set_pixel(5, 5, [0, 0, 0, 200]);
+        Mask::settle(&mut white, [c]);
+        assert!(white.is_empty());
+    }
+
+    #[test]
+    fn applying_a_mask_fades_hidden_pixels() {
+        let c = TileCoord::new(0, 0);
+        let mut pixels = TileStore::new();
+        for x in 0..3 {
+            pixels.get_or_create_mut(c).set_pixel(x, 0, [200, 100, 0, 255]);
+        }
+        let mut mask = Mask { enabled: true, ..Mask::default() };
+        mask.tiles.get_or_create_mut(c).set_pixel(0, 0, [255; 4]);
+        mask.tiles.get_or_create_mut(c).set_pixel(1, 0, [128; 4]);
+        mask.apply_to(&mut pixels);
+        let t = pixels.get(c).unwrap();
+        assert_eq!(t.pixel(0, 0), [0; 4]);
+        assert_eq!(t.pixel(1, 0), [100, 50, 0, 127]);
+        assert_eq!(t.pixel(2, 0), [200, 100, 0, 255]);
+        // Inverted, the mask hides what it showed; as a selection it selects what it shows.
+        let inv = mask.inverted((64, 64));
+        assert_eq!(inv.pixel(0, 0)[3], 0);
+        assert_eq!(inv.pixel(2, 0)[3], 255);
+        assert_eq!(mask.to_selection((64, 64)).pixel(1, 0)[3], 127);
     }
 }

@@ -7,6 +7,7 @@ use painter_core::{selection, GradientShape, SelectionOp};
 use painter_core::{BrushMode, BrushSettings};
 
 use crate::app::PainterApp;
+use crate::i18n::tr;
 use crate::icons::Icon;
 use crate::stamp_tool::StampKind;
 use crate::text_tool::TextKind;
@@ -347,6 +348,9 @@ pub struct ToolOptions {
     pub stamps: crate::stamp_tool::StampOptions,
     /// The magnetic lasso's and object selection's options.
     pub magnetic: crate::magnetic::MagneticOptions,
+    /// Painting a layer mask follows the colour's grey, as in Photoshop
+    /// (black hides, white reveals); off, every colour hides, as in Clip Studio.
+    pub mask_grey: bool,
 }
 
 impl Default for ToolOptions {
@@ -365,6 +369,7 @@ impl Default for ToolOptions {
             shapes: Default::default(),
             stamps: Default::default(),
             magnetic: Default::default(),
+            mask_grey: true,
         }
     }
 }
@@ -598,12 +603,28 @@ impl PainterApp {
         if quit_requested && !cfg!(target_os = "ios") {
             self.quit_requested = true;
         }
-        // Layers: Ctrl+J duplicates, Ctrl+G groups into a folder (as in Photoshop).
-        let (duplicate, group) = ctx.input_mut(|i| {
-            (i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::J)), i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::G)))
+        // Layers: Ctrl+J duplicates, Ctrl+G groups into a folder, Ctrl+E merges
+        // down, Ctrl+I inverts the mask being edited (as in Photoshop).
+        let (duplicate, group, merge_down, invert_mask) = ctx.input_mut(|i| {
+            (
+                i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::J)),
+                i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::G)),
+                i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::E)),
+                i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::I)),
+            )
         });
         if duplicate {
             self.duplicate_selected_layers();
+        }
+        if merge_down {
+            self.merge_down();
+        }
+        if invert_mask {
+            if self.edit_mask {
+                self.invert_mask();
+            } else {
+                self.status = tr("Ctrl+I inverts a layer mask: edit the mask first (click its thumbnail)").into();
+            }
         }
         // Ctrl+P: File → Print.
         if ctx.input_mut(|i| i.consume_shortcut(&shortcut(Modifiers::COMMAND, Key::P))) {
@@ -741,6 +762,10 @@ impl PainterApp {
         }
         if key(Key::X, false) {
             std::mem::swap(&mut self.color, &mut self.sub_color);
+        }
+        // D: black and white, the default colours (as in Photoshop).
+        if key(Key::D, false) {
+            self.default_colors();
         }
         // C: the transparent colour on / off (as in Clip Studio); Shift+C: crop.
         if key(Key::C, false) {

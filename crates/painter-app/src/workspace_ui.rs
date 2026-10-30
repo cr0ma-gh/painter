@@ -1032,7 +1032,7 @@ impl PainterApp {
         r.unregister_prefix("");
         let has_sel = self.doc.selection.is_some();
         let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-        let fixed: [FixedCommand; 98] = [
+        let fixed: [FixedCommand; 105] = [
             ("file.new", "New Canvas...", C::File, "Ctrl+N", &["document", "create"], true),
             ("file.new_clipboard", "New from Clipboard", C::File, "Ctrl+Alt+N", &["paste", "clipboard", "screenshot", "document", "create"], true),
             ("file.comic", "New Comic Page / Storyboard...", C::File, "", &["manga", "panels", "template"], true),
@@ -1084,7 +1084,14 @@ impl PainterApp {
             ("layer.scene3d_ruler", "New 3D Layer from Perspective Ruler", C::Layer, "", &["3d space", "vanishing point", "camera"], true),
             ("layer.file_object", "New File Object Layer...", C::Layer, "", &["smart object", "linked", "place", "embed", "reference file"], true),
             ("layer.tone", "New Tone Layer (from selection)", C::Layer, "", &["screentone", "halftone"], has_sel),
-            ("layer.add_mask", "Add Layer Mask", C::Layer, "", &[], !has_mask),
+            ("layer.add_mask", "Add Layer Mask (Reveal)", C::Layer, "", &["reveal all", "reveal selection", "mask"], !has_mask),
+            ("layer.add_mask_hide", "Add Layer Mask (Hide)", C::Layer, "Alt+Click Mask Button", &["hide all", "hide selection", "black mask"], !has_mask),
+            ("layer.edit_mask", "Edit Layer Mask", C::Layer, "Click Mask", &["paint mask", "select mask", "target mask"], has_mask),
+            ("layer.invert_mask", "Invert Layer Mask", C::Layer, "Ctrl+I", &["negative", "flip mask"], has_mask),
+            ("layer.apply_mask", "Apply Layer Mask", C::Layer, "", &["bake mask", "apply mask to layer"], has_mask),
+            ("layer.mask_selection", "Mask to Selection", C::Layer, "Ctrl+Click Mask", &["load mask", "selection from mask"], has_mask),
+            ("layer.selection", "Selection from Layer", C::Layer, "Ctrl+Click Thumbnail", &["layer transparency", "load selection", "alpha to selection"], true),
+            ("layer.merge_down", "Merge Down", C::Layer, "Ctrl+E", &["merge", "combine", "flatten layer"], true),
             ("layer.view_mask", "View Mask (Grayscale)", C::Layer, "Alt+Click Mask", &["preview mask", "grayscale"], has_mask),
             ("layer.rubylith_mask", "Rubylith Mask Overlay", C::Layer, "\\", &["red overlay", "preview mask", "rubylith"], has_mask),
             ("layer.toggle_mask", "Enable / Disable Mask", C::Layer, "Shift+Click Mask", &["toggle mask"], has_mask),
@@ -1247,6 +1254,13 @@ impl PainterApp {
             "layer.file_object" => self.new_file_object_dialog(),
             "layer.tone" => self.add_tone_layer(),
             "layer.add_mask" => self.add_mask(),
+            "layer.add_mask_hide" => self.add_hiding_mask(),
+            "layer.edit_mask" => self.set_edit_mask(true),
+            "layer.invert_mask" => self.invert_mask(),
+            "layer.apply_mask" => self.apply_mask(),
+            "layer.mask_selection" => self.mask_to_selection(self.doc.active, painter_core::SelectionOp::Replace),
+            "layer.selection" => self.layer_to_selection(self.doc.active, painter_core::SelectionOp::Replace),
+            "layer.merge_down" => self.merge_down(),
             "layer.view_mask" => self.toggle_mask_view(painter_render::MaskViewMode::Grayscale),
             "layer.rubylith_mask" => self.toggle_mask_view(painter_render::MaskViewMode::Rubylith),
             "layer.toggle_mask" => self.toggle_mask_enabled(),
@@ -1576,8 +1590,9 @@ fn live_command_enabled(id: &str, history: &painter_core::history::History, doc:
         "edit.undo" => history.can_undo(),
         "edit.redo" => history.can_redo(),
         "edit.clear" | "select.none" | "select.save_channel" | "layer.tone" => has_sel(),
-        "layer.add_mask" => !has_mask(),
-        "layer.view_mask" | "layer.rubylith_mask" | "layer.toggle_mask" | "layer.delete_mask" => has_mask(),
+        "layer.add_mask" | "layer.add_mask_hide" => !has_mask(),
+        "layer.view_mask" | "layer.rubylith_mask" | "layer.toggle_mask" | "layer.delete_mask" | "layer.edit_mask" | "layer.invert_mask"
+        | "layer.apply_mask" | "layer.mask_selection" => has_mask(),
         _ => return None,
     })
 }

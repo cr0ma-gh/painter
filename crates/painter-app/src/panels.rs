@@ -262,8 +262,20 @@ impl PainterApp {
                     });
                     ui.separator();
                     let has_mask = self.doc.active_layer().is_some_and(|l| l.mask.is_some());
-                    if ui.add_enabled(!has_mask, egui::Button::new(tr("Add Layer Mask"))).clicked() {
+                    let raster = self.doc.active_layer().is_some_and(|l| matches!(l.kind, LayerKind::Raster(_)));
+                    let has_sel = self.doc.selection.is_some();
+                    let reveal = if has_sel { tr("Add Layer Mask: Reveal Selection") } else { tr("Add Layer Mask: Reveal All") };
+                    if ui.add_enabled(!has_mask, egui::Button::new(reveal)).clicked() {
                         self.add_mask();
+                        ui.close_menu();
+                    }
+                    let hide = if has_sel { tr("Add Layer Mask: Hide Selection") } else { tr("Add Layer Mask: Hide All") };
+                    if ui.add_enabled(!has_mask, egui::Button::new(hide)).clicked() {
+                        self.add_hiding_mask();
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(has_mask, egui::Button::new(tr("Edit Layer Mask"))).clicked() {
+                        self.set_edit_mask(true);
                         ui.close_menu();
                     }
                     if ui.add_enabled(has_mask, egui::Button::new(tr("View Mask (Grayscale)"))).clicked() {
@@ -278,8 +290,30 @@ impl PainterApp {
                         self.toggle_mask_enabled();
                         ui.close_menu();
                     }
+                    if ui.add_enabled(has_mask, egui::Button::new(tr("Invert Layer Mask (Ctrl+I)"))).clicked() {
+                        self.invert_mask();
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(has_mask, egui::Button::new(tr("Mask to Selection"))).clicked() {
+                        self.mask_to_selection(self.doc.active, SelectionOp::Replace);
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(has_mask && raster, egui::Button::new(tr("Apply Layer Mask"))).clicked() {
+                        self.apply_mask();
+                        ui.close_menu();
+                    }
                     if ui.add_enabled(has_mask, egui::Button::new(tr("Delete Layer Mask"))).clicked() {
                         self.delete_mask();
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    let pixels = self.doc.active_layer().is_some_and(|l| l.has_pixels());
+                    if ui.add_enabled(pixels, egui::Button::new(tr("Selection from Layer"))).clicked() {
+                        self.layer_to_selection(self.doc.active, SelectionOp::Replace);
+                        ui.close_menu();
+                    }
+                    if ui.button(tr("Merge Down (Ctrl+E)")).clicked() {
+                        self.merge_down();
                         ui.close_menu();
                     }
                     ui.separator();
@@ -1379,8 +1413,13 @@ impl PainterApp {
             if icon_button(ui, Icon::GroupLayer, 16.0, false, "New folder").clicked() {
                 self.add_folder();
             }
-            if icon_button(ui, Icon::LayerMask, 16.0, false, "Add layer mask (from the selection when there is one)").clicked() {
-                self.add_mask();
+            let hint = "Add layer mask: reveals the selection (all without one). Alt-click: hides it";
+            if icon_button(ui, Icon::LayerMask, 16.0, false, hint).clicked() {
+                if ui.input(|i| i.modifiers.alt) {
+                    self.add_hiding_mask();
+                } else {
+                    self.add_mask();
+                }
             }
             if icon_button(ui, Icon::Duplicate, 16.0, false, "Duplicate the selected layers (Ctrl+J)").clicked() {
                 self.duplicate_selected_layers();
@@ -1463,6 +1502,20 @@ impl PainterApp {
         let mut checked: Option<(painter_core::LayerId, bool)> = None;
         let mut set_edit_mask: Option<bool> = None;
         let mut toggle_mask_mode: Option<painter_render::MaskViewMode> = None;
+        // A thumbnail click: picks the layer alone (its modifiers mean something else there).
+        let mut thumb_pick: Option<painter_core::LayerId> = None;
+        // Ctrl+click on a thumbnail: the layer's pixels (false) or its mask (true) to the selection.
+        let mut to_selection: Option<(painter_core::LayerId, bool, SelectionOp)> = None;
+        // Shift+click on a mask: enabled on / off, as an undo step.
+        let mut flip_mask: Option<painter_core::LayerId> = None;
+        // Photoshop's modifiers on a thumbnail Ctrl+click: Shift adds, Alt subtracts, both intersect.
+        let thumb_op = match (modifiers.shift, modifiers.alt) {
+            (true, true) => SelectionOp::Intersect,
+            (true, false) => SelectionOp::Add,
+            (false, true) => SelectionOp::Subtract,
+            (false, false) => SelectionOp::Replace,
+        };
+        let ctrl = modifiers.command || modifiers.ctrl;
         egui::Frame::new().fill(theme::well()).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             for (id, depth) in rows {
@@ -1598,14 +1651,18 @@ impl PainterApp {
                             ui.painter().rect_stroke(shown.expand(1.0), 0.0, Stroke::new(1.8_f32, Color32::WHITE), egui::StrokeKind::Outside);
                         }
                         let hit_content = ui.interact(shown, response.id.with("thumb_content"), Sense::click());
-                        if hit_content.on_hover_text(tr("Layer pixels: click to edit")).clicked() {
-                            select = Some(id);
-                            set_edit_mask = Some(false);
+                        if hit_content.on_hover_text(tr("Layer pixels: click to edit, Ctrl-click to select them")).clicked() {
+                            if ctrl {
+                                to_selection = Some((id, false, thumb_op));
+                            } else {
+                                thumb_pick = Some(id);
+                                set_edit_mask = Some(false);
+                            }
                         }
                         x += side + 4.0;
 
                         // Dual thumbnail: render mask thumbnail if the layer has a mask
-                        if let Some(mask) = &mut layer.mask {
+                        if let Some(mask) = &layer.mask {
                             let mframe = egui::Rect::from_min_size(egui::pos2(x, rect.top() + 3.0), Vec2::new(side, side));
                             let mshown = if let Some(mtex) = self.layer_thumbs.get_mask(id) {
                                 let ms = mtex.size_vec2();
@@ -1631,15 +1688,20 @@ impl PainterApp {
                                 ui.painter().rect_stroke(mshown.expand(1.0), 0.0, Stroke::new(1.8_f32, Color32::WHITE), egui::StrokeKind::Outside);
                             }
                             let hit_mask = ui.interact(mshown, response.id.with("thumb_mask"), Sense::click());
-                            if hit_mask.on_hover_text(tr("Layer mask: click to edit, Alt-click to view mask, Shift-click to disable")).clicked() {
-                                select = Some(id);
-                                if modifiers.alt {
-                                    toggle_mask_mode = Some(painter_render::MaskViewMode::Grayscale);
-                                } else if modifiers.shift {
-                                    mask.enabled = !mask.enabled;
-                                    changed = true;
+                            let hint = tr("Layer mask: click to edit, Alt-click to view it, Shift-click to disable, Ctrl-click to select what it shows");
+                            if hit_mask.on_hover_text(hint).clicked() {
+                                if ctrl {
+                                    to_selection = Some((id, true, thumb_op));
                                 } else {
-                                    set_edit_mask = Some(true);
+                                    thumb_pick = Some(id);
+                                    if modifiers.alt {
+                                        set_edit_mask = Some(true);
+                                        toggle_mask_mode = Some(painter_render::MaskViewMode::Grayscale);
+                                    } else if modifiers.shift {
+                                        flip_mask = Some(id);
+                                    } else {
+                                        set_edit_mask = Some(true);
+                                    }
                                 }
                             }
                             x += side + 4.0;
@@ -1700,7 +1762,7 @@ impl PainterApp {
                 if layer.alpha_locked {
                     badge(Icon::LockAlpha, true);
                 }
-                if let Some(mask) = &mut layer.mask {
+                if let Some(mask) = &layer.mask {
                     let r = egui::Rect::from_min_max(egui::pos2(right - 18.0, rect.top()), egui::pos2(right, rect.bottom()));
                     let tint = if mask.enabled {
                         if id == active && self.edit_mask { Color32::from_rgb(120, 200, 255) } else { theme::text() }
@@ -1714,15 +1776,20 @@ impl PainterApp {
                         ui.painter().line_segment([r.left_bottom() + Vec2::new(3.0, -3.0), r.right_top() + Vec2::new(-3.0, 3.0)], red);
                     }
                     let hit = ui.interact(r, response.id.with("mask_badge"), Sense::click());
-                    if hit.on_hover_text(tr("Layer mask: click to edit, Alt-click to view mask, Shift-click to disable")).clicked() {
-                        select = Some(id);
-                        if modifiers.alt {
-                            toggle_mask_mode = Some(painter_render::MaskViewMode::Grayscale);
-                        } else if modifiers.shift {
-                            mask.enabled = !mask.enabled;
-                            changed = true;
+                    let hint = tr("Layer mask: click to edit, Alt-click to view it, Shift-click to disable, Ctrl-click to select what it shows");
+                    if hit.on_hover_text(hint).clicked() {
+                        if ctrl {
+                            to_selection = Some((id, true, thumb_op));
                         } else {
-                            set_edit_mask = Some(!self.edit_mask);
+                            thumb_pick = Some(id);
+                            if modifiers.alt {
+                                set_edit_mask = Some(true);
+                                toggle_mask_mode = Some(painter_render::MaskViewMode::Grayscale);
+                            } else if modifiers.shift {
+                                flip_mask = Some(id);
+                            } else {
+                                set_edit_mask = Some(!(id == active && self.edit_mask));
+                            }
                         }
                     }
                     right -= 20.0;
@@ -1763,6 +1830,7 @@ impl PainterApp {
                     };
                     item("Duplicate (Ctrl+J)", "duplicate");
                     item("Group into Folder (Ctrl+G)", "group");
+                    item("Merge Down (Ctrl+E)", "merge_down");
                     item("Delete", "delete");
                     item(if draft { "Not a Draft" } else { "Set as Draft (left out of exports)" }, "draft");
                     item("Show / Hide", "visible");
@@ -1773,9 +1841,18 @@ impl PainterApp {
                         item(if self.mask_view_mode == painter_render::MaskViewMode::Grayscale { "Exit Mask View" } else { "View Mask (Grayscale)" }, "mask_view_gray");
                         item(if self.mask_view_mode == painter_render::MaskViewMode::Rubylith { "Exit Rubylith Overlay" } else { "Rubylith Mask Overlay (\\)" }, "mask_view_ruby");
                         item(if layer.mask.as_ref().is_some_and(|m| m.enabled) { "Disable Layer Mask" } else { "Enable Layer Mask" }, "mask_toggle");
+                        item("Invert Layer Mask (Ctrl+I)", "mask_invert");
+                        item("Mask to Selection (Ctrl-click the mask)", "mask_selection");
+                        if matches!(layer.kind, LayerKind::Raster(_)) {
+                            item("Apply Layer Mask", "mask_apply");
+                        }
                         item("Delete Layer Mask", "delete_mask");
                     } else {
-                        item("Add Layer Mask", "add_mask");
+                        item("Add Layer Mask (Reveal)", "add_mask");
+                        item("Add Layer Mask (Hide)", "add_mask_hide");
+                    }
+                    if layer.has_pixels() {
+                        item("Selection from Layer (Ctrl-click the thumbnail)", "layer_selection");
                     }
                 });
             }
@@ -1796,8 +1873,10 @@ impl PainterApp {
             }
         }
         if let Some((id, what)) = menu_action {
-            // The menu acts on the selection when its row is selected, else on that row.
-            if !self.selected_layers().contains(&id) {
+            // The menu acts on the selection when its row is selected, else on
+            // that row; mask commands and Merge Down on that row's layer.
+            let single = what.contains("mask") || matches!(what, "merge_down" | "layer_selection");
+            if !self.selected_layers().contains(&id) || (single && self.doc.active != id) {
                 self.click_layer(id, egui::Modifiers::NONE);
             }
             let first =
@@ -1819,7 +1898,13 @@ impl PainterApp {
                 "mask_view_ruby" => self.toggle_mask_view(painter_render::MaskViewMode::Rubylith),
                 "mask_toggle" => self.toggle_mask_enabled(),
                 "add_mask" => self.add_mask(),
+                "add_mask_hide" => self.add_hiding_mask(),
                 "delete_mask" => self.delete_mask(),
+                "mask_invert" => self.invert_mask(),
+                "mask_apply" => self.apply_mask(),
+                "mask_selection" => self.mask_to_selection(id, SelectionOp::Replace),
+                "layer_selection" => self.layer_to_selection(id, SelectionOp::Replace),
+                "merge_down" => self.merge_down(),
                 _ => {}
             }
         }
@@ -1833,11 +1918,25 @@ impl PainterApp {
                 r.visible = show;
             }
             self.dirty = true;
+        } else if let Some(id) = thumb_pick {
+            self.click_layer(id, egui::Modifiers::NONE);
         } else if let Some(id) = select {
             self.click_layer(id, modifiers);
         }
+        if let Some((id, mask, op)) = to_selection {
+            if mask {
+                self.mask_to_selection(id, op);
+            } else {
+                self.layer_to_selection(id, op);
+            }
+        }
+        if let Some(id) = flip_mask {
+            if self.doc.active == id {
+                self.toggle_mask_enabled();
+            }
+        }
         if let Some(em) = set_edit_mask {
-            self.edit_mask = em;
+            self.set_edit_mask(em);
         }
         if let Some(mode) = toggle_mask_mode {
             self.toggle_mask_view(mode);
@@ -1887,6 +1986,7 @@ impl PainterApp {
             ui.separator();
         }
         let mut delete_mask = false;
+        let mut mask_action: Option<&str> = None;
         if let Some(layer) = self.doc.find_mut(self.doc.active) {
             // Blend mode and opacity on one row (rename: double-click the layer).
             let pass_through = matches!(&layer.kind, LayerKind::Folder(f) if f.pass_through) && layer.mask.is_none();
@@ -1986,17 +2086,46 @@ impl PainterApp {
             }
 
             // The mask (added from the icon row above).
-            match &mut layer.mask {
+            match &layer.mask {
                 Some(mask) => {
                     ui.horizontal_wrapped(|ui| {
-                        changed |= ui.checkbox(&mut mask.enabled, tr("Mask")).changed();
-                        ui.toggle_value(&mut self.edit_mask, tr("Edit mask"))
-                            .on_hover_text(tr("Brush hides, eraser reveals, fill/gradient hide"));
+                        let mut enabled = mask.enabled;
+                        if ui.checkbox(&mut enabled, tr("Mask")).on_hover_text(tr("On / off (Shift-click the mask thumbnail)")).changed() {
+                            mask_action = Some("toggle");
+                        }
+                        let mut editing = self.edit_mask;
+                        let hint = if self.tools.mask_grey {
+                            tr("Paint the mask: black hides, white reveals, grey partly; the eraser reveals")
+                        } else {
+                            tr("Paint the mask: drawing hides, the eraser or transparent colour reveals")
+                        };
+                        if ui.toggle_value(&mut editing, tr("Edit mask")).on_hover_text(hint).changed() {
+                            mask_action = Some(if editing { "edit" } else { "pixels" });
+                        }
+                        ui.checkbox(&mut self.tools.mask_grey, tr("Grey by colour")).on_hover_text(tr(
+                            "On: the colour's grey sets the mask, as in Photoshop (white reveals). Off: any colour hides, as in Clip Studio",
+                        ));
+                        if ui.small_button(tr("Invert")).on_hover_text(tr("Invert the mask (Ctrl+I while editing it)")).clicked() {
+                            mask_action = Some("invert");
+                        }
+                        let raster = matches!(layer.kind, LayerKind::Raster(_));
+                        let apply_hint = tr("Erase what the mask hides from the layer, then remove the mask");
+                        if raster && ui.small_button(tr("Apply")).on_hover_text(apply_hint).clicked() {
+                            mask_action = Some("apply");
+                        }
                         delete_mask = ui.small_button(tr("Delete")).on_hover_text(tr("Delete the mask")).clicked();
                     });
                 }
                 None => self.edit_mask = false,
             }
+        }
+        match mask_action {
+            Some("toggle") => self.toggle_mask_enabled(),
+            Some("edit") => self.set_edit_mask(true),
+            Some("pixels") => self.set_edit_mask(false),
+            Some("invert") => self.invert_mask(),
+            Some("apply") => self.apply_mask(),
+            _ => {}
         }
         if delete_mask {
             self.delete_mask();

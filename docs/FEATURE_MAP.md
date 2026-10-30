@@ -29,6 +29,10 @@ resources, or assets were decompiled or copied.
 | 13 blend modes, opacity, visibility, lock, lock transparency | `Layer` fields | ✅ CPU + WGSL |
 | Clip to layer below | `Layer::clip`, `clip_targets` | ✅ |
 | Layer masks (paint/erase/fill/gradient on the mask, enable/disable) | `Layer::mask` | ✅ |
+| Mask painting by grey (black hides, white reveals; Clip Studio's "drawing hides" as an option) | `Mask::hide_amount`, `Mask::settle` | ✅ |
+| Add mask: reveal / hide all or the selection; invert, apply, mask to selection, filters on the mask | `Mask` | ✅ |
+| Linked masks move with their layer's transform; while editing the mask, it moves alone | `transform_ui` | ✅ |
+| Selection from layer (Ctrl-click thumbnail), Merge Down (Ctrl+E) | `selection::from_alpha`, `Document::merge_down` | ✅ |
 
 Rules that differ from Clip Studio Paint in details:
 

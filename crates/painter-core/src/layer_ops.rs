@@ -145,6 +145,98 @@ impl Document {
         Some(folder)
     }
 
+    /// Photoshop's and Clip Studio's Merge Down (Ctrl+E): layer `id` is
+    /// composited into the raster layer just below it, with its blend mode,
+    /// opacity, mask, clipping and effects, and goes away. The lower layer's
+    /// own mask is applied first; it keeps its name, blend mode and opacity.
+    /// Returns the merged layer, or why it can't be done.
+    pub fn merge_down(&mut self, id: LayerId) -> Result<LayerId, &'static str> {
+        use crate::io::{composite_layers, Area};
+        use crate::tile::{Tile, TileCoord, TileStore, TILE_SIZE};
+        let canvas = self.canvas();
+        let (list, i) = locate_mut(&mut self.layers, id).ok_or("the layer is gone")?;
+        if i == 0 {
+            return Err("there is no layer below it in its folder");
+        }
+        let (lower, upper) = (&list[i - 1], &list[i]);
+        if upper.is_folder() {
+            return Err("folders can't be merged down: merge the layers inside it");
+        }
+        if !matches!(lower.kind, LayerKind::Raster(_)) || lower.file_object.is_some() {
+            return Err("the layer below isn't a raster layer");
+        }
+        if lower.locked {
+            return Err("the layer below is locked");
+        }
+        if !upper.visible || !lower.visible {
+            return Err("both layers must be visible");
+        }
+        // The pair alone, the lower one as plain pixels (its mask still hiding).
+        let mut base = lower.clone();
+        base.blend = crate::blend::BlendMode::Normal;
+        base.opacity = 1.0;
+        base.clip = false;
+        base.effects = Default::default();
+        base.layer_color = None;
+        let mut top = upper.clone();
+        top.layer_color = None;
+        let whole_canvas = !top.has_pixels() || top.effects.is_active();
+        if top.effects.is_active() {
+            // Drawn once here, not once per band below.
+            let shown = crate::effects::render(top.tiles().expect("pixel layer"), &top.effects, canvas);
+            top.kind = LayerKind::Raster(shown);
+            top.effects = Default::default();
+        }
+        let in_canvas = |c: &TileCoord| {
+            c.x >= 0 && c.y >= 0 && (c.x as u32) < canvas.0.div_ceil(TILE_SIZE) && (c.y as u32) < canvas.1.div_ceil(TILE_SIZE)
+        };
+        let mut coords: Vec<TileCoord> =
+            base.tiles().into_iter().chain(top.tiles()).flat_map(|t| t.iter().map(|(c, _)| c)).filter(in_canvas).collect();
+        if whole_canvas {
+            let (tx, ty) = (canvas.0.div_ceil(TILE_SIZE) as i32, canvas.1.div_ceil(TILE_SIZE) as i32);
+            coords.extend((0..ty).flat_map(|y| (0..tx).map(move |x| TileCoord::new(x, y))));
+        }
+        coords.sort_by_key(|c| (c.y, c.x));
+        coords.dedup();
+        // Pixels off the canvas the upper layer can't reach stay as they were.
+        let mut merged = TileStore::new();
+        if let Some(tiles) = base.tiles() {
+            for (c, t) in tiles.iter().filter(|(c, _)| !in_canvas(c)) {
+                merged.insert_shared(c, t.clone());
+            }
+        }
+        let pair = [base, top];
+        // One band of tile rows at a time, so a large canvas never needs a full-size buffer.
+        let mut row_start = 0;
+        while row_start < coords.len() {
+            let ty = coords[row_start].y;
+            let row_end = coords[row_start..].iter().position(|c| c.y != ty).map_or(coords.len(), |n| row_start + n);
+            let y0 = ty as u32 * TILE_SIZE;
+            let area = Area { canvas, x0: 0, y0, w: canvas.0, h: TILE_SIZE.min(canvas.1 - y0) };
+            let mut buf = vec![0u8; (area.w * area.h * 4) as usize];
+            composite_layers(&pair, &mut buf, area);
+            for c in &coords[row_start..row_end] {
+                let mut tile = Tile::empty();
+                let x0 = c.x as u32 * TILE_SIZE;
+                for ly in 0..area.h {
+                    for lx in 0..TILE_SIZE.min(canvas.0 - x0) {
+                        let i = ((ly * area.w + x0 + lx) * 4) as usize;
+                        tile.set_pixel(lx, ly, [buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]);
+                    }
+                }
+                merged.insert(*c, tile);
+            }
+            row_start = row_end;
+        }
+        let lower_id = list[i - 1].id;
+        list.remove(i);
+        let lower = &mut list[i - 1];
+        lower.kind = LayerKind::Raster(merged);
+        lower.mask = None;
+        self.active = lower_id;
+        Ok(lower_id)
+    }
+
     /// Deletes `ids` (folders with their contents). The last root layer stays.
     pub fn delete_layers(&mut self, ids: &[LayerId]) -> usize {
         self.selection_roots(ids).into_iter().filter(|id| self.delete_layer(*id)).count()
@@ -244,5 +336,39 @@ mod tests {
 
         assert_eq!(d.delete_layers(&[g, c]), 1, "the folder goes with its contents");
         assert_eq!(names(&d), ["d", "F", "-b", "-a", "Paper"]);
+    }
+
+    #[test]
+    fn merge_down_keeps_the_picture() {
+        use crate::layer::Mask;
+        use crate::tile::{TileCoord, TileStore};
+        let (w, h) = (100u32, 70u32);
+        let solid = |px: [u8; 4], x0: u32, x1: u32| {
+            let mut rgba = vec![0u8; (w * h * 4) as usize];
+            for y in 0..h {
+                for x in x0..x1 {
+                    let i = ((y * w + x) * 4) as usize;
+                    rgba[i..i + 4].copy_from_slice(&px);
+                }
+            }
+            TileStore::from_rgba(w, h, &rgba)
+        };
+        let mut lower = Layer::raster_with(LayerId(1), "Lower", solid([200, 40, 40, 255], 0, 80));
+        let mut mask = Mask { enabled: true, ..Mask::default() };
+        mask.tiles.get_or_create_mut(TileCoord::new(1, 0)).set_pixel(3, 3, [255; 4]);
+        lower.mask = Some(mask.clone());
+        let mut upper = Layer::raster_with(LayerId(2), "Upper", solid([0, 60, 120, 160], 30, 100));
+        upper.blend = crate::blend::BlendMode::Multiply;
+        upper.opacity = 0.6;
+        mask.tiles.get_or_create_mut(TileCoord::new(0, 0)).set_pixel(40, 10, [128; 4]);
+        upper.mask = Some(mask);
+        let mut doc = Document::from_parts(w, h, vec![lower, upper], LayerId(2), 3);
+        let before = crate::io::flatten(&doc);
+        assert_eq!(doc.merge_down(LayerId(2)), Ok(LayerId(1)));
+        assert_eq!(doc.layers.len(), 1);
+        assert_eq!(doc.active, LayerId(1));
+        assert!(doc.layers[0].mask.is_none(), "masks are applied");
+        assert_eq!(crate::io::flatten(&doc), before);
+        assert!(doc.merge_down(LayerId(1)).is_err(), "nothing below");
     }
 }

@@ -13,8 +13,14 @@ crates/
 ## Planes and the tile atlas
 
 Everything tiled is a **plane**: a layer's pixels (`Plane::Color`), a layer
-mask (`Plane::Mask`, alpha = hidden amount) or the selection (`Plane::Selection`,
+mask (`Plane::Mask`, the hidden amount) or the selection (`Plane::Selection`,
 alpha = selected).
+
+Committed mask tiles hold the hidden amount in every channel. Tools paint a
+mask with a grey whose red is the amount hidden (black hides, white reveals,
+as in Photoshop), so a grey stroke blends the mask towards it; the compositor
+reads a mask's red, which is what a stroke's GPU preview has right, and
+`Mask::settle` copies red into the other channels when the edit is committed.
 
 - **CPU**: each plane is a `TileStore`, a `HashMap<TileCoord, Arc<Tile>>` of
   64×64 premultiplied RGBA8 tiles. Empty tiles are not stored. Undo snapshots

@@ -206,6 +206,8 @@ struct LayerRecord {
     visible: bool,
     /// (rect, default colour, planar data)
     mask: Option<([i32; 4], u8, Vec<u8>)>,
+    /// The mask is on (Photoshop's "layer mask disabled" flag when not).
+    mask_enabled: bool,
     /// `lsct` section type: 1 open folder, 3 bounding divider.
     section: Option<u32>,
 }
@@ -293,6 +295,7 @@ fn collect_records(layers: &[Layer], canvas: (u32, u32), out: &mut Vec<LayerReco
             clipping: layer.clip,
             visible: layer.visible,
             mask: layer.mask.as_ref().and_then(|m| mask_record(m, canvas)),
+            mask_enabled: layer.mask.as_ref().is_none_or(|m| m.enabled),
             section: None,
         };
         match &layer.kind {
@@ -307,6 +310,7 @@ fn collect_records(layers: &[Layer], canvas: (u32, u32), out: &mut Vec<LayerReco
                     clipping: false,
                     visible: true,
                     mask: None,
+                    mask_enabled: true,
                     section: Some(3),
                 });
                 collect_records(&folder.children, canvas, out);
@@ -487,7 +491,8 @@ pub fn write(doc: &Document) -> Vec<u8> {
                     w.i32(*v);
                 }
                 w.u8(*default);
-                w.u8(0);
+                // Flags: bit 1, the mask is disabled.
+                w.u8(if record.mask_enabled { 0 } else { 0x02 });
                 w.u16(0);
             }
             None => w.u32(0),
@@ -655,6 +660,8 @@ struct ReadRecord {
     clipping: bool,
     visible: bool,
     mask: Option<([i32; 4], u8)>,
+    /// Photoshop's "layer mask disabled" flag, clear.
+    mask_enabled: bool,
     section: Option<(u32, Option<[u8; 4]>)>,
 }
 
@@ -816,10 +823,12 @@ fn read_layers(r: &mut Reader<'_>, canvas: (u32, u32), source: SourceMode, doc: 
         let extra_len = r.u32()? as usize;
         let extra_end = r.pos + extra_len;
         let mask_len = r.u32()? as usize;
+        let mut mask_enabled = true;
         let mask = if mask_len >= 18 {
             let mrect = [r.i32()?, r.i32()?, r.i32()?, r.i32()?];
             let default = r.u8()?;
-            r.take(mask_len - 17)?;
+            mask_enabled = r.u8()? & 0x02 == 0;
+            r.take(mask_len - 18)?;
             Some((mrect, default))
         } else {
             r.take(mask_len)?;
@@ -870,6 +879,7 @@ fn read_layers(r: &mut Reader<'_>, canvas: (u32, u32), source: SourceMode, doc: 
             clipping,
             visible: flags & 0x02 == 0,
             mask,
+            mask_enabled,
             section,
         });
     }
@@ -916,7 +926,7 @@ fn read_layers(r: &mut Reader<'_>, canvas: (u32, u32), source: SourceMode, doc: 
                 if pass_through {
                     layer.blend = BlendMode::Normal;
                 }
-                layer.mask = build_mask(record.mask, mask_plane, canvas);
+                layer.mask = build_mask(record.mask, mask_plane, canvas).map(|m| Mask { enabled: record.mask_enabled, ..m });
                 stack.last_mut().expect("root list").push(layer);
                 continue;
             }
@@ -946,7 +956,7 @@ fn read_layers(r: &mut Reader<'_>, canvas: (u32, u32), source: SourceMode, doc: 
         }
         let mut layer = Layer::raster_with(id, record.name, tiles);
         apply_common(&mut layer, &record.blend, record.opacity, record.clipping, record.visible);
-        layer.mask = build_mask(record.mask, mask_plane, canvas);
+        layer.mask = build_mask(record.mask, mask_plane, canvas).map(|m| Mask { enabled: record.mask_enabled, ..m });
         stack.last_mut().expect("root list").push(layer);
     }
     // Unbalanced groups: fold leftovers back into the root.
@@ -1070,6 +1080,12 @@ mod tests {
         // Pixels survive up to premultiply rounding.
         let (a, b) = (flatten(&doc), flatten(&back));
         assert!(a.iter().zip(&b).all(|(x, y)| x.abs_diff(*y) <= 2));
+
+        // A disabled mask comes back disabled (Photoshop's flag), not switched on.
+        doc.find_mut(base).unwrap().mask.as_mut().unwrap().enabled = false;
+        let back = read(&write(&doc)).unwrap();
+        let masked = back.layers.iter().find(|l| l.mask.is_some()).expect("the mask survives");
+        assert!(!masked.mask.as_ref().unwrap().enabled);
     }
 
     #[test]

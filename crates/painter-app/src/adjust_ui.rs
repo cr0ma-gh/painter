@@ -88,7 +88,9 @@ pub(crate) fn adjustment_editor(ui: &mut egui::Ui, a: &mut Adjustment) -> bool {
 pub(crate) struct FilterDialog {
     filter: Filter,
     layer: LayerId,
-    /// The layer's pixels before the filter.
+    /// Filtering the layer's mask (being edited), not its pixels: a blurred mask feathers its edge.
+    mask: bool,
+    /// The layer's pixels (or mask) before the filter.
     original: TileStore,
     preview: bool,
     /// When the settings last changed (preview pending).
@@ -122,25 +124,35 @@ impl PainterApp {
     pub(crate) fn open_filter(&mut self, filter: Filter) {
         self.close_filter(false);
         let Some(layer) = self.doc.active_layer() else { return };
+        let mask = self.edit_mask && layer.mask.is_some();
         let refuse = match &layer.kind {
             _ if layer.locked => Some("the layer is locked"),
+            _ if mask => None,
             _ if self.scenes.contains_key(&layer.id) => Some("3D layers are redrawn from their scene (use Flatten to pixels in the 3D panel first)"),
             LayerKind::Raster(_) => None,
-            _ => Some("filters work on raster layers"),
+            _ => Some("filters work on raster layers and masks"),
         };
         if let Some(reason) = refuse {
             self.status = format!("Can't filter \"{}\": {reason}", layer.name);
             return;
         }
-        let original = layer.tiles().cloned().unwrap_or_default();
-        self.filter_dialog = Some(FilterDialog { filter, layer: layer.id, original, preview: true, changed_at: Some(Instant::now()), shown: None, job: None });
+        let original = if mask { layer.mask.as_ref().map(|m| m.tiles.clone()) } else { layer.tiles().cloned() }.unwrap_or_default();
+        self.filter_dialog =
+            Some(FilterDialog { filter, layer: layer.id, mask, original, preview: true, changed_at: Some(Instant::now()), shown: None, job: None });
     }
 
-    fn set_layer_tiles(&mut self, id: LayerId, tiles: TileStore) {
-        if let Some(l) = self.doc.find_mut(id) {
-            l.kind = LayerKind::Raster(tiles);
+    fn set_layer_tiles(&mut self, id: LayerId, mask: bool, tiles: TileStore) {
+        if mask {
+            if let Some(m) = self.doc.find_mut(id).and_then(|l| l.mask.as_mut()) {
+                m.tiles = tiles;
+            }
+            self.upload_plane(Plane::Mask(id));
+        } else {
+            if let Some(l) = self.doc.find_mut(id) {
+                l.kind = LayerKind::Raster(tiles);
+            }
+            self.upload_plane(Plane::Color(id));
         }
-        self.upload_plane(Plane::Color(id));
         self.recomposite = true;
     }
 
@@ -152,18 +164,27 @@ impl PainterApp {
             return;
         }
         let result = if apply {
-            Some(match &dialog.shown {
-                Some(f) if *f == dialog.filter => self.doc.find(dialog.layer).and_then(|l| l.tiles()).cloned().unwrap_or_default(),
+            let mut tiles = match &dialog.shown {
+                Some(f) if *f == dialog.filter => {
+                    let layer = self.doc.find(dialog.layer);
+                    let shown = if dialog.mask { layer.and_then(|l| l.mask.as_ref()).map(|m| &m.tiles) } else { layer.and_then(|l| l.tiles()) };
+                    shown.cloned().unwrap_or_default()
+                }
                 _ => filters::apply(&dialog.original, self.doc.canvas(), self.doc.selection.as_ref(), &dialog.filter),
-            })
+            };
+            if dialog.mask {
+                // The amount hidden is the red the filter left (see Mask::settle).
+                painter_core::Mask::settle_all(&mut tiles);
+            }
+            Some(tiles)
         } else {
             None
         };
         // Undo should see the layer as it was.
-        self.set_layer_tiles(dialog.layer, dialog.original);
+        self.set_layer_tiles(dialog.layer, dialog.mask, dialog.original);
         if let Some(tiles) = result {
             self.checkpoint();
-            self.set_layer_tiles(dialog.layer, tiles);
+            self.set_layer_tiles(dialog.layer, dialog.mask, tiles);
             self.status = format!("{} applied", dialog.filter.name());
         }
     }
@@ -214,7 +235,11 @@ impl PainterApp {
                     ui.weak(tr("computing..."));
                 }
             });
-            ui.small(tr("Applies to the edited layer, inside the selection if there is one."));
+            ui.small(if dialog.mask {
+                tr("Applies to the layer mask being edited, inside the selection if there is one.")
+            } else {
+                tr("Applies to the edited layer, inside the selection if there is one.")
+            });
             ui.horizontal(|ui| {
                 ok = ui.button(tr("OK")).clicked();
                 cancel = ui.button(tr("Cancel")).clicked();
@@ -242,8 +267,8 @@ impl PainterApp {
             dialog.job = None;
             if dialog.preview && settings == dialog.filter {
                 dialog.shown = Some(settings);
-                let id = dialog.layer;
-                self.set_layer_tiles(id, tiles);
+                let (id, mask) = (dialog.layer, dialog.mask);
+                self.set_layer_tiles(id, mask, tiles);
                 return;
             }
         }
@@ -265,8 +290,8 @@ impl PainterApp {
                 dialog.job = Some((settings, rx));
             } else {
                 dialog.shown = None;
-                let (id, original) = (dialog.layer, dialog.original.clone());
-                self.set_layer_tiles(id, original);
+                let (id, mask, original) = (dialog.layer, dialog.mask, dialog.original.clone());
+                self.set_layer_tiles(id, mask, original);
             }
         }
     }

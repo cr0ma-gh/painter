@@ -38,6 +38,8 @@ pub struct TransformPreview {
     /// Changes whenever anything below changes; the preview is redrawn then.
     pub revision: u64,
     pub layer: LayerId,
+    /// The floating pixels are the layer's mask (`Plane::Mask`), not its colour.
+    pub mask: bool,
     /// Premultiplied RGBA8 floating pixels and their size.
     pub source: Arc<Vec<u8>>,
     pub source_size: (u32, u32),
