@@ -55,7 +55,7 @@ fn main() {
                     StrokePoint::new(230.0 + t * 150.0, 50.0 + k as f32 * 60.0 + (t * std::f32::consts::TAU).sin() * 20.0, (t * std::f32::consts::PI).sin().max(0.05))
                 })
                 .collect();
-            v.strokes.push(VectorStroke { points, settings: BrushSettings { size: 14.0, stabilization: 0, ..BrushSettings::g_pen() }, color: [0.1, 0.1, 0.1], seed: k });
+            v.strokes.push(VectorStroke { points, settings: BrushSettings { size: 14.0, stabilization: 0, ..BrushSettings::g_pen() }, color: [0.1, 0.1, 0.1], seed: k, engine: painter_core::VECTOR_ENGINE });
         }
     }
     doc.layers.push(lines);

@@ -54,8 +54,9 @@ pub struct StrokeEngine {
     colors: Option<([f32; 3], [f32; 3])>,
     /// A third generator, for colours per dab.
     color_rng: u64,
-    /// Time of the last dab, for build-up.
-    last_dab_time: f32,
+    /// Time of the last dab, for build-up. f64: on the f32 app clock, after
+    /// days of uptime a 25 ms step would round away.
+    last_dab_time: f64,
     /// The pen has reported tilt in this stroke (else tilt curves are left out).
     tilt_seen: bool,
 }
@@ -101,6 +102,12 @@ impl StrokeEngine {
         }
     }
 
+    /// Tilt curves apply from the first dab, even at tilt 0: the rule for
+    /// vector strokes saved before 1.0.3, which are replayed as they were drawn.
+    pub fn assume_tilt(&mut self) {
+        self.tilt_seen = true;
+    }
+
     /// The main and sub colours (straight sRGB) a brush with colour dynamics
     /// per dab varies; without, dabs paint the stroke's colour.
     pub fn set_colors(&mut self, main: [f32; 3], sub: [f32; 3]) {
@@ -112,15 +119,20 @@ impl StrokeEngine {
     pub fn hold(&mut self, time: f32) -> Vec<Dab> {
         let mut out = Vec::new();
         let Some(at) = self.last.filter(|_| self.settings.build_up) else { return out };
+        let (time, interval) = (time as f64, BUILD_UP_INTERVAL as f64);
         let mut n = 0;
-        while time - self.last_dab_time >= BUILD_UP_INTERVAL && n < 8 {
-            let t = self.last_dab_time + BUILD_UP_INTERVAL;
-            let dab = self.dab_at(StrokePoint { time: t, ..at });
-            self.emit(dab, &mut out);
+        while time - self.last_dab_time >= interval && n < 8 {
+            let t = self.last_dab_time + interval;
+            let dab = self.dab_at(StrokePoint { time: t as f32, ..at });
+            self.last_dab_time = t;
+            // Laid where the pen rests, not along the stroke: never held for
+            // the ending (it would pile up there and come out shrunk).
+            let dab = self.start_taper(dab);
+            self.spray(dab, self.direction, &mut out);
             n += 1;
         }
         // Far behind (the app was busy): catch up without a burst.
-        if time - self.last_dab_time >= BUILD_UP_INTERVAL {
+        if time - self.last_dab_time >= interval {
             self.last_dab_time = time;
         }
         out
@@ -244,7 +256,18 @@ impl StrokeEngine {
 
     /// Adds `dab` with the starting taper and scattering applied; with an
     /// ending taper it waits until it's clear of the stroke's end.
-    fn emit(&mut self, mut dab: Dab, out: &mut Vec<Dab>) {
+    fn emit(&mut self, dab: Dab, out: &mut Vec<Dab>) {
+        let dab = self.start_taper(dab);
+        if self.settings.taper_end > 0.0 {
+            self.held.push_back(Held { dab, travelled: self.travelled, direction: self.direction });
+            self.release(self.travelled, out);
+            return;
+        }
+        self.spray(dab, self.direction, out);
+    }
+
+    /// `dab` with the starting taper applied (by the distance travelled so far).
+    fn start_taper(&self, mut dab: Dab) -> Dab {
         let taper = self.settings.taper_start;
         if taper > 0.0 {
             let min = self.settings.taper_minimum.clamp(0.0, 1.0);
@@ -252,12 +275,7 @@ impl StrokeEngine {
             dab.radius = (dab.radius * t).max(0.05);
             dab.alpha *= t;
         }
-        if self.settings.taper_end > 0.0 {
-            self.held.push_back(Held { dab, travelled: self.travelled, direction: self.direction });
-            self.release(self.travelled, out);
-            return;
-        }
-        self.spray(dab, self.direction, out);
+        dab
     }
 
     /// Lets go of the held dabs more than the ending taper behind `at` (a
@@ -344,7 +362,7 @@ impl StrokeEngine {
         let r: [f32; 5] = std::array::from_fn(|_| self.random());
         let step = self.step;
         self.step = self.step.saturating_add(1);
-        self.last_dab_time = p.time;
+        self.last_dab_time = p.time as f64;
         let jitter = self.settings.color_jitter;
         let color = match self.colors {
             Some((main, sub)) if jitter.per_dab && jitter.is_on() => {
@@ -746,6 +764,23 @@ mod effect_tests {
         let mut off = StrokeEngine::with_seed(&plain(), 1);
         off.add(StrokePoint::new(10.0, 10.0, 1.0));
         assert!(off.hold(1.0).is_empty());
+    }
+
+    #[test]
+    fn build_up_ignores_the_ending_and_long_uptime() {
+        // With an ending taper on, ink laid while resting still comes out live, full size.
+        let mut e = StrokeEngine::with_seed(&BrushSettings { build_up: true, taper_end: 60.0, ..plain() }, 1);
+        e.add(StrokePoint::new(10.0, 10.0, 1.0).at_time(0.0));
+        let rest = e.hold(1.0);
+        assert_eq!(rest.len(), 8, "capped per call, but laid now");
+        assert!(rest.iter().all(|d| (d.radius - 5.0).abs() < 1e-4), "{:?}", rest[0]);
+        assert!(e.held.len() <= 1, "nothing piles up: {}", e.held.len());
+        // After days of uptime the f32 app clock steps 62.5 ms: still about 40 dabs a second.
+        let mut e = StrokeEngine::with_seed(&BrushSettings { build_up: true, ..plain() }, 1);
+        let t0 = 600_000.0f32;
+        e.add(StrokePoint::new(10.0, 10.0, 1.0).at_time(t0));
+        let laid: usize = (1..=60).map(|frame| e.hold(t0 + frame as f32 / 60.0).len()).sum();
+        assert!((35..=45).contains(&laid), "{laid}");
     }
 
     #[test]

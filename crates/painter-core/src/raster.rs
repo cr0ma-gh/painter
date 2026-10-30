@@ -262,7 +262,7 @@ pub fn stamp_dab(
                     // smaller than it, tiled over the canvas) combined by its mode.
                     if let Some((dual, dual_radius, dual_level)) = &dual {
                         if cov > 0.0 {
-                            let t = if dual.scale() < 1.0 {
+                            let t = if dual.scale() < 1.0 && !dual.centred {
                                 tiled_coverage(&dual.bitmap, px as f32 + 0.5, py as f32 + 0.5, *dual_radius, *dual_level)
                             } else {
                                 sampled_coverage(&dual.bitmap, dx, dy, *dual_radius, *dual_level)
@@ -1191,6 +1191,13 @@ mod effect_tests {
         // On a row through the dots' centres (every 10 px, from 4.5).
         let inked = (12..52).filter(|x| buffer.pixel(*x, 34)[3] > 0.5).count();
         assert!((4..30).contains(&inked), "dots, not a solid run: {inked}");
+        // Replaying a vector stroke saved before 1.0.3 (`DualTip::centred`): one dot in the middle.
+        let centred = DualTip { centred: true, ..settings.dual.clone().unwrap() };
+        let settings = BrushSettings { dual: Some(centred), ..settings };
+        let mut buffer = StrokeBuffer::new();
+        stamp_dab(&mut buffer, &Dab::at(32.0, 32.0, 20.0, 1.0), [1.0; 3], &settings, (64, 64), &mut BTreeSet::new());
+        let inked: Vec<i32> = (0..64).filter(|x| buffer.pixel(*x, 32)[3] > 0.1).collect();
+        assert!(!inked.is_empty() && inked.iter().all(|x| (27..=37).contains(x)), "only the centre: {inked:?}");
     }
 
     /// A broad wash: soft dabs over most of a `w`×`h` canvas.

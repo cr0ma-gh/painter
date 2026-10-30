@@ -32,6 +32,31 @@ pub struct VectorStroke {
     /// Seed of the stroke's random dynamics, so replays match.
     #[serde(default)]
     pub seed: u64,
+    /// The stroke engine rules it was drawn with: 0 for strokes saved before
+    /// 1.0.3 (the field is new), [`VECTOR_ENGINE`] since. Replays keep a
+    /// stroke's own rules, so updating Painter doesn't change artwork.
+    #[serde(default)]
+    pub engine: u32,
+}
+
+/// The stroke engine rules new vector strokes record (see [`VectorStroke::engine`]).
+/// 1 (1.0.3): tilt curves wait for a pen that reports tilt; a second tip
+/// smaller than the dab repeats inside it.
+pub const VECTOR_ENGINE: u32 = 1;
+
+impl VectorStroke {
+    /// The brush its dabs are stamped with: for a stroke saved before 1.0.3, a
+    /// second tip smaller than the dab stays one centred stamp, as it was drawn.
+    pub fn stamp_settings(&self) -> std::borrow::Cow<'_, BrushSettings> {
+        match &self.settings.dual {
+            Some(dual) if self.engine == 0 => {
+                let mut settings = self.settings.clone();
+                settings.dual = Some(crate::tip::DualTip { centred: true, ..dual.clone() });
+                std::borrow::Cow::Owned(settings)
+            }
+            _ => std::borrow::Cow::Borrowed(&self.settings),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]

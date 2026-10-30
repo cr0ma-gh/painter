@@ -103,6 +103,7 @@ struct DabParams {
     texture_invert: u32,
     has_texture: u32,
     dual_scale: f32,
+    /// 0 none, 1 a dual tip, 2 one centred stamp even when smaller (`DualTip::centred`).
     has_dual: u32,
     /// Canvas position of the target's top-left pixel.
     origin: [f32; 2],
@@ -283,11 +284,13 @@ impl DabRenderer {
             tip_aspect: tip.bitmap().map_or([1.0; 2], |b| b.aspect()),
             dual_aspect: dual.map_or([1.0; 2], |d| d.bitmap.aspect()),
             texture_scale: texture.map_or(1.0, DabTexture::scale),
-            texture_density: texture.map_or(0.0, |t| t.density.clamp(0.0, 1.0)),
+            // Clamped after the dab's own factor, in the shader, as DabTexture::value_at does.
+            texture_density: texture.map_or(0.0, |t| t.density.max(0.0)),
             texture_invert: u32::from(texture.is_some_and(|t| t.invert)),
             has_texture: u32::from(texture.is_some()),
             dual_scale: dual.map_or(1.0, DualTip::scale),
-            has_dual: u32::from(dual.is_some()),
+            // 2: one centred stamp even when smaller (DualTip::centred).
+            has_dual: dual.map_or(0, |d| if d.centred { 2 } else { 1 }),
             origin: [at.x as f32, at.y as f32],
             texture_mode: texture.map_or(0, |t| t.mode.shader_id()),
             dual_mode: dual.map_or(0, |d| d.mode.shader_id()),

@@ -109,6 +109,7 @@ mod tests {
             settings: BrushSettings { size: 20.0, stabilization: 0, ..BrushSettings::g_pen() },
             color: [0.1, 0.2, 0.3],
             seed: 1,
+            engine: painter_core::VECTOR_ENGINE,
         }
     }
 

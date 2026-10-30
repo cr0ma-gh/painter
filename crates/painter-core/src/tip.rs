@@ -271,12 +271,17 @@ pub struct DualTip {
     /// How the second tip combines with the first (Photoshop's dual brush mode).
     #[serde(default)]
     pub mode: MaskMode,
+    /// One stamp centred on the dab even when smaller than it, never repeated:
+    /// how vector strokes saved before 1.0.3 were drawn (set only to replay
+    /// them, see `VectorStroke::stamp_settings`; never saved).
+    #[serde(skip)]
+    pub centred: bool,
 }
 
 impl DualTip {
     /// A multiplying dual tip.
     pub fn new(bitmap: Arc<TipBitmap>, scale: f32) -> Self {
-        Self { bitmap, scale, mode: MaskMode::Multiply }
+        Self { bitmap, scale, mode: MaskMode::Multiply, centred: false }
     }
 
     pub fn scale(&self) -> f32 {

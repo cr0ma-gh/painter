@@ -266,6 +266,7 @@ mod tests {
                 settings: BrushSettings { size: 6.0, stabilization: 0, ..BrushSettings::g_pen() },
                 color: [0.8, 0.1, 0.1],
                 seed: 3,
+                engine: painter_core::VECTOR_ENGINE,
             });
         }
         if let LayerKind::Folder(f) = &mut folder.kind {

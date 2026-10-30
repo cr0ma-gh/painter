@@ -307,6 +307,7 @@ impl PainterApp {
             settings: settings.clone(),
             color: [0.1, 0.1, 0.1],
             seed: 0,
+            engine: painter_core::VECTOR_ENGINE,
         };
         let strokes = vec![
             line((0..=60).map(|i| i as f32 / 60.0).map(|t| [w * (0.15 + 0.7 * t), h * (0.45 - 0.15 * (t * std::f32::consts::PI).sin())]).collect()),

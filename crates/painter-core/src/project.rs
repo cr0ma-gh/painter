@@ -599,6 +599,7 @@ mod tests {
                 settings: BrushSettings::pencil(),
                 color: [0.1, 0.2, 0.3],
                 seed: 42,
+                engine: crate::VECTOR_ENGINE,
             });
             vector::rasterize(vl, doc.canvas());
         }

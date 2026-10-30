@@ -186,6 +186,7 @@ fn feature_document() -> Document {
             settings: BrushSettings::g_pen(),
             color: [0.05, 0.05, 0.1],
             seed: 3,
+            engine: painter_core::VECTOR_ENGINE,
         });
         vector::rasterize(v, canvas);
     }

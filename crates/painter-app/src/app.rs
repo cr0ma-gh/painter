@@ -1170,6 +1170,12 @@ impl PainterApp {
         let mut settings = self.current_brush().clone();
         if source.is_some() {
             settings.mode = BrushMode::Paint;
+            // Stamps merge dab by dab with no finishing pass (`finish_stroke`):
+            // a whole-stroke texture goes on each dab, as before 1.0.3, and no rim pools.
+            if let Some(texture) = &mut settings.texture {
+                texture.each_dab = true;
+            }
+            settings.water_edge = None;
         }
         // The transparent colour: any brush erases, with its own tip and dynamics
         // (on a mask: reveals, as in Clip Studio).
@@ -1346,13 +1352,20 @@ impl PainterApp {
                             StrokePoint { x, y, ..*q }
                         })
                         .collect();
-                    layer.strokes.push(VectorStroke { points: moved, settings: stroke.settings.clone(), color: stroke.style.color, seed: stroke.id });
+                    layer.strokes.push(VectorStroke {
+                        points: moved,
+                        settings: stroke.settings.clone(),
+                        color: stroke.style.color,
+                        seed: stroke.id,
+                        engine: painter_core::VECTOR_ENGINE,
+                    });
                 }
                 layer.strokes.push(VectorStroke {
                     points,
                     settings: stroke.settings.clone(),
                     color: stroke.style.color,
                     seed: stroke.id,
+                    engine: painter_core::VECTOR_ENGINE,
                 });
             }
         }

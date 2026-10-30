@@ -322,7 +322,7 @@ impl BrushPreset {
                 each_dab: t.each_dab,
             })
         });
-        self.settings.dual = self.dual.as_ref().and_then(|d| Some(DualTip { bitmap: bitmap(&d.tip)?, scale: d.scale, mode: d.mode }));
+        self.settings.dual = self.dual.as_ref().and_then(|d| Some(DualTip { bitmap: bitmap(&d.tip)?, scale: d.scale, mode: d.mode, centred: false }));
     }
 
     /// A hash of everything the engine uses, to tell whether the preset was

@@ -28,6 +28,7 @@ struct DabParams {
     has_texture: u32,
     // Dual tip (painter_core::DualTip): diameter relative to the dab.
     dual_scale: f32,
+    // 0 none, 1 a dual tip (repeated when smaller than the dab), 2 one centred stamp.
     has_dual: u32,
     // Canvas position of the stroke texture's top-left pixel.
     origin: vec2<f32>,
@@ -243,7 +244,7 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     if (params.has_dual != 0u && cov > 0.0) {
         let dual_radius = input.radius * params.dual_scale;
         var t = 0.0;
-        if (params.dual_scale < 1.0) {
+        if (params.dual_scale < 1.0 && params.has_dual == 1u) {
             t = tiled_coverage(dual_tip, params.dual_aspect, at, dual_radius, input.dual_level);
         } else {
             t = sampled_coverage(dual_tip, params.dual_aspect, delta, dual_radius, input.dual_level);

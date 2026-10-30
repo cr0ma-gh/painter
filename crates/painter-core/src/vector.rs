@@ -9,6 +9,10 @@ use crate::tile::TileStore;
 /// The dabs a recorded stroke produces (deterministic replay).
 pub fn stroke_dabs(stroke: &VectorStroke) -> Vec<Dab> {
     let mut engine = StrokeEngine::with_seed(&stroke.settings, stroke.seed);
+    if stroke.engine == 0 {
+        // Drawn before 1.0.3: tilt curves applied even with no tilt reported.
+        engine.assume_tilt();
+    }
     let mut dabs = Vec::new();
     for &point in &stroke.points {
         dabs.extend(engine.add(point));
@@ -21,7 +25,7 @@ pub fn stroke_dabs(stroke: &VectorStroke) -> Vec<Dab> {
 pub fn rasterize(layer: &mut VectorLayer, canvas: (u32, u32)) {
     let mut cache = TileStore::new();
     for stroke in &layer.strokes {
-        paint_stroke(&mut cache, &stroke_dabs(stroke), stroke.color, &stroke.settings, canvas, false, None);
+        paint_stroke(&mut cache, &stroke_dabs(stroke), stroke.color, &stroke.stamp_settings(), canvas, false, None);
     }
     for text in &layer.texts {
         crate::text::render(text, &mut cache, canvas);
@@ -207,6 +211,7 @@ mod tests {
             settings: BrushSettings { stabilization: 0, ..BrushSettings::g_pen() },
             color: [0.0, 0.0, 0.0],
             seed: 0,
+            engine: crate::VECTOR_ENGINE,
         }
     }
 
@@ -236,6 +241,7 @@ mod intersection_tests {
             settings: BrushSettings { stabilization: 0, size: 4.0, ..BrushSettings::g_pen() },
             color: [0.0; 3],
             seed: 0,
+            engine: crate::VECTOR_ENGINE,
         }
     }
 
@@ -396,6 +402,7 @@ mod editing_tests {
             settings: BrushSettings { size: 4.0, ..BrushSettings::g_pen() },
             color: [0.0; 3],
             seed: 0,
+            engine: crate::VECTOR_ENGINE,
         }
     }
 
@@ -422,5 +429,37 @@ mod editing_tests {
         let layer = VectorLayer { strokes: vec![stroke(vec![[0.0, 0.0], [100.0, 0.0]]), stroke(vec![[0.0, 50.0], [100.0, 50.0]])], cache: TileStore::new(), ..Default::default() };
         assert_eq!(stroke_at(&layer, [50.0, 46.0], 3.0).map(|x| x.0), Some(1));
         assert!(stroke_at(&layer, [50.0, 25.0], 3.0).is_none());
+    }
+}
+
+#[cfg(test)]
+mod compat_tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::brush::{BrushSettings, InputDynamics, PressureCurve};
+    use crate::smoothing::StrokePoint;
+    use crate::tip::{DualTip, TipBitmap};
+
+    #[test]
+    fn strokes_saved_before_1_0_3_replay_as_drawn() {
+        // Size from tilt, half at upright; drawn with a mouse (no tilt reported).
+        let half_upright = InputDynamics { tilt: Some(PressureCurve::from_points(vec![[0.0, 0.5], [1.0, 1.0]])), ..Default::default() };
+        let dot = Arc::new(TipBitmap::new(1, 1, vec![255]).unwrap());
+        let settings = BrushSettings { size_dynamics: half_upright, stabilization: 0, dual: Some(DualTip::new(dot, 0.3)), ..BrushSettings::g_pen() };
+        let points = vec![StrokePoint::new(10.0, 10.0, 1.0), StrokePoint::new(60.0, 10.0, 1.0)];
+        let old = VectorStroke { points, settings, color: [0.0; 3], seed: 1, engine: 0 };
+        let new = VectorStroke { engine: crate::VECTOR_ENGINE, ..old.clone() };
+        // A file from 1.0.2 has no engine field: 0, the old rules.
+        let json = serde_json::to_string(&old).unwrap().replace(",\"engine\":0", "");
+        assert!(!json.contains("engine"));
+        assert_eq!(serde_json::from_str::<VectorStroke>(&json).unwrap().engine, 0);
+        // 1.0.2 applied the tilt curve at tilt 0: half size. 1.0.3 leaves it out for a pen without tilt.
+        let (a, b) = (stroke_dabs(&old), stroke_dabs(&new));
+        assert_eq!(a.len(), b.len());
+        assert!(a.iter().zip(&b).all(|(o, n)| (o.radius * 2.0 - n.radius).abs() < 1e-4), "{:?} vs {:?}", a[0], b[0]);
+        // And a second tip smaller than the dab stays one centred stamp.
+        assert!(old.stamp_settings().dual.as_ref().unwrap().centred);
+        assert!(!new.stamp_settings().dual.as_ref().unwrap().centred);
     }
 }
