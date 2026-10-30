@@ -1370,8 +1370,11 @@ impl PainterApp {
 
     /// Build-up: the dabs a pen resting on the canvas keeps laying (Photoshop's
     /// airbrush, Clip Studio's continuous spray). Asks for frames while it lasts.
+    /// Not on vector layers: their strokes are redrawn from the points alone
+    /// (`vector::stroke_dabs`), which a rest between points isn't part of.
     pub(crate) fn build_up_stroke(&mut self, ctx: &egui::Context) {
-        let Some(stroke) = self.stroke.as_mut().filter(|s| s.settings.build_up && s.source.is_none()) else { return };
+        let vector = |s: &ActiveStroke| s.vector_points.is_some() || s.vector_erase.is_some();
+        let Some(stroke) = self.stroke.as_mut().filter(|s| s.settings.build_up && s.source.is_none() && !vector(s)) else { return };
         let now = stroke.last.time + stroke.last_at.elapsed().as_secs_f32();
         let dabs = stroke.engine.hold(now);
         ctx.request_repaint_after(std::time::Duration::from_secs_f32(painter_core::stroke::BUILD_UP_INTERVAL));

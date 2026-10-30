@@ -50,6 +50,40 @@ pub fn prop_percent_reset(ui: &mut Ui, label: &str, value: &mut f32, default: f3
     changed
 }
 
+/// A logarithmic bar from 0 or below, where a true log scale is undefined
+/// (it gave NaN), takes the same fine-near-the-start curve: its first stop is
+/// one step of the shown precision, and it ends exactly at the top.
+fn log_from_zero(lo: f32, hi: f32, decimals: usize) -> (f32, f32) {
+    let unit = 10f32.powi(-(decimals.min(6) as i32));
+    (unit, ((hi - lo) / unit).max(1.0))
+}
+
+/// Where `v` sits along a slider's bar of `lo..=hi`, 0..=1.
+fn bar_position(v: f32, lo: f32, hi: f32, decimals: usize, logarithmic: bool) -> f32 {
+    let t = if logarithmic && lo > 0.0 {
+        (v.max(lo) / lo).ln() / (hi / lo).ln()
+    } else if logarithmic {
+        let (unit, k) = log_from_zero(lo, hi, decimals);
+        (1.0 + (v - lo).max(0.0) / unit).ln() / (1.0 + k).ln()
+    } else {
+        (v - lo) / (hi - lo)
+    };
+    if t.is_finite() { t.clamp(0.0, 1.0) } else { 0.0 }
+}
+
+/// The value at `t` (0..=1) along a slider's bar of `lo..=hi`.
+fn bar_value(t: f32, lo: f32, hi: f32, decimals: usize, logarithmic: bool) -> f32 {
+    let v = if logarithmic && lo > 0.0 {
+        lo * (hi / lo).powf(t)
+    } else if logarithmic {
+        let (unit, k) = log_from_zero(lo, hi, decimals);
+        lo + unit * ((1.0 + k).powf(t) - 1.0)
+    } else {
+        lo + (hi - lo) * t
+    };
+    if v.is_finite() { v.clamp(lo, hi) } else { lo }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn prop_row(
     ui: &mut Ui,
@@ -63,20 +97,8 @@ fn prop_row(
 ) -> bool {
     let label = crate::i18n::tr_str(label);
     let (lo, hi) = (*range.start(), *range.end());
-    let to_t = |v: f32| {
-        if logarithmic {
-            ((v.max(lo) / lo).ln() / (hi / lo).ln()).clamp(0.0, 1.0)
-        } else {
-            ((v - lo) / (hi - lo)).clamp(0.0, 1.0)
-        }
-    };
-    let from_t = |t: f32| {
-        if logarithmic {
-            lo * (hi / lo).powf(t)
-        } else {
-            lo + (hi - lo) * t
-        }
-    };
+    let to_t = |v: f32| bar_position(v, lo, hi, decimals, logarithmic);
+    let from_t = |t: f32| bar_value(t, lo, hi, decimals, logarithmic);
 
     // One row: the name, a bar to drag, the value to type.
     let mut changed = false;
@@ -308,4 +330,30 @@ pub fn transparent_chip(ui: &mut Ui, on: bool, size: f32) -> Response {
     let ring = if on { crate::theme::accent() } else if response.hovered() { crate::theme::strong() } else { crate::theme::line() };
     ui.painter().rect_stroke(rect.shrink(1.0), 2.0, Stroke::new(if on { 2.5_f32 } else { 1.0 }, ring), StrokeKind::Inside);
     response.on_hover_text(tr("Transparent colour: brushes erase with their own shape (pick any colour to go back)"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{bar_position, bar_value};
+
+    #[test]
+    fn bars_map_both_ways_without_nan() {
+        // (lo, hi, decimals, logarithmic): a log bar from 0 (Starting, Ending, Fade), a true
+        // log bar, a linear one.
+        for (lo, hi, decimals, log) in [(0.0, 1000.0, 0, true), (5.0, 1000.0, 0, true), (0.5, 64.0, 1, true), (-100.0, 100.0, 0, false)] {
+            assert_eq!(bar_value(0.0, lo, hi, decimals, log), lo);
+            assert!((bar_value(1.0, lo, hi, decimals, log) - hi).abs() < 1e-3 * hi.abs().max(1.0));
+            let mut last = f32::NEG_INFINITY;
+            for i in 0..=100 {
+                let t = i as f32 / 100.0;
+                let v = bar_value(t, lo, hi, decimals, log);
+                assert!(v.is_finite() && v >= last, "{lo}..={hi} at {t}: {v}");
+                last = v;
+                assert!((bar_position(v, lo, hi, decimals, log) - t).abs() < 1e-3, "{lo}..={hi}: {v} back to {t}");
+            }
+        }
+        // From 0 the low end gets most of the bar, as a log bar would.
+        assert!(bar_value(0.5, 0.0, 1000.0, 0, true) < 40.0);
+        assert_eq!(bar_position(f32::NAN, 0.0, 1000.0, 0, true), 0.0);
+    }
 }
