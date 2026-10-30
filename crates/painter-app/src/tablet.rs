@@ -59,8 +59,14 @@ pub struct TabletState {
     /// A touch is down, and whether it is a stylus (it reports force; fingers don't).
     touching: bool,
     stylus: bool,
-    /// iPad: the Apple Pencil's latest (tilt, azimuth), read from UIKit; egui drops them.
-    pencil: Option<(f32, f32)>,
+    /// The touches down now (egui's ids), each with whether it is a stylus.
+    down: Vec<(u64, bool)>,
+    /// When the stylus came down, while it touches and until the frame after
+    /// it lifts (so the samples of the frame it lifts in keep its tilt).
+    stylus_since: Option<std::time::Instant>,
+    /// iPad: the Apple Pencil's latest (tilt, azimuth) and how many seconds
+    /// old it was at the start of the frame, read from UIKit; egui drops them.
+    pencil: Option<(f32, f32, f32)>,
     #[cfg(target_os = "ios")]
     pencil_watching: bool,
 }
@@ -95,6 +101,7 @@ impl TabletState {
             }
             self.pencil = ios_pencil::state();
         }
+        self.new_frame();
         if let Some(&sample) = self.frame_samples.last() {
             if sample.eraser != self.eraser {
                 self.eraser = sample.eraser;
@@ -104,8 +111,15 @@ impl TabletState {
         }
     }
 
+    /// A stylus that lifted during the last frame is done with.
+    fn new_frame(&mut self) {
+        if !self.down.iter().any(|t| t.1) {
+            self.stylus_since = None;
+        }
+    }
+
     pub fn observe(&mut self, event: &Event) {
-        if let Event::Touch { phase, force, .. } = event {
+        if let Event::Touch { id, phase, force, .. } = event {
             match phase {
                 TouchPhase::Start | TouchPhase::Move => {
                     self.touching = true;
@@ -113,13 +127,28 @@ impl TabletState {
                     if let Some(force) = force {
                         self.ink_pressure = Some(force.clamp(0.0, 1.0));
                     }
+                    let stylus = force.is_some();
+                    match self.down.iter_mut().find(|t| t.0 == id.0) {
+                        Some(t) => t.1 = stylus,
+                        None => self.down.push((id.0, stylus)),
+                    }
+                    if stylus && self.stylus_since.is_none() {
+                        self.stylus_since = Some(std::time::Instant::now());
+                    }
                 }
                 TouchPhase::End | TouchPhase::Cancel => {
                     self.ink_pressure = None;
                     self.touching = false;
+                    self.down.retain(|t| t.0 != id.0);
                 }
             }
         }
+    }
+
+    /// Nothing touches the screen any more (egui says so): forgets touches
+    /// whose end never came, so a lost one can't keep a stylus "down".
+    pub fn no_touches(&mut self) {
+        self.down.clear();
     }
 
     /// A finger (not a pen) is on the screen.
@@ -161,12 +190,22 @@ impl TabletState {
     /// Pen tilt for the current pointer event, 0 (upright) ..= 1 (flat): from the pen
     /// driver, or the Apple Pencil; 0 for a mouse.
     pub fn tilt(&self) -> f32 {
-        self.current().map(|s| s.tilt).or(self.pencil.filter(|_| self.touching).map(|p| p.0)).unwrap_or(0.0)
+        self.current().map(|s| s.tilt).or(self.pencil_now().map(|p| p.0)).unwrap_or(0.0)
     }
 
     /// Which way the pen leans, degrees clockwise from the top of the screen.
     pub fn azimuth(&self) -> f32 {
-        self.current().map(|s| s.azimuth).or(self.pencil.filter(|_| self.touching).map(|p| p.1)).unwrap_or(0.0)
+        self.current().map(|s| s.azimuth).or(self.pencil_now().map(|p| p.1)).unwrap_or(0.0)
+    }
+
+    /// The Apple Pencil's (tilt, azimuth) while it touches the screen, and in
+    /// the frame it lifts: its latest reading, unless that is older than the
+    /// touch (a Pencil touch the observer missed). Fingers and a resting palm,
+    /// coming or going, don't change it.
+    fn pencil_now(&self) -> Option<(f32, f32)> {
+        let (tilt, azimuth, age) = self.pencil?;
+        let since = self.stylus_since?.elapsed().as_secs_f32();
+        (age <= since + 0.1).then_some((tilt, azimuth))
     }
 
     /// This frame's pen packets while touching, as window points (egui
@@ -405,6 +444,44 @@ mod tests {
     }
 
     #[test]
+    fn pencil_tilt_follows_the_pencil_not_the_palm() {
+        use eframe::egui::{Event, Pos2, TouchDeviceId, TouchId};
+        let touch = |id: u64, phase: TouchPhase, force: Option<f32>| Event::Touch {
+            device_id: TouchDeviceId(0),
+            id: TouchId(id),
+            phase,
+            pos: Pos2::ZERO,
+            force,
+        };
+        let mut t = super::TabletState { pencil: Some((0.8, 30.0, 0.0)), ..Default::default() };
+        assert_eq!(t.tilt(), 0.0, "nothing touches");
+        // The palm lands first (no force), then the Pencil.
+        t.observe(&touch(1, TouchPhase::Start, None));
+        assert_eq!(t.tilt(), 0.0, "a palm has no tilt");
+        t.observe(&touch(2, TouchPhase::Start, Some(0.5)));
+        assert_eq!((t.tilt(), t.azimuth()), (0.8, 30.0));
+        // The palm lifts mid-stroke (its end the frame's last touch event): the Pencil keeps its tilt.
+        t.observe(&touch(2, TouchPhase::Move, Some(0.6)));
+        t.observe(&touch(1, TouchPhase::End, None));
+        assert_eq!(t.tilt(), 0.8);
+        // The Pencil lifts: the samples of that frame keep its tilt, the next frame's don't.
+        t.observe(&touch(2, TouchPhase::End, Some(0.0)));
+        assert_eq!(t.tilt(), 0.8);
+        t.new_frame();
+        assert_eq!(t.tilt(), 0.0);
+        // A reading older than the touch (the observer missed this one) isn't used.
+        t.pencil = Some((0.8, 30.0, 5.0));
+        t.observe(&touch(3, TouchPhase::Start, Some(0.5)));
+        assert_eq!(t.tilt(), 0.0);
+        // A touch whose end never came stops counting once nothing touches.
+        t.pencil = Some((0.5, 0.0, 0.0));
+        assert_eq!(t.tilt(), 0.5);
+        t.no_touches();
+        t.new_frame();
+        assert_eq!(t.tilt(), 0.0);
+    }
+
+    #[test]
     fn a_revoked_end_is_a_cancel() {
         assert_eq!(contact_phase(TouchPhase::End, || true), ContactPhase::Cancel);
         assert_eq!(contact_phase(TouchPhase::End, || false), ContactPhase::End);
@@ -491,18 +568,19 @@ mod ios_pencil {
         unsafe { painter_pencil_install() != 0 }
     }
 
-    /// (tilt 0..1, azimuth degrees clockwise from up) of the Pencil touching now.
-    pub(super) fn state() -> Option<(f32, f32)> {
+    /// The Pencil's latest (tilt 0..1, azimuth degrees clockwise from up,
+    /// seconds since it was read). UIKit reports every change of a touching
+    /// Pencil's angles, so the latest reading holds for as long as it touches
+    /// (see `TabletState::pencil_now`), however still it is held.
+    pub(super) fn state() -> Option<(f32, f32, f32)> {
         let (mut altitude, mut azimuth, mut age) = (0.0, 0.0, 0.0);
         // SAFETY: writes three doubles.
-        let has = unsafe { painter_pencil_state(&mut altitude, &mut azimuth, &mut age) } != 0;
-        // Only a Pencil touching now (the last sample is recent).
-        if !has || age > 0.25 {
+        if unsafe { painter_pencil_state(&mut altitude, &mut azimuth, &mut age) } == 0 {
             return None;
         }
         // Altitude: π/2 upright, 0 flat. UIKit's azimuth: radians clockwise from +x (y down).
         let tilt = painter_core::smoothing::tilt_from_altitude(altitude.to_degrees() as f32);
         let azimuth = (azimuth.to_degrees() + 90.0).rem_euclid(360.0) as f32;
-        Some((tilt, azimuth))
+        Some((tilt, azimuth, age.max(0.0) as f32))
     }
 }

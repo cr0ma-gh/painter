@@ -198,6 +198,9 @@ impl PainterApp {
         for event in events.iter().filter(|e| matches!(e, Event::Touch { .. })) {
             self.tablet.observe(event);
         }
+        if !ui.input(|i| i.any_touches()) {
+            self.tablet.no_touches();
+        }
         // Palm rejection: touches go through the arbiter, which says which
         // contact paints and which fingers navigate; egui's pointer (the first
         // touch, maybe the palm) and its multi-touch (every touch) are set aside.

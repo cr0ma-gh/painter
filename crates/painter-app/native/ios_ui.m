@@ -235,6 +235,11 @@ int painter_pencil_install(void) {
     observer.cancelsTouchesInView = NO;
     observer.delaysTouchesBegan = NO;
     observer.delaysTouchesEnded = NO;
+    // Every kind of touch at once. By default a recognizer that is following
+    // a finger ignores the Pencil until that finger lifts, so with the palm
+    // resting on the glass first (as it usually is) the Pencil's tilt never
+    // came through.
+    observer.requiresExclusiveTouchType = NO;
     observer.delegate = observer;
     [view addGestureRecognizer:observer];
     hover_target = [[PainterHoverObserver alloc] init];
